@@ -32,13 +32,14 @@ impl serde::Serialize for AnalysisResult {
     {
         use serde::ser::SerializeStruct;
 
-        let mut state = serializer.serialize_struct("AnalysisResult", 6)?;
+        let mut state = serializer.serialize_struct("AnalysisResult", 7)?;
         state.serialize_field("tables", &self.tables)?;
         state.serialize_field("relationships", &self.relationships)?;
         state.serialize_field("workflows", &self.workflows)?;
         state.serialize_field("data_profiles", &self.data_profiles)?;
         state.serialize_field("grouping_analyses", &self.grouping_analyses)?;
         state.serialize_field("reconciliation_results", &self.reconciliation_results)?;
+        state.serialize_field("multi_value_analyses", &self.multi_value_analyses)?;
         state.end()
     }
 }

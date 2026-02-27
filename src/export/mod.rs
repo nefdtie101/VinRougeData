@@ -10,7 +10,7 @@ pub use console::ConsoleExporter;
 pub use excel::ExcelExporter;
 pub use grouped_excel::GroupedDataExporter;
 
-use crate::analysis::{Workflow, DataProfile, GroupingAnalysis, ReconciliationResult};
+use crate::analysis::{Workflow, DataProfile, GroupingAnalysis, ReconciliationResult, MultiValueAnalysis};
 use crate::schema::{Relationship, Table};
 use anyhow::Result;
 
@@ -30,6 +30,7 @@ pub struct AnalysisResult {
     pub data_profiles: Vec<DataProfile>,
     pub grouping_analyses: Vec<GroupingAnalysis>,
     pub reconciliation_results: Vec<ReconciliationResult>,
+    pub multi_value_analyses: Vec<MultiValueAnalysis>,
     // Store raw data for grouped exports
     pub source_data: Vec<(String, Vec<Vec<String>>, Vec<crate::schema::Column>)>, // (name, data, columns)
 }

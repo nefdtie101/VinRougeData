@@ -37,6 +37,11 @@ impl ExcelExporter {
             self.write_reconciliation_sheet(&mut workbook, result)?;
         }
 
+        // Multi-Value Columns sheet
+        if !result.multi_value_analyses.is_empty() {
+            self.write_multi_value_sheet(&mut workbook, result)?;
+        }
+
         workbook.save(&self.path)?;
         Ok(())
     }
@@ -77,6 +82,14 @@ impl ExcelExporter {
 
         worksheet.write(9, 0, "Reconciliations")?;
         worksheet.write(9, 1, result.reconciliation_results.len() as f64)?;
+
+        let total_mv_cols: usize = result
+            .multi_value_analyses
+            .iter()
+            .map(|a| a.multi_value_columns.len())
+            .sum();
+        worksheet.write(10, 0, "Multi-Value Columns")?;
+        worksheet.write(10, 1, total_mv_cols as f64)?;
 
         // Set column widths
         worksheet.set_column_width(0, 20)?;
@@ -245,6 +258,81 @@ impl ExcelExporter {
                 }
             }
         }
+
+        Ok(())
+    }
+
+    fn write_multi_value_sheet(&self, workbook: &mut Workbook, result: &AnalysisResult) -> Result<()> {
+        use crate::analysis::DetectionMethod;
+
+        let worksheet = workbook.add_worksheet().set_name("Multi-Value Columns")?;
+
+        let header_format = Format::new()
+            .set_bold()
+            .set_background_color(Color::RGB(0x70AD47))
+            .set_font_color(Color::White);
+
+        // Headers
+        worksheet.write_with_format(0, 0, "Table", &header_format)?;
+        worksheet.write_with_format(0, 1, "Column", &header_format)?;
+        worksheet.write_with_format(0, 2, "Detection Method", &header_format)?;
+        worksheet.write_with_format(0, 3, "Delimiter", &header_format)?;
+        worksheet.write_with_format(0, 4, "Confidence %", &header_format)?;
+        worksheet.write_with_format(0, 5, "Multi-Value Cells", &header_format)?;
+        worksheet.write_with_format(0, 6, "Total Cells", &header_format)?;
+        worksheet.write_with_format(0, 7, "Ratio %", &header_format)?;
+        worksheet.write_with_format(0, 8, "Example (Raw)", &header_format)?;
+        worksheet.write_with_format(0, 9, "Example (Split)", &header_format)?;
+        worksheet.write_with_format(0, 10, "Unique Atomic Values (sample)", &header_format)?;
+
+        let mut row = 1u32;
+        for analysis in &result.multi_value_analyses {
+            for col_analysis in &analysis.multi_value_columns {
+                let method_str = match &col_analysis.detection_method {
+                    DetectionMethod::Delimited(d) => format!("Delimited({})", d),
+                    DetectionMethod::VocabularySegmented => "VocabularySegmented".to_string(),
+                    DetectionMethod::PatternRepetition => "PatternRepetition".to_string(),
+                    DetectionMethod::LengthOutlier => "LengthOutlier".to_string(),
+                };
+
+                worksheet.write(row, 0, &col_analysis.table_name)?;
+                worksheet.write(row, 1, &col_analysis.column_name)?;
+                worksheet.write(row, 2, method_str)?;
+                worksheet.write(row, 3, col_analysis.delimiter.as_deref().unwrap_or(""))?;
+                worksheet.write(row, 4, (col_analysis.confidence * 100.0).round())?;
+                worksheet.write(row, 5, col_analysis.multi_value_cell_count as f64)?;
+                worksheet.write(row, 6, col_analysis.total_cell_count as f64)?;
+                worksheet.write(row, 7, (col_analysis.multi_value_ratio * 100.0).round())?;
+
+                let raw_example = col_analysis.example_raw.first().map(|s| s.as_str()).unwrap_or("");
+                worksheet.write(row, 8, raw_example)?;
+
+                let split_example = col_analysis
+                    .example_split
+                    .first()
+                    .map(|parts| parts.join(" | "))
+                    .unwrap_or_default();
+                worksheet.write(row, 9, split_example)?;
+
+                let atoms = col_analysis.unique_atomic_values.join(", ");
+                worksheet.write(row, 10, atoms)?;
+
+                row += 1;
+            }
+        }
+
+        // Column widths
+        worksheet.set_column_width(0, 20)?;
+        worksheet.set_column_width(1, 25)?;
+        worksheet.set_column_width(2, 22)?;
+        worksheet.set_column_width(3, 12)?;
+        worksheet.set_column_width(4, 14)?;
+        worksheet.set_column_width(5, 18)?;
+        worksheet.set_column_width(6, 13)?;
+        worksheet.set_column_width(7, 10)?;
+        worksheet.set_column_width(8, 50)?;
+        worksheet.set_column_width(9, 50)?;
+        worksheet.set_column_width(10, 60)?;
 
         Ok(())
     }

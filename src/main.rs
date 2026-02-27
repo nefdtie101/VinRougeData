@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tracing::{info, Level};
 use tracing_subscriber;
 
-use vinrouge::analysis::{RelationshipDetector, WorkflowDetector, DataProfiler, GroupingAnalyzer, Reconciliator, ReconciliationConfig};
+use vinrouge::analysis::{RelationshipDetector, WorkflowDetector, DataProfiler, GroupingAnalyzer, Reconciliator, ReconciliationConfig, MultiValueDetector};
 use vinrouge::config::{AppConfig, SourceConfig};
 use vinrouge::export::{AnalysisResult, ConsoleExporter, Exporter, JsonExporter, MarkdownExporter, ExcelExporter, GroupedDataExporter};
 use vinrouge::sources::{CsvSource, DataSource, ExcelSource, FlatfileSource, MssqlSource};
@@ -353,6 +353,12 @@ async fn handle_analyze(
         info!("Completed {} reconciliations", reconciliation_results.len());
     }
 
+    // Multi-value detection
+    info!("Detecting multi-value columns...");
+    let mv_detector = MultiValueDetector::new(5000);
+    let all_multi_value_analyses = mv_detector.analyze_all_sources(&loaded_sources);
+    info!("Found {} multi-value analyses", all_multi_value_analyses.len());
+
     // Create analysis result
     let result = AnalysisResult {
         tables: all_tables,
@@ -361,6 +367,7 @@ async fn handle_analyze(
         data_profiles: all_data_profiles,
         grouping_analyses: all_grouping_analyses,
         reconciliation_results,
+        multi_value_analyses: all_multi_value_analyses,
         source_data: loaded_sources,
     };
 
@@ -408,8 +415,15 @@ async fn handle_analyze(
                             path.clone()
                         };
 
+                        let mv_cols: &[vinrouge::analysis::MultiValueColumnAnalysis] = result
+                            .multi_value_analyses
+                            .iter()
+                            .find(|a| &a.table_name == name)
+                            .map(|a| a.multi_value_columns.as_slice())
+                            .unwrap_or(&[]);
+
                         let exporter = GroupedDataExporter::new(file_path.clone());
-                        exporter.export_grouped_data(data, columns, grouping)?;
+                        exporter.export_grouped_data(data, columns, grouping, mv_cols)?;
                         info!("Exported grouped data to {}", file_path);
                     }
                 }
@@ -578,6 +592,7 @@ async fn handle_reconcile(
         data_profiles: Vec::new(),
         grouping_analyses: Vec::new(),
         reconciliation_results: vec![recon_result],
+        multi_value_analyses: Vec::new(),
         source_data: Vec::new(),
     };
 
@@ -625,8 +640,15 @@ async fn handle_reconcile(
                             path.clone()
                         };
 
+                        let mv_cols: &[vinrouge::analysis::MultiValueColumnAnalysis] = result
+                            .multi_value_analyses
+                            .iter()
+                            .find(|a| &a.table_name == name)
+                            .map(|a| a.multi_value_columns.as_slice())
+                            .unwrap_or(&[]);
+
                         let exporter = GroupedDataExporter::new(file_path.clone());
-                        exporter.export_grouped_data(data, columns, grouping)?;
+                        exporter.export_grouped_data(data, columns, grouping, mv_cols)?;
                         info!("Exported grouped data to {}", file_path);
                     }
                 }

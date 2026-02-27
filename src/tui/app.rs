@@ -1,4 +1,4 @@
-use crate::analysis::{RelationshipDetector, WorkflowDetector, DataProfiler, GroupingAnalyzer, Reconciliator, ReconciliationConfig};
+use crate::analysis::{RelationshipDetector, WorkflowDetector, DataProfiler, GroupingAnalyzer, Reconciliator, ReconciliationConfig, MultiValueDetector};
 use crate::config::SourceConfig;
 use crate::export::{AnalysisResult, ExportFormat, Exporter, JsonExporter, MarkdownExporter, ExcelExporter};
 use crate::sources::{CsvSource, DataSource, ExcelSource, MssqlSource};
@@ -524,6 +524,10 @@ impl App {
             }
         }
 
+        // Multi-value detection
+        let mv_detector = MultiValueDetector::new(5000);
+        let all_multi_value_analyses = mv_detector.analyze_all_sources(&loaded_sources);
+
         // Store results
         self.analysis_result = Some(AnalysisResult {
             tables: all_tables,
@@ -532,6 +536,7 @@ impl App {
             data_profiles: all_data_profiles,
             grouping_analyses: all_grouping_analyses,
             reconciliation_results,
+            multi_value_analyses: all_multi_value_analyses,
             source_data: loaded_sources,
         });
 
@@ -647,6 +652,7 @@ impl App {
                 data_profiles: Vec::new(),
                 grouping_analyses: Vec::new(),
                 reconciliation_results: vec![result.clone()],
+                multi_value_analyses: Vec::new(),
                 source_data: Vec::new(),
             });
         }
@@ -796,8 +802,15 @@ impl App {
                                             format!("{}.xlsx", filename)
                                         };
 
+                                        let mv_cols: &[crate::analysis::MultiValueColumnAnalysis] = result
+                                            .multi_value_analyses
+                                            .iter()
+                                            .find(|a| &a.table_name == name)
+                                            .map(|a| a.multi_value_columns.as_slice())
+                                            .unwrap_or(&[]);
+
                                         let exporter = GroupedDataExporter::new(file_path);
-                                        exporter.export_grouped_data(data, columns, grouping)?;
+                                        exporter.export_grouped_data(data, columns, grouping, mv_cols)?;
                                         exported_count += 1;
                                     }
                                 }

@@ -1,3 +1,4 @@
+use crate::analysis::DetectionMethod;
 use crate::tui::app::{App, AppState, Screen};
 use crate::tui::file_browser::FileBrowser;
 use ratatui::{
@@ -396,6 +397,41 @@ fn draw_results(f: &mut Frame, area: Rect, app: &App) {
                             "Reconciliation",
                             format!("Field mismatches (sample): {}", mismatch_summary),
                         );
+                    }
+                }
+            }
+
+            if result.multi_value_analyses.is_empty() {
+                push_entry("Multi-Value", "No multi-value columns detected".to_string());
+            } else {
+                for mv_analysis in &result.multi_value_analyses {
+                    for col in &mv_analysis.multi_value_columns {
+                        let method_str = match &col.detection_method {
+                            DetectionMethod::Delimited(d) => format!("Delimited({})", d),
+                            DetectionMethod::VocabularySegmented => "VocabSeg".to_string(),
+                            DetectionMethod::PatternRepetition => "PatternRep".to_string(),
+                            DetectionMethod::LengthOutlier => "LenOutlier".to_string(),
+                        };
+                        push_entry(
+                            "Multi-Value",
+                            format!(
+                                "{}.{} [{}] • {:.0}% conf • {}/{} cells",
+                                col.table_name,
+                                col.column_name,
+                                method_str,
+                                col.confidence * 100.0,
+                                col.multi_value_cell_count,
+                                col.total_cell_count
+                            ),
+                        );
+                        if let (Some(raw), Some(parts)) =
+                            (col.example_raw.first(), col.example_split.first())
+                        {
+                            push_entry(
+                                "  -> Split",
+                                format!("\"{}\" -> [{}]", raw, parts.join(" | ")),
+                            );
+                        }
                     }
                 }
             }

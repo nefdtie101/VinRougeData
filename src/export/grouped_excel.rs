@@ -1,8 +1,8 @@
-use crate::analysis::GroupingAnalysis;
+use crate::analysis::{DetectionMethod, GroupingAnalysis, MultiValueColumnAnalysis};
 use crate::schema::Column;
 use anyhow::Result;
 use rust_xlsxwriter::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 pub struct GroupedDataExporter {
@@ -14,12 +14,15 @@ impl GroupedDataExporter {
         Self { path }
     }
 
-    /// Export grouped data to separate Excel files in a directory structure
+    /// Export grouped data to separate Excel files in a directory structure.
+    /// `mv_columns` provides multi-value column metadata so that rows belonging
+    /// to multiple atomic values are fanned out into all relevant groups.
     pub fn export_grouped_data(
         &self,
         data: &[Vec<String>],
         columns: &[Column],
         grouping_analysis: &GroupingAnalysis,
+        mv_columns: &[MultiValueColumnAnalysis],
     ) -> Result<()> {
         // Check if there are any grouping dimensions to export
         if grouping_analysis.grouping_dimensions.is_empty() {
@@ -76,6 +79,7 @@ impl GroupedDataExporter {
                 columns,
                 dimension,
                 &grouping_analysis.table_name,
+                mv_columns,
             )?;
 
             println!("✓ ({} groups)", dimension.group_count);
@@ -147,6 +151,7 @@ impl GroupedDataExporter {
         columns: &[Column],
         dimension: &crate::analysis::GroupingDimension,
         _table_name: &str,
+        mv_columns: &[MultiValueColumnAnalysis],
     ) -> Result<()> {
         // Find the column index
         let col_idx = columns
@@ -158,18 +163,55 @@ impl GroupedDataExporter {
         }
         let col_idx = col_idx.unwrap();
 
-        // Build groups from actual data (case-insensitive)
+        // Check if this dimension column is a detected multi-value column
+        let mv_meta = mv_columns.iter().find(|mv| mv.column_name == dimension.column_name);
+
+        // Pre-build vocabulary for VocabularySegmented columns so we can re-run DP
+        let vocab: HashSet<String> = if let Some(mv) = mv_meta {
+            if matches!(mv.detection_method, DetectionMethod::VocabularySegmented) {
+                mv.unique_atomic_values.iter().cloned().collect()
+            } else {
+                HashSet::new()
+            }
+        } else {
+            HashSet::new()
+        };
+
+        // Build groups from actual data (case-insensitive).
+        // A row may land in MULTIPLE groups when its cell contains several atomic values.
         let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
         for (row_idx, row) in data.iter().enumerate() {
             if let Some(value) = row.get(col_idx) {
                 let cleaned = Self::clean_cell_value(value);
-                if !cleaned.is_empty() {
-                    // Use lowercase for grouping to handle case-insensitive matching
-                    let group_key = cleaned.to_lowercase();
-                    groups
-                        .entry(group_key)
-                        .or_insert_with(Vec::new)
-                        .push(row_idx);
+                if cleaned.is_empty() {
+                    continue;
+                }
+
+                // Determine atomic group keys for this cell
+                let keys: Vec<String> = match mv_meta.map(|mv| &mv.detection_method) {
+                    Some(DetectionMethod::Delimited(delim)) => {
+                        // Fan-out: one row → one entry per delimited value
+                        cleaned
+                            .split(delim.as_str())
+                            .map(|s| s.trim().to_lowercase())
+                            .filter(|s| !s.is_empty())
+                            .collect()
+                    }
+                    Some(DetectionMethod::VocabularySegmented) if !vocab.is_empty() => {
+                        // Re-run DP segmentation using the sampled vocabulary
+                        if let Some(segments) = Self::dp_segment_static(&cleaned, &vocab) {
+                            segments.into_iter().map(|s| s.to_lowercase()).collect()
+                        } else {
+                            vec![cleaned.to_lowercase()]
+                        }
+                    }
+                    // PatternRepetition / LengthOutlier / no multi-value info:
+                    // fall back to the full cell value (too uncertain to split)
+                    _ => vec![cleaned.to_lowercase()],
+                };
+
+                for key in keys {
+                    groups.entry(key).or_default().push(row_idx);
                 }
             }
         }
@@ -257,6 +299,56 @@ impl GroupedDataExporter {
         }
 
         sanitized
+    }
+
+    /// DP string segmentation against a vocabulary set.
+    /// Returns `Some(segments)` if the full string can be covered, `None` otherwise.
+    fn dp_segment_static<'a>(s: &'a str, vocab: &HashSet<String>) -> Option<Vec<&'a str>> {
+        let chars: Vec<char> = s.chars().collect();
+        let n = chars.len();
+        if n == 0 {
+            return None;
+        }
+
+        // Build byte-offset lookup per char position
+        let mut char_starts = vec![0usize; n + 1];
+        let mut byte_pos = 0;
+        for (i, c) in chars.iter().enumerate() {
+            char_starts[i] = byte_pos;
+            byte_pos += c.len_utf8();
+        }
+        char_starts[n] = byte_pos;
+
+        let mut dp = vec![false; n + 1];
+        let mut prev = vec![usize::MAX; n + 1];
+        dp[0] = true;
+
+        for i in 1..=n {
+            for j in 0..i {
+                if dp[j] {
+                    let slice = &s[char_starts[j]..char_starts[i]];
+                    if vocab.contains(slice) {
+                        dp[i] = true;
+                        prev[i] = j;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if !dp[n] {
+            return None;
+        }
+
+        let mut segments: Vec<&str> = Vec::new();
+        let mut pos = n;
+        while pos > 0 {
+            let start = prev[pos];
+            segments.push(&s[char_starts[start]..char_starts[pos]]);
+            pos = start;
+        }
+        segments.reverse();
+        Some(segments)
     }
 
     /// Clean and normalize cell values for better readability
