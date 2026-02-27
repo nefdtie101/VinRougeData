@@ -1,0 +1,39 @@
+mod json;
+mod markdown;
+mod console;
+mod excel;
+mod grouped_excel;
+
+pub use json::JsonExporter;
+pub use markdown::MarkdownExporter;
+pub use console::ConsoleExporter;
+pub use excel::ExcelExporter;
+pub use grouped_excel::GroupedDataExporter;
+
+use crate::analysis::{Workflow, DataProfile, GroupingAnalysis, ReconciliationResult};
+use crate::schema::{Relationship, Table};
+use anyhow::Result;
+
+#[derive(Debug, Clone)]
+pub enum ExportFormat {
+    Json,
+    Markdown,
+    Console,
+    Excel,
+    GroupedExcel,
+}
+
+pub struct AnalysisResult {
+    pub tables: Vec<Table>,
+    pub relationships: Vec<Relationship>,
+    pub workflows: Vec<Workflow>,
+    pub data_profiles: Vec<DataProfile>,
+    pub grouping_analyses: Vec<GroupingAnalysis>,
+    pub reconciliation_results: Vec<ReconciliationResult>,
+    // Store raw data for grouped exports
+    pub source_data: Vec<(String, Vec<Vec<String>>, Vec<crate::schema::Column>)>, // (name, data, columns)
+}
+
+pub trait Exporter {
+    fn export(&self, result: &AnalysisResult) -> Result<String>;
+}

@@ -1,0 +1,46 @@
+{
+  "sources": [
+    {
+      "type": "mssql",
+      "connection_string": "Server=localhost;Database=mydb;User=sa;Password=YourPassword123!;TrustServerCertificate=true",
+      "name": "Production Database"
+    },
+    {
+      "type": "csv",
+      "path": "data/customers.csv",
+      "delimiter": ",",
+      "has_header": true
+    },
+    {
+      "type": "csv",
+      "path": "data/orders.csv",
+      "delimiter": ",",
+      "has_header": true
+    },
+    {
+      "type": "excel",
+      "path": "data/sales_report.xlsx",
+      "sheet": null,
+      "has_header": true
+    },
+    {
+      "type": "flatfile",
+      "path": "data/legacy_data.txt",
+      "delimiter": "|",
+      "column_widths": null,
+      "column_names": null,
+      "has_header": false
+    }
+  ],
+  "export": {
+    "format": "markdown",
+    "output_path": "report.md",
+    "pretty": true,
+    "verbose": false
+  },
+  "analysis": {
+    "detect_relationships": true,
+    "detect_workflows": true,
+    "min_confidence": 70
+  }
+}
