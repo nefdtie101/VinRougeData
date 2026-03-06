@@ -1,6 +1,9 @@
 use anyhow::Result;
 use vinrouge::{
-    analysis::{DataProfiler, GroupingAnalyzer, MultiValueAnalyzer, ReconciliationAnalyzer, RelationshipDetector, WorkflowDetector},
+    analysis::{
+        DataProfiler, GroupingAnalyzer, MultiValueDetector, Reconciliator, ReconciliationConfig,
+        RelationshipDetector, WorkflowDetector,
+    },
     export::AnalysisResult,
     sources::{CsvSource, DataSource, ExcelSource},
 };
@@ -32,8 +35,8 @@ pub async fn run_analysis(files: Vec<UploadedFile>) -> Result<AnalysisResult> {
     let mut all_tables = Vec::new();
     let mut all_profiles = Vec::new();
     let mut all_groupings = Vec::new();
-    let mut all_multi_value = Vec::new();
-    let mut source_data = Vec::new();
+    let mut source_data: Vec<(String, Vec<Vec<String>>, Vec<vinrouge::schema::Column>)> =
+        Vec::new();
 
     for file in files {
         match file.file_type {
@@ -44,20 +47,11 @@ pub async fn run_analysis(files: Vec<UploadedFile>) -> Result<AnalysisResult> {
 
                 if let Some(table) = tables.first() {
                     let profiler = DataProfiler::new(10_000);
-                    let profile = profiler.profile_data(&data, &table.columns);
-                    all_profiles.push(profile);
-
+                    all_profiles.push(profiler.profile_data(&data, &table.columns));
                     let analyzer = GroupingAnalyzer::new(1_000);
-                    let grouping = analyzer.analyze_groupings(&data, &table.columns);
-                    all_groupings.push(grouping);
-
-                    let mv_analyzer = MultiValueAnalyzer::new();
-                    let mv = mv_analyzer.analyze(&data, &table.columns);
-                    all_multi_value.push(mv);
-
+                    all_groupings.push(analyzer.analyze_groupings(&data, &table.columns));
                     source_data.push((file.name, data, table.columns.clone()));
                 }
-
                 all_tables.extend(tables);
             }
             FileType::Csv => {
@@ -67,36 +61,39 @@ pub async fn run_analysis(files: Vec<UploadedFile>) -> Result<AnalysisResult> {
 
                 if let Some(table) = tables.first() {
                     let profiler = DataProfiler::new(10_000);
-                    let profile = profiler.profile_data(&data, &table.columns);
-                    all_profiles.push(profile);
-
+                    all_profiles.push(profiler.profile_data(&data, &table.columns));
                     let analyzer = GroupingAnalyzer::new(1_000);
-                    let grouping = analyzer.analyze_groupings(&data, &table.columns);
-                    all_groupings.push(grouping);
-
-                    let mv_analyzer = MultiValueAnalyzer::new();
-                    let mv = mv_analyzer.analyze(&data, &table.columns);
-                    all_multi_value.push(mv);
-
+                    all_groupings.push(analyzer.analyze_groupings(&data, &table.columns));
                     source_data.push((file.name, data, table.columns.clone()));
                 }
-
                 all_tables.extend(tables);
             }
         }
     }
 
+    // Multi-value detection over all sources at once
+    let mv_detector = MultiValueDetector::new(1_000);
+    let multi_value_analyses = mv_detector.analyze_all_sources(&source_data);
+
+    // Relationship + workflow detection
     let mut rel_detector = RelationshipDetector::new(all_tables.clone());
     let relationships = rel_detector.detect_relationships();
-
     let mut wf_detector = WorkflowDetector::new(all_tables.clone(), relationships.clone());
     let workflows = wf_detector.detect_workflows();
 
+    // Reconciliation between first two sources (if available)
     let reconciliation_results = if source_data.len() >= 2 {
-        let analyzer = ReconciliationAnalyzer::new(1_000);
+        let config = ReconciliationConfig {
+            key_columns: vec![],          // auto-detect
+            compare_columns: None,        // compare all
+            case_sensitive: false,
+            trim_whitespace: true,
+            max_mismatches: 1_000,
+        };
+        let reconciliator = Reconciliator::new(config);
         let (name_a, data_a, cols_a) = &source_data[0];
         let (name_b, data_b, cols_b) = &source_data[1];
-        analyzer.analyze(name_a, data_a, cols_a, name_b, data_b, cols_b)
+        vec![reconciliator.reconcile(name_a, data_a, cols_a, name_b, data_b, cols_b)]
     } else {
         vec![]
     };
@@ -108,7 +105,7 @@ pub async fn run_analysis(files: Vec<UploadedFile>) -> Result<AnalysisResult> {
         data_profiles: all_profiles,
         grouping_analyses: all_groupings,
         reconciliation_results,
-        multi_value_analyses: all_multi_value,
+        multi_value_analyses,
         source_data,
     })
 }

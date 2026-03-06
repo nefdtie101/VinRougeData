@@ -36,7 +36,7 @@ pub fn ExportBar(result: Rc<AnalysisResult>) -> impl IntoView {
     let result_xlsx = result.clone();
 
     let export_json = move |_| {
-        let exporter = JsonExporter;
+        let exporter = JsonExporter::new(true);
         if let Ok(json) = exporter.export(&result_json) {
             trigger_download("vinrouge-analysis.json", json.as_bytes(), "application/json");
         }
