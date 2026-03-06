@@ -1,5 +1,5 @@
-mod file_upload;
 mod analysis_bridge;
+mod file_upload;
 mod ui;
 
 use leptos::prelude::*;

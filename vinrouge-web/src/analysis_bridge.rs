@@ -1,7 +1,7 @@
 use anyhow::Result;
 use vinrouge::{
     analysis::{
-        DataProfiler, GroupingAnalyzer, MultiValueDetector, Reconciliator, ReconciliationConfig,
+        DataProfiler, GroupingAnalyzer, MultiValueDetector, ReconciliationConfig, Reconciliator,
         RelationshipDetector, WorkflowDetector,
     },
     export::AnalysisResult,
@@ -27,7 +27,11 @@ impl UploadedFile {
         } else {
             FileType::Csv
         };
-        Self { name, bytes, file_type }
+        Self {
+            name,
+            bytes,
+            file_type,
+        }
     }
 }
 
@@ -84,8 +88,8 @@ pub async fn run_analysis(files: Vec<UploadedFile>) -> Result<AnalysisResult> {
     // Reconciliation between first two sources (if available)
     let reconciliation_results = if source_data.len() >= 2 {
         let config = ReconciliationConfig {
-            key_columns: vec![],          // auto-detect
-            compare_columns: None,        // compare all
+            key_columns: vec![],   // auto-detect
+            compare_columns: None, // compare all
             case_sensitive: false,
             trim_whitespace: true,
             max_mismatches: 1_000,

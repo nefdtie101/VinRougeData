@@ -14,7 +14,10 @@ pub struct CsvSource {
 enum CsvSourceInner {
     #[cfg(not(target_arch = "wasm32"))]
     Path(String),
-    Content { data: Vec<u8>, name: String },
+    Content {
+        data: Vec<u8>,
+        name: String,
+    },
 }
 
 impl CsvSource {
@@ -58,9 +61,7 @@ impl CsvSource {
     fn make_reader(&self) -> Result<csv::Reader<Cursor<Vec<u8>>>> {
         let bytes = match &self.inner {
             #[cfg(not(target_arch = "wasm32"))]
-            CsvSourceInner::Path(path) => {
-                std::fs::read(path).context("Failed to read CSV file")?
-            }
+            CsvSourceInner::Path(path) => std::fs::read(path).context("Failed to read CSV file")?,
             CsvSourceInner::Content { data, .. } => data.clone(),
         };
         Ok(ReaderBuilder::new()
@@ -156,9 +157,10 @@ impl CsvSource {
             column.null_count = Some(null_count);
 
             if null_count == 0 && unique_values.len() == total_count {
-                column
-                    .sample_values
-                    .insert(0, "NOTE: Potential primary key (all values unique and non-null)".to_string());
+                column.sample_values.insert(
+                    0,
+                    "NOTE: Potential primary key (all values unique and non-null)".to_string(),
+                );
             }
         }
     }

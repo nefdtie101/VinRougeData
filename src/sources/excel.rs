@@ -17,7 +17,10 @@ pub struct ExcelSource {
 enum ExcelSourceInner {
     #[cfg(not(target_arch = "wasm32"))]
     Path(String),
-    Bytes { data: Vec<u8>, name: String },
+    Bytes {
+        data: Vec<u8>,
+        name: String,
+    },
 }
 
 impl ExcelSource {
@@ -153,7 +156,11 @@ impl ExcelSource {
         let display = self.display_name().to_string();
 
         if rows.is_empty() {
-            return Ok(Table::new(sheet_name.to_string(), "excel".to_string(), display));
+            return Ok(Table::new(
+                sheet_name.to_string(),
+                "excel".to_string(),
+                display,
+            ));
         }
 
         let headers: Vec<String> = if self.has_header && !rows.is_empty() {

@@ -14,27 +14,24 @@ pub async fn read_file_as_bytes(file: &File) -> Result<Vec<u8>, JsValue> {
 
         // once_into_js takes a true FnOnce — the cloned values can be moved freely.
         let on_load: JsValue =
-            wasm_bindgen::closure::Closure::once_into_js(move || {
-                match reader_snap.result() {
-                    Ok(val) => match val.dyn_into::<ArrayBuffer>() {
-                        Ok(buf) => {
-                            let _ = resolve.call1(&JsValue::NULL, &Uint8Array::new(&buf));
-                        }
-                        Err(_) => {
-                            let _ = reject
-                                .call1(&JsValue::NULL, &JsValue::from_str("Not an ArrayBuffer"));
-                        }
-                    },
-                    Err(e) => {
-                        let _ = reject.call1(&JsValue::NULL, &e);
+            wasm_bindgen::closure::Closure::once_into_js(move || match reader_snap.result() {
+                Ok(val) => match val.dyn_into::<ArrayBuffer>() {
+                    Ok(buf) => {
+                        let _ = resolve.call1(&JsValue::NULL, &Uint8Array::new(&buf));
                     }
+                    Err(_) => {
+                        let _ =
+                            reject.call1(&JsValue::NULL, &JsValue::from_str("Not an ArrayBuffer"));
+                    }
+                },
+                Err(e) => {
+                    let _ = reject.call1(&JsValue::NULL, &e);
                 }
             });
 
-        let on_error: JsValue =
-            wasm_bindgen::closure::Closure::once_into_js(move |e: JsValue| {
-                let _ = reject_snap.call1(&JsValue::NULL, &e);
-            });
+        let on_error: JsValue = wasm_bindgen::closure::Closure::once_into_js(move |e: JsValue| {
+            let _ = reject_snap.call1(&JsValue::NULL, &e);
+        });
 
         reader.set_onload(Some(on_load.unchecked_ref::<Function>()));
         reader.set_onerror(Some(on_error.unchecked_ref::<Function>()));

@@ -10,17 +10,12 @@ fn trigger_download(filename: &str, bytes: &[u8], mime: &str) {
 
     let mut opts = web_sys::BlobPropertyBag::new();
     opts.type_(mime);
-    let blob =
-        web_sys::Blob::new_with_buffer_source_sequence_and_options(&array, &opts).unwrap();
+    let blob = web_sys::Blob::new_with_buffer_source_sequence_and_options(&array, &opts).unwrap();
     let url = web_sys::Url::create_object_url_with_blob(&blob).unwrap();
 
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
-    let a: web_sys::HtmlAnchorElement = document
-        .create_element("a")
-        .unwrap()
-        .dyn_into()
-        .unwrap();
+    let a: web_sys::HtmlAnchorElement = document.create_element("a").unwrap().dyn_into().unwrap();
     a.set_href(&url);
     a.set_download(filename);
     document.body().unwrap().append_child(&a).unwrap();
@@ -38,7 +33,11 @@ pub fn ExportBar(result: Arc<AnalysisResult>) -> impl IntoView {
     let export_json = move |_| {
         let exporter = JsonExporter::new(true);
         if let Ok(json) = exporter.export(&result_json) {
-            trigger_download("vinrouge-analysis.json", json.as_bytes(), "application/json");
+            trigger_download(
+                "vinrouge-analysis.json",
+                json.as_bytes(),
+                "application/json",
+            );
         }
     };
 
