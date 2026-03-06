@@ -23,11 +23,23 @@ impl Exporter for ConsoleExporter {
 
         // Summary
         output.push_str(&format!("Tables Found:       {}\n", result.tables.len()));
-        output.push_str(&format!("Relationships:      {}\n", result.relationships.len()));
+        output.push_str(&format!(
+            "Relationships:      {}\n",
+            result.relationships.len()
+        ));
         output.push_str(&format!("Workflows Detected: {}\n", result.workflows.len()));
-        output.push_str(&format!("Data Profiles:      {}\n", result.data_profiles.len()));
-        output.push_str(&format!("Grouping Analyses:  {}\n", result.grouping_analyses.len()));
-        output.push_str(&format!("Reconciliations:    {}\n\n", result.reconciliation_results.len()));
+        output.push_str(&format!(
+            "Data Profiles:      {}\n",
+            result.data_profiles.len()
+        ));
+        output.push_str(&format!(
+            "Grouping Analyses:  {}\n",
+            result.grouping_analyses.len()
+        ));
+        output.push_str(&format!(
+            "Reconciliations:    {}\n\n",
+            result.reconciliation_results.len()
+        ));
 
         // Tables
         output.push_str("───────────────────────────────────────────────────────────\n");
@@ -36,7 +48,10 @@ impl Exporter for ConsoleExporter {
 
         for table in &result.tables {
             output.push_str(&format!("📊 {}\n", table.full_name));
-            output.push_str(&format!("   Source: {} ({})\n", table.source_type, table.source_location));
+            output.push_str(&format!(
+                "   Source: {} ({})\n",
+                table.source_type, table.source_location
+            ));
 
             if let Some(row_count) = table.row_count {
                 output.push_str(&format!("   Rows: {}\n", row_count));
@@ -153,17 +168,20 @@ impl Exporter for ConsoleExporter {
                 output.push_str("📈 Column Patterns:\n");
                 for col_profile in &profile.column_profiles {
                     if !col_profile.data_patterns.is_empty() {
-                        output.push_str(&format!("   • {} - {:?}\n",
-                            col_profile.column_name,
-                            col_profile.data_patterns));
+                        output.push_str(&format!(
+                            "   • {} - {:?}\n",
+                            col_profile.column_name, col_profile.data_patterns
+                        ));
                     }
                 }
 
                 if !profile.correlations.is_empty() {
                     output.push_str("\n🔗 Column Correlations:\n");
                     for corr in &profile.correlations {
-                        output.push_str(&format!("   • {} ↔ {} : {:?}\n",
-                            corr.column_a, corr.column_b, corr.correlation_type));
+                        output.push_str(&format!(
+                            "   • {} ↔ {} : {:?}\n",
+                            corr.column_a, corr.column_b, corr.correlation_type
+                        ));
                     }
                 }
 
@@ -181,8 +199,10 @@ impl Exporter for ConsoleExporter {
         } else {
             for analysis in &result.grouping_analyses {
                 if !analysis.grouping_dimensions.is_empty() {
-                    output.push_str(&format!("📊 Found {} grouping dimensions:\n\n",
-                        analysis.grouping_dimensions.len()));
+                    output.push_str(&format!(
+                        "📊 Found {} grouping dimensions:\n\n",
+                        analysis.grouping_dimensions.len()
+                    ));
 
                     for dim in &analysis.grouping_dimensions {
                         let icon = match dim.dimension_type {
@@ -194,16 +214,22 @@ impl Exporter for ConsoleExporter {
                             crate::analysis::DimensionType::Numeric => "🔢",
                         };
 
-                        output.push_str(&format!("{} {} ({:?})\n",
-                            icon, dim.column_name, dim.dimension_type));
-                        output.push_str(&format!("   Groups: {}, Avg records/group: {:.1}\n",
-                            dim.group_count, dim.records_per_group.avg));
+                        output.push_str(&format!(
+                            "{} {} ({:?})\n",
+                            icon, dim.column_name, dim.dimension_type
+                        ));
+                        output.push_str(&format!(
+                            "   Groups: {}, Avg records/group: {:.1}\n",
+                            dim.group_count, dim.records_per_group.avg
+                        ));
 
                         if self.verbose {
                             output.push_str("   Examples:\n");
                             for example in &dim.example_groups {
-                                output.push_str(&format!("      • {}: {} records\n",
-                                    example.group_value, example.record_count));
+                                output.push_str(&format!(
+                                    "      • {}: {} records\n",
+                                    example.group_value, example.record_count
+                                ));
                             }
                         }
 
@@ -222,9 +248,10 @@ impl Exporter for ConsoleExporter {
                     output.push_str("🔗 Hierarchical Relationships:\n");
                     for hierarchy in &analysis.hierarchies {
                         let levels_str = hierarchy.levels.join(" → ");
-                        output.push_str(&format!("   {} ({:?})\n",
-                            levels_str,
-                            hierarchy.hierarchy_type));
+                        output.push_str(&format!(
+                            "   {} ({:?})\n",
+                            levels_str, hierarchy.hierarchy_type
+                        ));
                     }
                     output.push_str("\n");
                 }
@@ -248,28 +275,47 @@ impl Exporter for ConsoleExporter {
             output.push_str("No reconciliations performed.\n\n");
         } else {
             for recon in &result.reconciliation_results {
-                output.push_str(&format!("🔄 {} vs {}\n", recon.source1_name, recon.source2_name));
-                output.push_str(&format!("   Key Columns: {}\n", recon.key_columns.join(", ")));
+                output.push_str(&format!(
+                    "🔄 {} vs {}\n",
+                    recon.source1_name, recon.source2_name
+                ));
+                output.push_str(&format!(
+                    "   Key Columns: {}\n",
+                    recon.key_columns.join(", ")
+                ));
                 output.push_str(&format!("   Match Rate: {:.1}%\n", recon.match_percentage));
                 output.push_str(&format!("   Matches: {}\n", recon.matches));
-                output.push_str(&format!("   Only in {}: {}\n", recon.source1_name, recon.only_in_source1));
-                output.push_str(&format!("   Only in {}: {}\n", recon.source2_name, recon.only_in_source2));
+                output.push_str(&format!(
+                    "   Only in {}: {}\n",
+                    recon.source1_name, recon.only_in_source1
+                ));
+                output.push_str(&format!(
+                    "   Only in {}: {}\n",
+                    recon.source2_name, recon.only_in_source2
+                ));
 
                 if recon.duplicates_source1 > 0 || recon.duplicates_source2 > 0 {
-                    output.push_str(&format!("   Duplicates: {} in source1, {} in source2\n",
-                        recon.duplicates_source1, recon.duplicates_source2));
+                    output.push_str(&format!(
+                        "   Duplicates: {} in source1, {} in source2\n",
+                        recon.duplicates_source1, recon.duplicates_source2
+                    ));
                 }
 
                 if !recon.field_mismatches.is_empty() {
-                    output.push_str(&format!("   Field Mismatches: {} found\n", recon.field_mismatches.len()));
+                    output.push_str(&format!(
+                        "   Field Mismatches: {} found\n",
+                        recon.field_mismatches.len()
+                    ));
 
                     if self.verbose {
                         for mismatch in recon.field_mismatches.iter().take(10) {
-                            output.push_str(&format!("      • {} [{}]: '{}' vs '{}'\n",
+                            output.push_str(&format!(
+                                "      • {} [{}]: '{}' vs '{}'\n",
                                 mismatch.key_value,
                                 mismatch.column_name,
                                 mismatch.source1_value,
-                                mismatch.source2_value));
+                                mismatch.source2_value
+                            ));
                         }
                     }
                 }

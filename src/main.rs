@@ -4,9 +4,15 @@ use std::path::PathBuf;
 use tracing::{info, Level};
 use tracing_subscriber;
 
-use vinrouge::analysis::{RelationshipDetector, WorkflowDetector, DataProfiler, GroupingAnalyzer, Reconciliator, ReconciliationConfig, MultiValueDetector};
+use vinrouge::analysis::{
+    DataProfiler, GroupingAnalyzer, MultiValueDetector, ReconciliationConfig, Reconciliator,
+    RelationshipDetector, WorkflowDetector,
+};
 use vinrouge::config::{AppConfig, SourceConfig};
-use vinrouge::export::{AnalysisResult, ConsoleExporter, Exporter, JsonExporter, MarkdownExporter, ExcelExporter, GroupedDataExporter};
+use vinrouge::export::{
+    AnalysisResult, ConsoleExporter, ExcelExporter, Exporter, GroupedDataExporter, JsonExporter,
+    MarkdownExporter,
+};
 use vinrouge::sources::{CsvSource, DataSource, ExcelSource, FlatfileSource, MssqlSource};
 
 #[derive(Parser)]
@@ -132,7 +138,17 @@ async fn main() -> Result<()> {
             csv,
             excel,
         }) => {
-            handle_analyze(config, format, output, pretty, mssql, csv, excel, cli.verbose).await?;
+            handle_analyze(
+                config,
+                format,
+                output,
+                pretty,
+                mssql,
+                csv,
+                excel,
+                cli.verbose,
+            )
+            .await?;
         }
         Some(Commands::Reconcile {
             csv1,
@@ -144,7 +160,18 @@ async fn main() -> Result<()> {
             output,
             pretty,
         }) => {
-            handle_reconcile(csv1, csv2, excel1, excel2, key_columns, format, output, pretty, cli.verbose).await?;
+            handle_reconcile(
+                csv1,
+                csv2,
+                excel1,
+                excel2,
+                key_columns,
+                format,
+                output,
+                pretty,
+                cli.verbose,
+            )
+            .await?;
         }
         Some(Commands::GenerateConfig { output }) => {
             handle_generate_config(output)?;
@@ -210,11 +237,14 @@ async fn handle_analyze(
     let mut all_tables = Vec::new();
     let mut all_data_profiles = Vec::new();
     let mut all_grouping_analyses = Vec::new();
-    let mut loaded_sources: Vec<(String, Vec<Vec<String>>, Vec<vinrouge::schema::Column>)> = Vec::new();
+    let mut loaded_sources: Vec<(String, Vec<Vec<String>>, Vec<vinrouge::schema::Column>)> =
+        Vec::new();
 
     for source_config in sources {
         let tables_and_data = match source_config {
-            SourceConfig::Mssql { connection_string, .. } => {
+            SourceConfig::Mssql {
+                connection_string, ..
+            } => {
                 info!("Connecting to MSSQL...");
                 let mut source = MssqlSource::new(connection_string);
                 source.extract_schema().await?
@@ -303,7 +333,8 @@ async fn handle_analyze(
                 has_header,
             } => {
                 info!("Reading flat file: {}", path);
-                let mut source = if let (Some(widths), Some(names)) = (column_widths, column_names) {
+                let mut source = if let (Some(widths), Some(names)) = (column_widths, column_names)
+                {
                     FlatfileSource::new_fixed_width(path, widths, names)
                 } else {
                     FlatfileSource::new_delimited(
@@ -357,7 +388,10 @@ async fn handle_analyze(
     info!("Detecting multi-value columns...");
     let mv_detector = MultiValueDetector::new(5000);
     let all_multi_value_analyses = mv_detector.analyze_all_sources(&loaded_sources);
-    info!("Found {} multi-value analyses", all_multi_value_analyses.len());
+    info!(
+        "Found {} multi-value analyses",
+        all_multi_value_analyses.len()
+    );
 
     // Create analysis result
     let result = AnalysisResult {
@@ -410,7 +444,11 @@ async fn handle_analyze(
                     if !grouping.grouping_dimensions.is_empty() {
                         let file_path = if result.source_data.len() > 1 {
                             let base = path.trim_end_matches(".xlsx");
-                            format!("{}_{}.xlsx", base, name.replace(".csv", "").replace(".xlsx", ""))
+                            format!(
+                                "{}_{}.xlsx",
+                                base,
+                                name.replace(".csv", "").replace(".xlsx", "")
+                            )
                         } else {
                             path.clone()
                         };
@@ -430,7 +468,10 @@ async fn handle_analyze(
             }
             return Ok(());
         }
-        _ => anyhow::bail!("Unknown format: {}. Use json, markdown, excel, grouped-excel, or console", format),
+        _ => anyhow::bail!(
+            "Unknown format: {}. Use json, markdown, excel, grouped-excel, or console",
+            format
+        ),
     };
 
     // Write output
@@ -461,7 +502,11 @@ async fn handle_reconcile(
 
     // Determine sources
     let (source1_config, source1_name) = if let Some(path) = csv1 {
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         (
             SourceConfig::Csv {
                 path: path.to_string_lossy().to_string(),
@@ -471,7 +516,11 @@ async fn handle_reconcile(
             name,
         )
     } else if let Some(path) = excel1 {
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         (
             SourceConfig::Excel {
                 path: path.to_string_lossy().to_string(),
@@ -485,7 +534,11 @@ async fn handle_reconcile(
     };
 
     let (source2_config, source2_name) = if let Some(path) = csv2 {
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         (
             SourceConfig::Csv {
                 path: path.to_string_lossy().to_string(),
@@ -495,7 +548,11 @@ async fn handle_reconcile(
             name,
         )
     } else if let Some(path) = excel2 {
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         (
             SourceConfig::Excel {
                 path: path.to_string_lossy().to_string(),
@@ -511,7 +568,11 @@ async fn handle_reconcile(
     // Load data from both sources
     info!("Loading source 1: {}", source1_name);
     let (data1, columns1) = match source1_config {
-        SourceConfig::Csv { path, delimiter, has_header } => {
+        SourceConfig::Csv {
+            path,
+            delimiter,
+            has_header,
+        } => {
             let mut source = CsvSource::new(path);
             if let Some(delim) = delimiter {
                 source = source.with_delimiter(delim);
@@ -521,10 +582,17 @@ async fn handle_reconcile(
             }
             let tables = source.extract_schema().await?;
             let data = source.read_data().await?;
-            let columns = tables.first().map(|t| t.columns.clone()).unwrap_or_default();
+            let columns = tables
+                .first()
+                .map(|t| t.columns.clone())
+                .unwrap_or_default();
             (data, columns)
         }
-        SourceConfig::Excel { path, sheet, has_header } => {
+        SourceConfig::Excel {
+            path,
+            sheet,
+            has_header,
+        } => {
             let mut source = ExcelSource::new(path);
             if let Some(sheet_name) = sheet {
                 source = source.with_sheet(sheet_name);
@@ -534,7 +602,10 @@ async fn handle_reconcile(
             }
             let tables = source.extract_schema().await?;
             let data = source.read_data().await?;
-            let columns = tables.first().map(|t| t.columns.clone()).unwrap_or_default();
+            let columns = tables
+                .first()
+                .map(|t| t.columns.clone())
+                .unwrap_or_default();
             (data, columns)
         }
         _ => anyhow::bail!("Unsupported source type"),
@@ -542,7 +613,11 @@ async fn handle_reconcile(
 
     info!("Loading source 2: {}", source2_name);
     let (data2, columns2) = match source2_config {
-        SourceConfig::Csv { path, delimiter, has_header } => {
+        SourceConfig::Csv {
+            path,
+            delimiter,
+            has_header,
+        } => {
             let mut source = CsvSource::new(path);
             if let Some(delim) = delimiter {
                 source = source.with_delimiter(delim);
@@ -552,10 +627,17 @@ async fn handle_reconcile(
             }
             let tables = source.extract_schema().await?;
             let data = source.read_data().await?;
-            let columns = tables.first().map(|t| t.columns.clone()).unwrap_or_default();
+            let columns = tables
+                .first()
+                .map(|t| t.columns.clone())
+                .unwrap_or_default();
             (data, columns)
         }
-        SourceConfig::Excel { path, sheet, has_header } => {
+        SourceConfig::Excel {
+            path,
+            sheet,
+            has_header,
+        } => {
             let mut source = ExcelSource::new(path);
             if let Some(sheet_name) = sheet {
                 source = source.with_sheet(sheet_name);
@@ -565,7 +647,10 @@ async fn handle_reconcile(
             }
             let tables = source.extract_schema().await?;
             let data = source.read_data().await?;
-            let columns = tables.first().map(|t| t.columns.clone()).unwrap_or_default();
+            let columns = tables
+                .first()
+                .map(|t| t.columns.clone())
+                .unwrap_or_default();
             (data, columns)
         }
         _ => anyhow::bail!("Unsupported source type"),
@@ -580,7 +665,14 @@ async fn handle_reconcile(
     // Run reconciliation
     info!("Running reconciliation...");
     let reconciliator = Reconciliator::new(config);
-    let recon_result = reconciliator.reconcile(&source1_name, &data1, &columns1, &source2_name, &data2, &columns2);
+    let recon_result = reconciliator.reconcile(
+        &source1_name,
+        &data1,
+        &columns1,
+        &source2_name,
+        &data2,
+        &columns2,
+    );
 
     info!("{}", recon_result.summary);
 
@@ -635,7 +727,11 @@ async fn handle_reconcile(
                     if !grouping.grouping_dimensions.is_empty() {
                         let file_path = if result.source_data.len() > 1 {
                             let base = path.trim_end_matches(".xlsx");
-                            format!("{}_{}.xlsx", base, name.replace(".csv", "").replace(".xlsx", ""))
+                            format!(
+                                "{}_{}.xlsx",
+                                base,
+                                name.replace(".csv", "").replace(".xlsx", "")
+                            )
                         } else {
                             path.clone()
                         };
@@ -655,7 +751,10 @@ async fn handle_reconcile(
             }
             return Ok(());
         }
-        _ => anyhow::bail!("Unknown format: {}. Use json, markdown, excel, grouped-excel, or console", format),
+        _ => anyhow::bail!(
+            "Unknown format: {}. Use json, markdown, excel, grouped-excel, or console",
+            format
+        ),
     };
 
     // Write output

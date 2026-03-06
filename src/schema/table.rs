@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::Column;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Table {
@@ -12,7 +12,7 @@ pub struct Table {
     pub row_count: Option<usize>,
 
     // Source information
-    pub source_type: String, // "mssql", "csv", "excel", "flatfile"
+    pub source_type: String,     // "mssql", "csv", "excel", "flatfile"
     pub source_location: String, // connection string, file path, etc.
 
     // Metadata

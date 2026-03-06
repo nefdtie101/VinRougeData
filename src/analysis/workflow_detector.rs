@@ -4,11 +4,11 @@ use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WorkflowType {
-    Import,         // File -> Database table
+    Import,              // File -> Database table
     StagingToProduction, // Staging table -> Production table
-    Aggregation,    // Multiple sources -> Aggregated table
-    Transformation, // Source -> Transformed -> Destination
-    Lookup,         // Reference/lookup table pattern
+    Aggregation,         // Multiple sources -> Aggregated table
+    Transformation,      // Source -> Transformed -> Destination
+    Lookup,              // Reference/lookup table pattern
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,7 +55,9 @@ impl WorkflowDetector {
         let file_tables: Vec<&Table> = self
             .tables
             .iter()
-            .filter(|t| t.source_type == "csv" || t.source_type == "excel" || t.source_type == "flatfile")
+            .filter(|t| {
+                t.source_type == "csv" || t.source_type == "excel" || t.source_type == "flatfile"
+            })
             .collect();
 
         let db_tables: Vec<&Table> = self
@@ -78,10 +80,7 @@ impl WorkflowDetector {
                             WorkflowStep {
                                 table_name: file_table.full_name.clone(),
                                 step_type: "source".to_string(),
-                                description: format!(
-                                    "File source: {}",
-                                    file_table.source_location
-                                ),
+                                description: format!("File source: {}", file_table.source_location),
                             },
                             WorkflowStep {
                                 table_name: db_table.full_name.clone(),
@@ -104,7 +103,9 @@ impl WorkflowDetector {
 
     fn detect_staging_workflows(&mut self) {
         // Detect staging table patterns (e.g., stg_*, staging_*, temp_*, *_staging)
-        let staging_patterns = vec!["stg_", "staging_", "temp_", "tmp_", "_stg", "_staging", "_temp"];
+        let staging_patterns = vec![
+            "stg_", "staging_", "temp_", "tmp_", "_stg", "_staging", "_temp",
+        ];
 
         for table in &self.tables {
             let lower_name = table.name.to_lowercase();
@@ -116,9 +117,7 @@ impl WorkflowDetector {
                 // Try to find corresponding production table
                 let clean_name = staging_patterns
                     .iter()
-                    .fold(lower_name.clone(), |acc, p| {
-                        acc.replace(p, "")
-                    });
+                    .fold(lower_name.clone(), |acc, p| acc.replace(p, ""));
 
                 if let Some(prod_table) = self.find_table_by_name(&clean_name) {
                     let similarity = self.calculate_column_overlap(table, prod_table);
@@ -160,9 +159,7 @@ impl WorkflowDetector {
 
         for table in &self.tables {
             let lower_name = table.name.to_lowercase();
-            let is_aggregation = agg_patterns
-                .iter()
-                .any(|p| lower_name.contains(p));
+            let is_aggregation = agg_patterns.iter().any(|p| lower_name.contains(p));
 
             if is_aggregation {
                 // Find potential source tables through relationships

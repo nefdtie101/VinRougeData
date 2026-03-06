@@ -1,12 +1,12 @@
-mod mssql;
 mod csv_source;
 mod excel;
 mod flatfile;
+mod mssql;
 
-pub use mssql::MssqlSource;
 pub use csv_source::CsvSource;
 pub use excel::ExcelSource;
 pub use flatfile::FlatfileSource;
+pub use mssql::MssqlSource;
 
 use crate::schema::Table;
 use anyhow::Result;
@@ -16,7 +16,11 @@ pub enum SourceType {
     Mssql(String), // connection string
     Csv(String),   // file path
     Excel(String), // file path
-    Flatfile { path: String, delimiter: Option<char>, fixed_width: Option<Vec<usize>> },
+    Flatfile {
+        path: String,
+        delimiter: Option<char>,
+        fixed_width: Option<Vec<usize>>,
+    },
 }
 
 #[async_trait::async_trait]

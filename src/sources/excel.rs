@@ -88,11 +88,7 @@ impl ExcelSource {
         }
     }
 
-    fn process_sheet(
-        &self,
-        sheet_name: &str,
-        range: calamine::Range<Data>,
-    ) -> Result<Table> {
+    fn process_sheet(&self, sheet_name: &str, range: calamine::Range<Data>) -> Result<Table> {
         let rows: Vec<Vec<String>> = range
             .rows()
             .map(|row| {
@@ -180,7 +176,8 @@ impl ExcelSource {
         }
 
         // Create table
-        let table_name = format!("{}_{}",
+        let table_name = format!(
+            "{}_{}",
             Path::new(&self.file_path)
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -203,8 +200,8 @@ impl ExcelSource {
 #[async_trait::async_trait]
 impl DataSource for ExcelSource {
     async fn extract_schema(&mut self) -> Result<Vec<Table>> {
-        let mut workbook: Xlsx<_> = open_workbook(&self.file_path)
-            .context("Failed to open Excel file")?;
+        let mut workbook: Xlsx<_> =
+            open_workbook(&self.file_path).context("Failed to open Excel file")?;
 
         let mut tables = Vec::new();
 
@@ -231,19 +228,22 @@ impl DataSource for ExcelSource {
     }
 
     async fn read_data(&mut self) -> Result<Vec<Vec<String>>> {
-        let mut workbook: Xlsx<_> = open_workbook(&self.file_path)
-            .context("Failed to open Excel file")?;
+        let mut workbook: Xlsx<_> =
+            open_workbook(&self.file_path).context("Failed to open Excel file")?;
 
         let sheet_name = if let Some(name) = &self.sheet_name {
             name.clone()
         } else {
             // Get first sheet
-            workbook.sheet_names().first()
+            workbook
+                .sheet_names()
+                .first()
                 .context("No sheets found in workbook")?
                 .clone()
         };
 
-        let range = workbook.worksheet_range(&sheet_name)
+        let range = workbook
+            .worksheet_range(&sheet_name)
             .context("Failed to read sheet")?;
 
         let rows: Vec<Vec<String>> = range

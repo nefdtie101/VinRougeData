@@ -38,12 +38,12 @@ pub struct GroupStats {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum DimensionType {
-    Temporal,      // Date, time-based grouping
-    Categorical,   // Status, category grouping
-    Geographic,    // Location-based
-    Hierarchical,  // Parent-child relationships
-    Identifier,    // Customer ID, Product ID
-    Numeric,       // Can be binned for analysis
+    Temporal,     // Date, time-based grouping
+    Categorical,  // Status, category grouping
+    Geographic,   // Location-based
+    Hierarchical, // Parent-child relationships
+    Identifier,   // Customer ID, Product ID
+    Numeric,      // Can be binned for analysis
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,9 +55,9 @@ pub struct GroupingHierarchy {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum HierarchyType {
-    Temporal,    // Year → Month → Day
-    Geographic,  // Country → State → City
-    Categorical, // Category → Subcategory → Item
+    Temporal,       // Year → Month → Day
+    Geographic,     // Country → State → City
+    Categorical,    // Category → Subcategory → Item
     Organizational, // Department → Team → Employee
 }
 
@@ -88,8 +88,8 @@ pub struct GroupingAnalyzer {
 impl GroupingAnalyzer {
     pub fn new(sample_size: usize) -> Self {
         Self {
-            min_groups: 1,       // Include all groupable columns
-            max_groups: 1000,    // Don't analyze if too many unique values
+            min_groups: 1,    // Include all groupable columns
+            max_groups: 1000, // Don't analyze if too many unique values
             sample_size,
         }
     }
@@ -116,11 +116,7 @@ impl GroupingAnalyzer {
         vec![trimmed.to_string()]
     }
 
-    pub fn analyze_groupings(
-        &self,
-        data: &[Vec<String>],
-        columns: &[Column],
-    ) -> GroupingAnalysis {
+    pub fn analyze_groupings(&self, data: &[Vec<String>], columns: &[Column]) -> GroupingAnalysis {
         let mut grouping_dimensions = Vec::new();
         let mut hierarchies = Vec::new();
         let mut suggested_analyses = Vec::new();
@@ -164,10 +160,7 @@ impl GroupingAnalyzer {
                     if parts.len() > 1 {
                         // If composite, add each part as a separate group
                         for part in parts {
-                            groups
-                                .entry(part)
-                                .or_insert_with(Vec::new)
-                                .push(row_idx);
+                            groups.entry(part).or_insert_with(Vec::new).push(row_idx);
                         }
                     } else {
                         // Single value, use as-is
@@ -288,9 +281,9 @@ impl GroupingAnalyzer {
         }
 
         // Check if values suggest hierarchy
-        let has_hierarchy = examples.iter().any(|ex| {
-            ex.group_value.contains('/') || ex.group_value.contains('>')
-        });
+        let has_hierarchy = examples
+            .iter()
+            .any(|ex| ex.group_value.contains('/') || ex.group_value.contains('>'));
         if has_hierarchy {
             return DimensionType::Hierarchical;
         }
@@ -371,7 +364,10 @@ impl GroupingAnalyzer {
 
         if temporal_cols.len() >= 2 {
             hierarchies.push(GroupingHierarchy {
-                levels: temporal_cols.iter().map(|d| d.column_name.clone()).collect(),
+                levels: temporal_cols
+                    .iter()
+                    .map(|d| d.column_name.clone())
+                    .collect(),
                 hierarchy_type: HierarchyType::Temporal,
                 description: "Time-based hierarchy for drill-down analysis".to_string(),
             });
@@ -394,10 +390,7 @@ impl GroupingAnalyzer {
                 for j in (i + 1)..cat_cols.len() {
                     if self.is_hierarchical(data, cat_cols[i].0, cat_cols[j].0) {
                         hierarchies.push(GroupingHierarchy {
-                            levels: vec![
-                                cat_cols[i].1.to_string(),
-                                cat_cols[j].1.to_string(),
-                            ],
+                            levels: vec![cat_cols[i].1.to_string(), cat_cols[j].1.to_string()],
                             hierarchy_type: HierarchyType::Categorical,
                             description: format!(
                                 "Drill from {} down to {}",
@@ -428,8 +421,8 @@ impl GroupingAnalyzer {
         }
 
         // If each A value has multiple B values, it's hierarchical
-        let avg_b_per_a = a_to_b.values().map(|s| s.len()).sum::<usize>() as f64
-            / a_to_b.len() as f64;
+        let avg_b_per_a =
+            a_to_b.values().map(|s| s.len()).sum::<usize>() as f64 / a_to_b.len() as f64;
 
         avg_b_per_a > 1.5
     }

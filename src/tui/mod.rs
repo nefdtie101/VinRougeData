@@ -1,10 +1,10 @@
 mod app;
-mod ui;
 mod events;
 mod file_browser;
+mod ui;
 
 pub use app::{App, AppState, Screen};
-pub use events::{EventHandler, AppEvent};
+pub use events::{AppEvent, EventHandler};
 pub use file_browser::{FileBrowser, FileFilter};
 
 use anyhow::Result;

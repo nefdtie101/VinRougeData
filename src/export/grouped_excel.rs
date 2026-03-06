@@ -26,7 +26,9 @@ impl GroupedDataExporter {
     ) -> Result<()> {
         // Check if there are any grouping dimensions to export
         if grouping_analysis.grouping_dimensions.is_empty() {
-            anyhow::bail!("No grouping dimensions found in the data. Cannot create grouped export.");
+            anyhow::bail!(
+                "No grouping dimensions found in the data. Cannot create grouped export."
+            );
         }
 
         // Create base directory for grouped exports
@@ -52,10 +54,7 @@ impl GroupedDataExporter {
         println!("✓");
 
         // Get all dimensions
-        let valid_dimensions: Vec<_> = grouping_analysis
-            .grouping_dimensions
-            .iter()
-            .collect();
+        let valid_dimensions: Vec<_> = grouping_analysis.grouping_dimensions.iter().collect();
 
         let total = valid_dimensions.len();
 
@@ -70,7 +69,10 @@ impl GroupedDataExporter {
             let current = idx + 1;
             let spinner = Self::get_spinner_char(idx);
 
-            print!("  {} [{}/{}] {} ", spinner, current, total, dimension.column_name);
+            print!(
+                "  {} [{}/{}] {} ",
+                spinner, current, total, dimension.column_name
+            );
             std::io::Write::flush(&mut std::io::stdout())?;
 
             self.create_dimension_files(
@@ -94,11 +96,7 @@ impl GroupedDataExporter {
         SPINNER[idx % SPINNER.len()]
     }
 
-    fn create_summary_file(
-        &self,
-        output_dir: &Path,
-        analysis: &GroupingAnalysis,
-    ) -> Result<()> {
+    fn create_summary_file(&self, output_dir: &Path, analysis: &GroupingAnalysis) -> Result<()> {
         let summary_path = output_dir.join("_summary.xlsx");
         let mut workbook = Workbook::new();
         let worksheet = workbook.add_worksheet().set_name("Summary")?;
@@ -115,7 +113,10 @@ impl GroupedDataExporter {
         worksheet.write(
             1,
             0,
-            format!("Generated: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S")),
+            format!(
+                "Generated: {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+            ),
         )?;
 
         if !analysis.table_name.is_empty() {
@@ -164,7 +165,9 @@ impl GroupedDataExporter {
         let col_idx = col_idx.unwrap();
 
         // Check if this dimension column is a detected multi-value column
-        let mv_meta = mv_columns.iter().find(|mv| mv.column_name == dimension.column_name);
+        let mv_meta = mv_columns
+            .iter()
+            .find(|mv| mv.column_name == dimension.column_name);
 
         // Pre-build vocabulary for VocabularySegmented columns so we can re-run DP
         let vocab: HashSet<String> = if let Some(mv) = mv_meta {
@@ -371,5 +374,4 @@ impl GroupedDataExporter {
 
         cleaned
     }
-
 }

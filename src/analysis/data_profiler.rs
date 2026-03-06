@@ -23,18 +23,18 @@ pub struct ColumnProfile {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum PatternType {
-    Sequential,        // 1, 2, 3, 4...
-    DateSequence,      // Sequential dates
-    RepeatingPattern,  // A, B, C, A, B, C...
-    UniqueIdentifier,  // All unique, looks like IDs
-    Category,          // Low cardinality, repeating values
-    Numeric,           // All numeric values
-    Boolean,           // True/False, Yes/No, 0/1
-    Email,             // Email addresses
-    Phone,             // Phone numbers
-    Url,               // URLs
-    DateTime,          // Date/time values
-    Currency,          // Money amounts
+    Sequential,       // 1, 2, 3, 4...
+    DateSequence,     // Sequential dates
+    RepeatingPattern, // A, B, C, A, B, C...
+    UniqueIdentifier, // All unique, looks like IDs
+    Category,         // Low cardinality, repeating values
+    Numeric,          // All numeric values
+    Boolean,          // True/False, Yes/No, 0/1
+    Email,            // Email addresses
+    Phone,            // Phone numbers
+    Url,              // URLs
+    DateTime,         // Date/time values
+    Currency,         // Money amounts
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,11 +122,7 @@ impl DataProfiler {
         let total_values = values.len();
         let null_count = values.iter().filter(|v| v.is_empty()).count();
 
-        let non_null_values: Vec<&str> = values
-            .iter()
-            .filter(|v| !v.is_empty())
-            .copied()
-            .collect();
+        let non_null_values: Vec<&str> = values.iter().filter(|v| !v.is_empty()).copied().collect();
 
         let unique_set: HashSet<&str> = non_null_values.iter().copied().collect();
         let unique_values = unique_set.len();
@@ -172,10 +168,7 @@ impl DataProfiler {
         }
 
         // Check for numeric
-        let all_numeric = values
-            .iter()
-            .take(100)
-            .all(|v| v.parse::<f64>().is_ok());
+        let all_numeric = values.iter().take(100).all(|v| v.parse::<f64>().is_ok());
         if all_numeric {
             patterns.push(PatternType::Numeric);
         }
@@ -217,9 +210,7 @@ impl DataProfiler {
                 .collect();
 
             if !numbers.is_empty() {
-                let is_sequential = numbers
-                    .windows(2)
-                    .all(|w| w[1] == w[0] + 1);
+                let is_sequential = numbers.windows(2).all(|w| w[1] == w[0] + 1);
 
                 if is_sequential {
                     patterns.push(PatternType::Sequential);
@@ -251,10 +242,7 @@ impl DataProfiler {
         for (col_idx, column) in columns.iter().enumerate() {
             let values: Vec<i64> = data
                 .iter()
-                .filter_map(|row| {
-                    row.get(col_idx)
-                        .and_then(|v| v.parse::<i64>().ok())
-                })
+                .filter_map(|row| row.get(col_idx).and_then(|v| v.parse::<i64>().ok()))
                 .take(100)
                 .collect();
 
@@ -366,8 +354,8 @@ impl DataProfiler {
         let b_values = b_to_a.len();
 
         // Check one-to-one
-        let one_to_one = a_to_b.values().all(|set| set.len() == 1)
-            && b_to_a.values().all(|set| set.len() == 1);
+        let one_to_one =
+            a_to_b.values().all(|set| set.len() == 1) && b_to_a.values().all(|set| set.len() == 1);
 
         if one_to_one && a_values > 5 {
             return Some(ColumnCorrelation {

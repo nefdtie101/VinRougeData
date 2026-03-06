@@ -97,8 +97,8 @@ impl Default for AnalysisConfig {
 
 impl AppConfig {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let content = std::fs::read_to_string(path.as_ref())
-            .context("Failed to read config file")?;
+        let content =
+            std::fs::read_to_string(path.as_ref()).context("Failed to read config file")?;
 
         // Support both JSON and TOML
         if path.as_ref().extension().and_then(|s| s.to_str()) == Some("toml") {
