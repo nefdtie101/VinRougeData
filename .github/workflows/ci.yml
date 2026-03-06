@@ -6,27 +6,46 @@ on:
       - '**'
   pull_request:
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
 jobs:
   check:
-    name: Check
+    name: Build check and Clippy
     runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install OpenSSL
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
-      - run: cargo check
 
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+
+      # tiberius uses native-tls -> openssl on Linux
+      - name: Install OpenSSL dev headers
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y pkg-config libssl-dev
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+
       - uses: Swatinem/rust-cache@v2
-      - name: Install OpenSSL
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev pkg-config
-      - run: cargo clippy -- -D warnings
+
+      - name: Cargo check
+        run: cargo check --all-targets
+
+      - name: Clippy lint
+        run: cargo clippy --all-targets -- -D warnings
+
+  fmt:
+    name: Formatting check
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
