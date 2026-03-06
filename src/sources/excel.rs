@@ -1,20 +1,40 @@
 use crate::schema::{Column, DataType, Table};
 use crate::sources::DataSource;
 use anyhow::{Context, Result};
-use calamine::{open_workbook, Data, Reader, Xlsx};
+use calamine::{open_workbook_from_rs, Data, Reader, Xlsx};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::io::Cursor;
+
+#[cfg(not(target_arch = "wasm32"))]
+use calamine::open_workbook;
 
 pub struct ExcelSource {
-    file_path: String,
+    inner: ExcelSourceInner,
     sheet_name: Option<String>,
     has_header: bool,
 }
 
+enum ExcelSourceInner {
+    #[cfg(not(target_arch = "wasm32"))]
+    Path(String),
+    Bytes { data: Vec<u8>, name: String },
+}
+
 impl ExcelSource {
+    /// Native constructor — opens from a file path.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(file_path: String) -> Self {
         Self {
-            file_path,
+            inner: ExcelSourceInner::Path(file_path),
+            sheet_name: None,
+            has_header: true,
+        }
+    }
+
+    /// WASM-safe constructor — reads from an in-memory byte slice.
+    pub fn from_bytes(bytes: Vec<u8>, name: String) -> Self {
+        Self {
+            inner: ExcelSourceInner::Bytes { data: bytes, name },
             sheet_name: None,
             has_header: true,
         }
@@ -28,6 +48,28 @@ impl ExcelSource {
     pub fn with_header(mut self, has_header: bool) -> Self {
         self.has_header = has_header;
         self
+    }
+
+    fn display_name(&self) -> &str {
+        match &self.inner {
+            #[cfg(not(target_arch = "wasm32"))]
+            ExcelSourceInner::Path(p) => p.as_str(),
+            ExcelSourceInner::Bytes { name, .. } => name.as_str(),
+        }
+    }
+
+    fn open_workbook(&self) -> Result<Xlsx<Cursor<Vec<u8>>>> {
+        match &self.inner {
+            #[cfg(not(target_arch = "wasm32"))]
+            ExcelSourceInner::Path(path) => {
+                let bytes = std::fs::read(path).context("Failed to read Excel file")?;
+                open_workbook_from_rs(Cursor::new(bytes)).context("Failed to parse Excel file")
+            }
+            ExcelSourceInner::Bytes { data, .. } => {
+                open_workbook_from_rs(Cursor::new(data.clone()))
+                    .context("Failed to parse Excel file")
+            }
+        }
     }
 
     fn excel_type_to_data_type(&self, samples: &[String]) -> DataType {
@@ -108,15 +150,12 @@ impl ExcelSource {
             })
             .collect();
 
+        let display = self.display_name().to_string();
+
         if rows.is_empty() {
-            return Ok(Table::new(
-                sheet_name.to_string(),
-                "excel".to_string(),
-                self.file_path.clone(),
-            ));
+            return Ok(Table::new(sheet_name.to_string(), "excel".to_string(), display));
         }
 
-        // Extract headers
         let headers: Vec<String> = if self.has_header && !rows.is_empty() {
             rows[0].clone()
         } else {
@@ -131,10 +170,8 @@ impl ExcelSource {
             &rows[..]
         };
 
-        // Sample data for type inference (limit to 1000 rows)
         let sample_rows: Vec<Vec<String>> = data_rows.iter().take(1000).cloned().collect();
 
-        // Build column samples
         let mut column_samples: HashMap<usize, Vec<String>> = HashMap::new();
         for row in &sample_rows {
             for (col_idx, value) in row.iter().enumerate() {
@@ -145,7 +182,6 @@ impl ExcelSource {
             }
         }
 
-        // Create columns
         let mut columns = Vec::new();
         for (idx, header) in headers.iter().enumerate() {
             let samples = column_samples.get(&idx).cloned().unwrap_or_default();
@@ -153,7 +189,6 @@ impl ExcelSource {
 
             let mut column = Column::new(header.clone(), data_type);
 
-            // Store sample values
             let unique_samples: HashSet<String> = samples
                 .iter()
                 .filter(|s| !s.trim().is_empty())
@@ -161,7 +196,6 @@ impl ExcelSource {
                 .collect();
             column.sample_values = unique_samples.into_iter().take(5).collect();
 
-            // Calculate statistics
             let non_empty: Vec<_> = samples.iter().filter(|s| !s.trim().is_empty()).collect();
             column.unique_count = Some(
                 non_empty
@@ -175,17 +209,14 @@ impl ExcelSource {
             columns.push(column);
         }
 
-        // Create table
-        let table_name = format!(
-            "{}_{}",
-            Path::new(&self.file_path)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("workbook"),
-            sheet_name
-        );
+        // Use just the stem of the display name for the table name
+        let stem = std::path::Path::new(self.display_name())
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("workbook");
+        let table_name = format!("{}_{}", stem, sheet_name);
 
-        let mut table = Table::new(table_name, "excel".to_string(), self.file_path.clone());
+        let mut table = Table::new(table_name, "excel".to_string(), display);
         table.row_count = Some(data_rows.len());
         table.description = Some(format!("Sheet: {}", sheet_name));
 
@@ -197,16 +228,13 @@ impl ExcelSource {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl DataSource for ExcelSource {
     async fn extract_schema(&mut self) -> Result<Vec<Table>> {
-        let mut workbook: Xlsx<_> =
-            open_workbook(&self.file_path).context("Failed to open Excel file")?;
-
+        let mut workbook = self.open_workbook()?;
         let mut tables = Vec::new();
 
-        if let Some(sheet_name) = &self.sheet_name {
-            // Process specific sheet
+        if let Some(sheet_name) = &self.sheet_name.clone() {
             if let Ok(range) = workbook.worksheet_range(sheet_name) {
                 let table = self.process_sheet(sheet_name, range)?;
                 tables.push(table);
@@ -214,7 +242,6 @@ impl DataSource for ExcelSource {
                 anyhow::bail!("Sheet '{}' not found in workbook", sheet_name);
             }
         } else {
-            // Process all sheets
             let sheet_names = workbook.sheet_names();
             for sheet_name in sheet_names {
                 if let Ok(range) = workbook.worksheet_range(&sheet_name) {
@@ -228,13 +255,11 @@ impl DataSource for ExcelSource {
     }
 
     async fn read_data(&mut self) -> Result<Vec<Vec<String>>> {
-        let mut workbook: Xlsx<_> =
-            open_workbook(&self.file_path).context("Failed to open Excel file")?;
+        let mut workbook = self.open_workbook()?;
 
         let sheet_name = if let Some(name) = &self.sheet_name {
             name.clone()
         } else {
-            // Get first sheet
             workbook
                 .sheet_names()
                 .first()
@@ -265,7 +290,6 @@ impl DataSource for ExcelSource {
             })
             .collect();
 
-        // Skip header row if configured
         let data = if self.has_header && rows.len() > 1 {
             rows[1..].to_vec()
         } else {

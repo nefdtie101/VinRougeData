@@ -118,7 +118,7 @@ impl FlatfileSource {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl DataSource for FlatfileSource {
     async fn extract_schema(&mut self) -> Result<Vec<Table>> {
         let path = Path::new(&self.file_path);

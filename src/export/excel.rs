@@ -46,6 +46,33 @@ impl ExcelExporter {
         Ok(())
     }
 
+    /// Returns the workbook as raw bytes — used by the WASM web UI to trigger
+    /// a browser download without writing to the filesystem.
+    pub fn export_to_bytes(&self, result: &AnalysisResult) -> Result<Vec<u8>> {
+        let mut workbook = Workbook::new();
+
+        self.write_summary_sheet(&mut workbook, result)?;
+
+        if !result.tables.is_empty() {
+            self.write_tables_sheet(&mut workbook, result)?;
+        }
+        if !result.relationships.is_empty() {
+            self.write_relationships_sheet(&mut workbook, result)?;
+        }
+        if !result.workflows.is_empty() {
+            self.write_workflows_sheet(&mut workbook, result)?;
+        }
+        if !result.reconciliation_results.is_empty() {
+            self.write_reconciliation_sheet(&mut workbook, result)?;
+        }
+        if !result.multi_value_analyses.is_empty() {
+            self.write_multi_value_sheet(&mut workbook, result)?;
+        }
+
+        let bytes = workbook.save_to_buffer()?;
+        Ok(bytes)
+    }
+
     fn write_summary_sheet(&self, workbook: &mut Workbook, result: &AnalysisResult) -> Result<()> {
         let worksheet = workbook.add_worksheet().set_name("Summary")?;
 

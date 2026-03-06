@@ -203,7 +203,7 @@ impl MssqlSource {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl DataSource for MssqlSource {
     async fn extract_schema(&mut self) -> Result<Vec<Table>> {
         self.connect().await?;
