@@ -1,46 +1,44 @@
-use js_sys::{ArrayBuffer, Promise, Uint8Array};
-use wasm_bindgen::{closure::Closure, JsCast, JsValue};
+use js_sys::{ArrayBuffer, Function, Promise, Uint8Array};
+use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{File, FileReader};
 
 /// Reads a browser `File` object into a `Vec<u8>` asynchronously.
-///
-/// Uses the FileReader API via a JS Promise bridge so it can be
-/// awaited from Rust async code running under wasm-bindgen-futures.
 pub async fn read_file_as_bytes(file: &File) -> Result<Vec<u8>, JsValue> {
-    let reader = FileReader::new().map_err(|e| e)?;
-    let reader_clone = reader.clone();
+    let reader = FileReader::new()?;
 
     let promise = Promise::new(&mut |resolve, reject| {
-        let on_load: Closure<dyn FnMut()> = Closure::once(Box::new(move || {
-            let result = match reader_clone.result() {
-                Ok(v) => v,
-                Err(e) => {
-                    let _ = reject.call1(&JsValue::NULL, &e);
-                    return;
-                }
-            };
-            let array_buffer = match result.dyn_into::<ArrayBuffer>() {
-                Ok(buf) => buf,
-                Err(_) => {
-                    let _ = reject.call1(&JsValue::NULL, &JsValue::from_str("Not an ArrayBuffer"));
-                    return;
-                }
-            };
-            let typed = Uint8Array::new(&array_buffer);
-            let _ = resolve.call1(&JsValue::NULL, &typed);
-        }));
+        // Clone inside the FnMut body so we don't have to move out of it.
+        let reader_snap = reader.clone();
+        let reject_snap = reject.clone();
 
-        let on_error: Closure<dyn FnMut(JsValue)> = Closure::once(Box::new(move |e: JsValue| {
-            let _ = reject.call1(&JsValue::NULL, &e);
-        }));
+        // once_into_js takes a true FnOnce — the cloned values can be moved freely.
+        let on_load: JsValue =
+            wasm_bindgen::closure::Closure::once_into_js(move || {
+                match reader_snap.result() {
+                    Ok(val) => match val.dyn_into::<ArrayBuffer>() {
+                        Ok(buf) => {
+                            let _ = resolve.call1(&JsValue::NULL, &Uint8Array::new(&buf));
+                        }
+                        Err(_) => {
+                            let _ = reject
+                                .call1(&JsValue::NULL, &JsValue::from_str("Not an ArrayBuffer"));
+                        }
+                    },
+                    Err(e) => {
+                        let _ = reject.call1(&JsValue::NULL, &e);
+                    }
+                }
+            });
 
-        reader.set_onload(Some(on_load.as_ref().unchecked_ref()));
-        reader.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+        let on_error: JsValue =
+            wasm_bindgen::closure::Closure::once_into_js(move |e: JsValue| {
+                let _ = reject_snap.call1(&JsValue::NULL, &e);
+            });
+
+        reader.set_onload(Some(on_load.unchecked_ref::<Function>()));
+        reader.set_onerror(Some(on_error.unchecked_ref::<Function>()));
         reader.read_as_array_buffer(file).unwrap_or(());
-
-        on_load.forget();
-        on_error.forget();
     });
 
     let result = JsFuture::from(promise).await?;

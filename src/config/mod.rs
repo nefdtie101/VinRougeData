@@ -1,5 +1,9 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
+
+#[cfg(not(target_arch = "wasm32"))]
+use anyhow::Context;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +100,7 @@ impl Default for AnalysisConfig {
 }
 
 impl AppConfig {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content =
             std::fs::read_to_string(path.as_ref()).context("Failed to read config file")?;
@@ -108,6 +113,7 @@ impl AppConfig {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let content = if path.as_ref().extension().and_then(|s| s.to_str()) == Some("toml") {
             toml::to_string_pretty(self).context("Failed to serialize to TOML")?

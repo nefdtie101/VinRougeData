@@ -1,20 +1,21 @@
-use leptos::*;
-use std::rc::Rc;
+use leptos::prelude::*;
+use std::sync::Arc;
 use vinrouge::export::AnalysisResult;
 
 use super::{export_bar::ExportBar, results_view::ResultsView, upload_panel::UploadPanel};
 
+// Arc (not Rc) so AppState is Send + Sync, required by Leptos 0.7 signals
 #[derive(Clone)]
 pub enum AppState {
     Idle,
     Analyzing,
-    Done(Rc<AnalysisResult>),
+    Done(Arc<AnalysisResult>),
     Error(String),
 }
 
 #[component]
 pub fn App() -> impl IntoView {
-    let (state, set_state) = create_signal(AppState::Idle);
+    let (state, set_state) = signal(AppState::Idle);
 
     view! {
         <div class="app">
@@ -28,11 +29,8 @@ pub fn App() -> impl IntoView {
                     AppState::Idle | AppState::Analyzing => {
                         let is_loading = matches!(state.get(), AppState::Analyzing);
                         view! {
-                            <UploadPanel
-                                is_loading=is_loading
-                                set_state=set_state
-                            />
-                        }.into_view()
+                            <UploadPanel is_loading=is_loading set_state=set_state />
+                        }.into_any()
                     }
                     AppState::Done(result) => {
                         view! {
@@ -48,7 +46,7 @@ pub fn App() -> impl IntoView {
                                 </div>
                                 <ResultsView result=result />
                             </div>
-                        }.into_view()
+                        }.into_any()
                     }
                     AppState::Error(msg) => {
                         view! {
@@ -62,7 +60,7 @@ pub fn App() -> impl IntoView {
                                     "Try again"
                                 </button>
                             </div>
-                        }.into_view()
+                        }.into_any()
                     }
                 }}
             </main>

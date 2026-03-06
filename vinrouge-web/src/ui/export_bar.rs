@@ -1,5 +1,5 @@
-use leptos::*;
-use std::rc::Rc;
+use leptos::prelude::*;
+use std::sync::Arc;
 use vinrouge::export::{AnalysisResult, ExcelExporter, Exporter, JsonExporter, MarkdownExporter};
 use wasm_bindgen::JsCast;
 
@@ -30,7 +30,7 @@ fn trigger_download(filename: &str, bytes: &[u8], mime: &str) {
 }
 
 #[component]
-pub fn ExportBar(result: Rc<AnalysisResult>) -> impl IntoView {
+pub fn ExportBar(result: Arc<AnalysisResult>) -> impl IntoView {
     let result_json = result.clone();
     let result_md = result.clone();
     let result_xlsx = result.clone();
@@ -50,7 +50,7 @@ pub fn ExportBar(result: Rc<AnalysisResult>) -> impl IntoView {
     };
 
     let export_xlsx = move |_| {
-        let exporter = ExcelExporter::new("".to_string());
+        let exporter = ExcelExporter::new(String::new());
         if let Ok(bytes) = exporter.export_to_bytes(&result_xlsx) {
             trigger_download(
                 "vinrouge-analysis.xlsx",

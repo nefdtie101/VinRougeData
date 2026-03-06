@@ -1,10 +1,10 @@
-use leptos::*;
-use std::rc::Rc;
+use leptos::prelude::*;
+use std::sync::Arc;
 use vinrouge::export::AnalysisResult;
 
 #[component]
-pub fn ResultsView(result: Rc<AnalysisResult>) -> impl IntoView {
-    let (active_tab, set_tab) = create_signal("schema");
+pub fn ResultsView(result: Arc<AnalysisResult>) -> impl IntoView {
+    let (active_tab, set_tab) = signal("schema");
 
     let result_schema = result.clone();
     let result_profile = result.clone();
@@ -24,12 +24,12 @@ pub fn ResultsView(result: Rc<AnalysisResult>) -> impl IntoView {
 
             <div class="tab-content">
                 {move || match active_tab.get() {
-                    "schema" => view! { <SchemaTab result=result_schema.clone() /> }.into_view(),
-                    "profile" => view! { <ProfileTab result=result_profile.clone() /> }.into_view(),
-                    "relationships" => view! { <RelTab result=result_rel.clone() /> }.into_view(),
-                    "reconciliation" => view! { <ReconTab result=result_recon.clone() /> }.into_view(),
-                    "multivalue" => view! { <MvTab result=result_mv.clone() /> }.into_view(),
-                    _ => view! { <div /> }.into_view(),
+                    "schema" => view! { <SchemaTab result=result_schema.clone() /> }.into_any(),
+                    "profile" => view! { <ProfileTab result=result_profile.clone() /> }.into_any(),
+                    "relationships" => view! { <RelTab result=result_rel.clone() /> }.into_any(),
+                    "reconciliation" => view! { <ReconTab result=result_recon.clone() /> }.into_any(),
+                    "multivalue" => view! { <MvTab result=result_mv.clone() /> }.into_any(),
+                    _ => view! { <div /> }.into_any(),
                 }}
             </div>
         </div>
@@ -53,10 +53,10 @@ fn TabButton(
     }
 }
 
-// ── Schema tab ────────────────────────────────────────────────────────────────
+// ── Schema ─────────────────────────────────────────────────────────────────
 
 #[component]
-fn SchemaTab(result: Rc<AnalysisResult>) -> impl IntoView {
+fn SchemaTab(result: Arc<AnalysisResult>) -> impl IntoView {
     let tables = result.tables.clone();
     view! {
         <div class="tab-pane">
@@ -75,10 +75,8 @@ fn SchemaTab(result: Rc<AnalysisResult>) -> impl IntoView {
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th>"Column"</th>
-                                    <th>"Type"</th>
-                                    <th>"Nulls"</th>
-                                    <th>"Unique"</th>
+                                    <th>"Column"</th><th>"Type"</th>
+                                    <th>"Nulls"</th><th>"Unique"</th>
                                     <th>"Sample values"</th>
                                 </tr>
                             </thead>
@@ -94,26 +92,26 @@ fn SchemaTab(result: Rc<AnalysisResult>) -> impl IntoView {
                                             <td class="samples">{samples}</td>
                                         </tr>
                                     }
-                                }).collect::<Vec<_>>()}
+                                }).collect_view()}
                             </tbody>
                         </table>
                     </details>
                 }
-            }).collect::<Vec<_>>()}
+            }).collect_view()}
         </div>
     }
 }
 
-// ── Data Profile tab ──────────────────────────────────────────────────────────
+// ── Data Profile ───────────────────────────────────────────────────────────
 
 #[component]
-fn ProfileTab(result: Rc<AnalysisResult>) -> impl IntoView {
+fn ProfileTab(result: Arc<AnalysisResult>) -> impl IntoView {
     let profiles = result.data_profiles.clone();
     view! {
         <div class="tab-pane">
             <h2 class="section-title">"Data Profiles"</h2>
             {if profiles.is_empty() {
-                view! { <p class="empty">"No data profiles available."</p> }.into_view()
+                view! { <p class="empty">"No data profiles available."</p> }.into_any()
             } else {
                 profiles.into_iter().map(|p| {
                     let col_count = p.column_profiles.len();
@@ -124,12 +122,8 @@ fn ProfileTab(result: Rc<AnalysisResult>) -> impl IntoView {
                             <table class="data-table">
                                 <thead>
                                     <tr>
-                                        <th>"Column"</th>
-                                        <th>"Total"</th>
-                                        <th>"Unique"</th>
-                                        <th>"Nulls"</th>
-                                        <th>"Distinct ratio"</th>
-                                        <th>"Patterns"</th>
+                                        <th>"Column"</th><th>"Total"</th><th>"Unique"</th>
+                                        <th>"Nulls"</th><th>"Distinct %"</th><th>"Patterns"</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -150,38 +144,34 @@ fn ProfileTab(result: Rc<AnalysisResult>) -> impl IntoView {
                                                 <td class="samples">{patterns}</td>
                                             </tr>
                                         }
-                                    }).collect::<Vec<_>>()}
+                                    }).collect_view()}
                                 </tbody>
                             </table>
                         </div>
                     }
-                }).collect::<Vec<_>>().into_view()
+                }).collect_view().into_any()
             }}
         </div>
     }
 }
 
-// ── Relationships tab ─────────────────────────────────────────────────────────
+// ── Relationships ──────────────────────────────────────────────────────────
 
 #[component]
-fn RelTab(result: Rc<AnalysisResult>) -> impl IntoView {
+fn RelTab(result: Arc<AnalysisResult>) -> impl IntoView {
     let rels = result.relationships.clone();
     view! {
         <div class="tab-pane">
             <h2 class="section-title">"Relationships — " {rels.len()}</h2>
             {if rels.is_empty() {
-                view! { <p class="empty">"No relationships detected."</p> }.into_view()
+                view! { <p class="empty">"No relationships detected."</p> }.into_any()
             } else {
                 view! {
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>"From table"</th>
-                                <th>"Column"</th>
-                                <th>"→"</th>
-                                <th>"To table"</th>
-                                <th>"Column"</th>
-                                <th>"Type"</th>
+                                <th>"From table"</th><th>"Column"</th><th>"→"</th>
+                                <th>"To table"</th><th>"Column"</th><th>"Type"</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -197,29 +187,27 @@ fn RelTab(result: Rc<AnalysisResult>) -> impl IntoView {
                                         <td>{rtype}</td>
                                     </tr>
                                 }
-                            }).collect::<Vec<_>>()}
+                            }).collect_view()}
                         </tbody>
                     </table>
-                }.into_view()
+                }.into_any()
             }}
         </div>
     }
 }
 
-// ── Reconciliation tab ────────────────────────────────────────────────────────
+// ── Reconciliation ─────────────────────────────────────────────────────────
 
 #[component]
-fn ReconTab(result: Rc<AnalysisResult>) -> impl IntoView {
+fn ReconTab(result: Arc<AnalysisResult>) -> impl IntoView {
     let recons = result.reconciliation_results.clone();
     view! {
         <div class="tab-pane">
             <h2 class="section-title">"Reconciliation"</h2>
             {if recons.is_empty() {
                 view! {
-                    <p class="empty">
-                        "Upload at least two files to see reconciliation results."
-                    </p>
-                }.into_view()
+                    <p class="empty">"Upload at least two files to see reconciliation results."</p>
+                }.into_any()
             } else {
                 recons.into_iter().map(|r| {
                     let pct = format!("{:.1}%", r.match_percentage);
@@ -228,8 +216,8 @@ fn ReconTab(result: Rc<AnalysisResult>) -> impl IntoView {
                             <h3>{r.source1_name.clone()} " vs " {r.source2_name.clone()}</h3>
                             <p>
                                 "Match: " {pct}
-                                "  ·  Source A: " {r.total_source1}
-                                "  ·  Source B: " {r.total_source2}
+                                "  ·  A: " {r.total_source1}
+                                "  ·  B: " {r.total_source2}
                                 "  ·  Matched: " {r.matches}
                                 "  ·  Only in A: " {r.only_in_source1}
                                 "  ·  Only in B: " {r.only_in_source2}
@@ -239,10 +227,8 @@ fn ReconTab(result: Rc<AnalysisResult>) -> impl IntoView {
                                     <table class="data-table">
                                         <thead>
                                             <tr>
-                                                <th>"Key"</th>
-                                                <th>"Column"</th>
-                                                <th>"Source A"</th>
-                                                <th>"Source B"</th>
+                                                <th>"Key"</th><th>"Column"</th>
+                                                <th>"Source A"</th><th>"Source B"</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -255,56 +241,51 @@ fn ReconTab(result: Rc<AnalysisResult>) -> impl IntoView {
                                                         <td>{m.source2_value}</td>
                                                     </tr>
                                                 }
-                                            }).collect::<Vec<_>>()}
+                                            }).collect_view()}
                                         </tbody>
                                     </table>
-                                }.into_view()
+                                }.into_any()
                             } else {
-                                view! { <p class="empty">"No field mismatches."</p> }.into_view()
+                                view! { <p class="empty">"No field mismatches."</p> }.into_any()
                             }}
                             <p class="muted">{r.summary}</p>
                         </div>
                     }
-                }).collect::<Vec<_>>().into_view()
+                }).collect_view().into_any()
             }}
         </div>
     }
 }
 
-// ── Multi-Value tab ───────────────────────────────────────────────────────────
+// ── Multi-Value ────────────────────────────────────────────────────────────
 
 #[component]
-fn MvTab(result: Rc<AnalysisResult>) -> impl IntoView {
+fn MvTab(result: Arc<AnalysisResult>) -> impl IntoView {
     let mvs = result.multi_value_analyses.clone();
     view! {
         <div class="tab-pane">
             <h2 class="section-title">"Multi-Value Columns"</h2>
             {if mvs.is_empty() {
-                view! { <p class="empty">"No multi-value columns detected."</p> }.into_view()
+                view! { <p class="empty">"No multi-value columns detected."</p> }.into_any()
             } else {
                 mvs.into_iter().map(|mv| {
                     view! {
                         <div class="mv-card">
                             <h3>{mv.table_name.clone()}</h3>
                             {if mv.multi_value_columns.is_empty() {
-                                view! { <p class="empty">"None found."</p> }.into_view()
+                                view! { <p class="empty">"None found."</p> }.into_any()
                             } else {
                                 view! {
                                     <table class="data-table">
                                         <thead>
                                             <tr>
-                                                <th>"Column"</th>
-                                                <th>"Delimiter"</th>
-                                                <th>"Confidence"</th>
-                                                <th>"Multi-value ratio"</th>
+                                                <th>"Column"</th><th>"Delimiter"</th>
+                                                <th>"Confidence"</th><th>"MV ratio"</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {mv.multi_value_columns.into_iter().map(|col| {
-                                                let delim = col.delimiter
-                                                    .as_deref()
-                                                    .unwrap_or("—")
-                                                    .to_string();
+                                                let delim = col.delimiter.as_deref().unwrap_or("—").to_string();
                                                 let conf = format!("{:.0}%", col.confidence * 100.0);
                                                 let ratio = format!("{:.1}%", col.multi_value_ratio * 100.0);
                                                 view! {
@@ -315,14 +296,14 @@ fn MvTab(result: Rc<AnalysisResult>) -> impl IntoView {
                                                         <td>{ratio}</td>
                                                     </tr>
                                                 }
-                                            }).collect::<Vec<_>>()}
+                                            }).collect_view()}
                                         </tbody>
                                     </table>
-                                }.into_view()
+                                }.into_any()
                             }}
                         </div>
                     }
-                }).collect::<Vec<_>>().into_view()
+                }).collect_view().into_any()
             }}
         </div>
     }

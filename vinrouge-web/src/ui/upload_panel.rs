@@ -1,11 +1,14 @@
-use leptos::*;
-use std::rc::Rc;
+use leptos::prelude::*;
+use std::sync::Arc;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::HtmlInputElement;
 
 use super::app::AppState;
-use crate::{analysis_bridge::{run_analysis, UploadedFile}, file_upload::read_file_as_bytes};
+use crate::{
+    analysis_bridge::{run_analysis, UploadedFile},
+    file_upload::read_file_as_bytes,
+};
 
 #[component]
 pub fn UploadPanel(is_loading: bool, set_state: WriteSignal<AppState>) -> impl IntoView {
@@ -19,20 +22,16 @@ pub fn UploadPanel(is_loading: bool, set_state: WriteSignal<AppState>) -> impl I
             for file in files {
                 match read_file_as_bytes(&file).await {
                     Ok(bytes) => {
-                        let name = file.name();
-                        uploaded.push(UploadedFile::detect(name, bytes));
+                        uploaded.push(UploadedFile::detect(file.name(), bytes));
                     }
                     Err(e) => {
-                        set_state.set(AppState::Error(
-                            format!("Failed to read file: {:?}", e),
-                        ));
+                        set_state.set(AppState::Error(format!("Failed to read file: {:?}", e)));
                         return;
                     }
                 }
             }
-
             match run_analysis(uploaded).await {
-                Ok(result) => set_state.set(AppState::Done(Rc::new(result))),
+                Ok(result) => set_state.set(AppState::Done(Arc::new(result))),
                 Err(e) => set_state.set(AppState::Error(e.to_string())),
             }
         });
@@ -70,18 +69,14 @@ pub fn UploadPanel(is_loading: bool, set_state: WriteSignal<AppState>) -> impl I
 
     view! {
         <div class="upload-wrapper">
-            <div
-                class="upload-zone"
-                on:drop=on_drop
-                on:dragover=on_dragover
-            >
-                {move || if is_loading {
+            <div class="upload-zone" on:drop=on_drop on:dragover=on_dragover>
+                {if is_loading {
                     view! {
                         <div class="spinner-box">
                             <div class="spinner"></div>
                             <p>"Analysing your data…"</p>
                         </div>
-                    }.into_view()
+                    }.into_any()
                 } else {
                     view! {
                         <div class="upload-prompt">
@@ -102,7 +97,7 @@ pub fn UploadPanel(is_loading: bool, set_state: WriteSignal<AppState>) -> impl I
                                 "Files are processed locally — nothing is uploaded to a server."
                             </p>
                         </div>
-                    }.into_view()
+                    }.into_any()
                 }}
             </div>
         </div>
