@@ -22,3 +22,6 @@ report.md
 results.json
 output/
 data/
+
+# Trunk build output
+vinrouge-web/dist/
