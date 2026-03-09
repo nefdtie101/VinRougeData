@@ -1,4 +1,5 @@
-name: Build Binaries
+
+
 
 on:
   push:
@@ -72,9 +73,11 @@ jobs:
       - name: Package macOS binary (tar.gz preserves execute permissions)
         if: matrix.archive_ext == 'tar.gz'
         run: |
-          tar -czf ${{ matrix.asset_name }}.tar.gz \
-            -C target/${{ matrix.target }}/release \
-            ${{ matrix.artifact_name }}
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} dist/
+          cp README.md dist/
+          cp LLM_GUIDE.md dist/
+          tar -czf ${{ matrix.asset_name }}.tar.gz -C dist .
 
       - name: Rename binary for release (non-macOS)
         if: matrix.archive_ext != 'tar.gz'

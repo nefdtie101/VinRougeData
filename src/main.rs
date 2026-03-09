@@ -84,6 +84,11 @@ enum Commands {
         #[arg(long)]
         key_columns: Option<String>,
 
+        /// Map a column from source1 to a differently-named column in source2 for value comparison.
+        /// Format: source1_col=source2_col  (repeatable, e.g. --column-mapping "Net Pay=Debit")
+        #[arg(long, value_name = "COL1=COL2")]
+        column_mapping: Vec<String>,
+
         /// Output format (json, markdown, console)
         #[arg(short = 'f', long, default_value = "console")]
         format: String,
@@ -156,6 +161,7 @@ async fn main() -> Result<()> {
             excel1,
             excel2,
             key_columns,
+            column_mapping,
             format,
             output,
             pretty,
@@ -166,6 +172,7 @@ async fn main() -> Result<()> {
                 excel1,
                 excel2,
                 key_columns,
+                column_mapping,
                 format,
                 output,
                 pretty,
@@ -493,6 +500,7 @@ async fn handle_reconcile(
     excel1: Option<PathBuf>,
     excel2: Option<PathBuf>,
     key_columns: Option<String>,
+    column_mappings: Vec<String>,
     format: String,
     output_path: Option<PathBuf>,
     pretty: bool,
@@ -660,6 +668,14 @@ async fn handle_reconcile(
     let mut config = ReconciliationConfig::default();
     if let Some(keys) = key_columns {
         config.key_columns = keys.split(',').map(|s| s.trim().to_string()).collect();
+    }
+    for mapping in column_mappings {
+        let parts: Vec<&str> = mapping.splitn(2, '=').collect();
+        if parts.len() == 2 {
+            config.column_mappings.push((parts[0].trim().to_string(), parts[1].trim().to_string()));
+        } else {
+            anyhow::bail!("Invalid --column-mapping '{}': expected format COL1=COL2", mapping);
+        }
     }
 
     // Run reconciliation

@@ -30,7 +30,10 @@ pub struct FieldMismatch {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReconciliationConfig {
     pub key_columns: Vec<String>,
-    pub compare_columns: Option<Vec<String>>, // None = compare all
+    pub compare_columns: Option<Vec<String>>, // None = compare all same-named columns
+    /// Explicit cross-source column mappings: (source1_col, source2_col) with different names.
+    /// When empty, VinRouge auto-detects mappings from matched row data.
+    pub column_mappings: Vec<(String, String)>,
     pub case_sensitive: bool,
     pub trim_whitespace: bool,
     pub max_mismatches: usize,
@@ -41,6 +44,7 @@ impl Default for ReconciliationConfig {
         Self {
             key_columns: Vec::new(),
             compare_columns: None,
+            column_mappings: Vec::new(),
             case_sensitive: false,
             trim_whitespace: true,
             max_mismatches: 100,
@@ -93,36 +97,61 @@ impl Reconciliator {
         let (source1_map, duplicates_1) = self.build_key_map(source1_data, &key_indices_1);
         let (source2_map, duplicates_2) = self.build_key_map(source2_data, &key_indices_2);
 
-        // Find matches and differences
-        let mut matches = 0;
+        // Phase 1: collect matched row index pairs
+        let mut matched_pairs: Vec<(usize, usize)> = Vec::new();
         let mut only_in_source1 = 0;
-        let mut only_in_source2 = 0;
-        let mut field_mismatches = Vec::new();
 
-        // Compare records
         for (key, indices1) in &source1_map {
             if let Some(indices2) = source2_map.get(key) {
-                // Match found - compare values
-                matches += 1;
-
-                // Compare first occurrence of each key
                 if let (Some(&idx1), Some(&idx2)) = (indices1.first(), indices2.first()) {
-                    if let (Some(row1), Some(row2)) =
-                        (source1_data.get(idx1), source2_data.get(idx2))
-                    {
-                        let mismatches =
-                            self.compare_rows(key, row1, source1_columns, row2, source2_columns);
-                        field_mismatches.extend(mismatches);
-                    }
+                    matched_pairs.push((idx1, idx2));
                 }
             } else {
                 only_in_source1 += 1;
             }
         }
 
+        let matches = matched_pairs.len();
+
+        let mut only_in_source2 = 0;
         for key in source2_map.keys() {
             if !source1_map.contains_key(key) {
                 only_in_source2 += 1;
+            }
+        }
+
+        // Phase 2: determine column mappings for differently-named columns
+        let effective_mappings = if self.config.column_mappings.is_empty() {
+            self.auto_detect_column_mappings(
+                source1_data,
+                source1_columns,
+                source2_data,
+                source2_columns,
+                &matched_pairs,
+            )
+        } else {
+            self.config.column_mappings.clone()
+        };
+
+        // Phase 3: compare matched rows
+        let mut field_mismatches = Vec::new();
+        for (key, indices1) in &source1_map {
+            if let Some(indices2) = source2_map.get(key) {
+                if let (Some(&idx1), Some(&idx2)) = (indices1.first(), indices2.first()) {
+                    if let (Some(row1), Some(row2)) =
+                        (source1_data.get(idx1), source2_data.get(idx2))
+                    {
+                        let mismatches = self.compare_rows(
+                            key,
+                            row1,
+                            source1_columns,
+                            row2,
+                            source2_columns,
+                            &effective_mappings,
+                        );
+                        field_mismatches.extend(mismatches);
+                    }
+                }
             }
         }
 
@@ -173,8 +202,10 @@ impl Reconciliator {
             for col2 in columns2 {
                 if col1.name.to_lowercase() == col2.name.to_lowercase() {
                     let lower = col1.name.to_lowercase();
-                    // Prioritize ID columns
-                    if lower.contains("id") || lower.contains("key") || lower.contains("code") {
+                    // Only prioritise columns that are likely unique row identifiers.
+                    // Intentionally exclude "code" — Sort Code, Post Code etc. are
+                    // NOT unique per row and make a poor join key.
+                    if lower.contains("id") || lower == "key" || lower.ends_with(" key") {
                         return vec![col1.name.clone()];
                     }
                     common_columns.push(col1.name.clone());
@@ -183,12 +214,115 @@ impl Reconciliator {
             }
         }
 
-        // Return first common column as key
         if !common_columns.is_empty() {
             vec![common_columns[0].clone()]
         } else {
             Vec::new()
         }
+    }
+
+    /// For columns that have no same-name partner in the other source, score every
+    /// (source1_col, source2_col) pair by the fraction of matched rows where their
+    /// values agree.  Pairs scoring above 0.5 are returned as auto-detected mappings.
+    fn auto_detect_column_mappings(
+        &self,
+        source1_data: &[Vec<String>],
+        source1_columns: &[Column],
+        source2_data: &[Vec<String>],
+        source2_columns: &[Column],
+        matched_pairs: &[(usize, usize)],
+    ) -> Vec<(String, String)> {
+        if matched_pairs.is_empty() {
+            return Vec::new();
+        }
+
+        // Columns that already have a same-name partner are compared by the normal path;
+        // we only need to find mappings for the remainder.
+        let same_name_s1: HashSet<String> = source1_columns
+            .iter()
+            .filter(|c1| {
+                source2_columns
+                    .iter()
+                    .any(|c2| c2.name.eq_ignore_ascii_case(&c1.name))
+            })
+            .map(|c| c.name.to_lowercase())
+            .collect();
+
+        let same_name_s2: HashSet<String> = source2_columns
+            .iter()
+            .filter(|c2| {
+                source1_columns
+                    .iter()
+                    .any(|c1| c1.name.eq_ignore_ascii_case(&c2.name))
+            })
+            .map(|c| c.name.to_lowercase())
+            .collect();
+
+        let unmapped1: Vec<(usize, &Column)> = source1_columns
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !same_name_s1.contains(&c.name.to_lowercase()))
+            .collect();
+
+        let unmapped2: Vec<(usize, &Column)> = source2_columns
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !same_name_s2.contains(&c.name.to_lowercase()))
+            .collect();
+
+        if unmapped1.is_empty() || unmapped2.is_empty() {
+            return Vec::new();
+        }
+
+        let mut mappings = Vec::new();
+        let mut used2: HashSet<usize> = HashSet::new();
+
+        for (idx1, col1) in &unmapped1 {
+            let mut best_score = 0.5f64; // minimum threshold
+            let mut best_idx2: Option<usize> = None;
+
+            for (idx2, _col2) in &unmapped2 {
+                if used2.contains(idx2) {
+                    continue;
+                }
+
+                let mut agree = 0usize;
+                let mut total = 0usize;
+
+                for &(row_idx1, row_idx2) in matched_pairs {
+                    if let (Some(row1), Some(row2)) =
+                        (source1_data.get(row_idx1), source2_data.get(row_idx2))
+                    {
+                        if let (Some(v1), Some(v2)) = (row1.get(*idx1), row2.get(*idx2)) {
+                            let n1 = self.normalize_value(v1);
+                            let n2 = self.normalize_value(v2);
+                            if !n1.is_empty() && !n2.is_empty() {
+                                total += 1;
+                                if n1 == n2 {
+                                    agree += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if total > 0 {
+                    let score = agree as f64 / total as f64;
+                    if score > best_score {
+                        best_score = score;
+                        best_idx2 = Some(*idx2);
+                    }
+                }
+            }
+
+            if let Some(idx2) = best_idx2 {
+                let col2 = &unmapped2.iter().find(|(i, _)| *i == idx2).unwrap().1;
+                mappings.push((col1.name.clone(), col2.name.clone()));
+                used2.insert(idx2);
+            }
+        }
+
+        mappings
     }
 
     fn get_column_indices(&self, column_names: &[String], columns: &[Column]) -> Vec<usize> {
@@ -251,17 +385,17 @@ impl Reconciliator {
         columns1: &[Column],
         row2: &[String],
         columns2: &[Column],
+        extra_mappings: &[(String, String)],
     ) -> Vec<FieldMismatch> {
         let mut mismatches = Vec::new();
 
-        // Determine which columns to compare
+        // Compare same-named columns
         let compare_columns: HashSet<String> = if let Some(cols) = &self.config.compare_columns {
             cols.iter().cloned().collect()
         } else {
             columns1
                 .iter()
                 .filter_map(|col| {
-                    // Find matching column in source2
                     if columns2
                         .iter()
                         .any(|col2| col2.name.eq_ignore_ascii_case(&col.name))
@@ -291,6 +425,33 @@ impl Reconciliator {
                             mismatches.push(FieldMismatch {
                                 key_value: key.to_string(),
                                 column_name: col_name,
+                                source1_value: val1.clone(),
+                                source2_value: val2.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Compare mapped columns (different names across sources)
+        for (col1_name, col2_name) in extra_mappings {
+            if let Some(idx1) = columns1
+                .iter()
+                .position(|col| col.name.eq_ignore_ascii_case(col1_name))
+            {
+                if let Some(idx2) = columns2
+                    .iter()
+                    .position(|col| col.name.eq_ignore_ascii_case(col2_name))
+                {
+                    if let (Some(val1), Some(val2)) = (row1.get(idx1), row2.get(idx2)) {
+                        let norm1 = self.normalize_value(val1);
+                        let norm2 = self.normalize_value(val2);
+
+                        if norm1 != norm2 {
+                            mismatches.push(FieldMismatch {
+                                key_value: key.to_string(),
+                                column_name: format!("{} vs {}", col1_name, col2_name),
                                 source1_value: val1.clone(),
                                 source2_value: val2.clone(),
                             });
