@@ -672,9 +672,14 @@ async fn handle_reconcile(
     for mapping in column_mappings {
         let parts: Vec<&str> = mapping.splitn(2, '=').collect();
         if parts.len() == 2 {
-            config.column_mappings.push((parts[0].trim().to_string(), parts[1].trim().to_string()));
+            config
+                .column_mappings
+                .push((parts[0].trim().to_string(), parts[1].trim().to_string()));
         } else {
-            anyhow::bail!("Invalid --column-mapping '{}': expected format COL1=COL2", mapping);
+            anyhow::bail!(
+                "Invalid --column-mapping '{}': expected format COL1=COL2",
+                mapping
+            );
         }
     }
 
