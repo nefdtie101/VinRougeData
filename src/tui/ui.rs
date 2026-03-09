@@ -13,9 +13,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Title
-            Constraint::Min(0),    // Content
-            Constraint::Length(3), // Status bar
+            Constraint::Length(3),  // Title
+            Constraint::Min(0),     // Content
+            Constraint::Length(3),  // Status bar
         ])
         .split(f.area());
 
@@ -82,25 +82,21 @@ fn draw_home(f: &mut Frame, area: Rect) {
     f.render_widget(list, centered_area);
 }
 
+
 fn draw_source_list(f: &mut Frame, area: Rect, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(0),    // Configured Sources
-            Constraint::Length(8), // Add New Source
+            Constraint::Min(0),      // Configured Sources
+            Constraint::Length(8),   // Add New Source
         ])
         .split(area);
 
     // 1. Configured Sources List
     if app.sources.is_empty() {
-        let message =
-            Paragraph::new("No sources configured.\n\nPress a number below to add a source.")
-                .alignment(Alignment::Center)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(" Configured Sources "),
-                );
+        let message = Paragraph::new("No sources configured.\n\nPress a number below to add a source.")
+            .alignment(Alignment::Center)
+            .block(Block::default().borders(Borders::ALL).title(" Configured Sources "));
         f.render_widget(message, chunks[0]);
     } else {
         let items: Vec<ListItem> = app
@@ -110,16 +106,11 @@ fn draw_source_list(f: &mut Frame, area: Rect, app: &App) {
             .map(|(i, source)| {
                 let content = match source {
                     crate::config::SourceConfig::Mssql { name, .. } => {
-                        format!(
-                            "MSSQL: {}",
-                            name.as_ref().unwrap_or(&"Database".to_string())
-                        )
+                        format!("MSSQL: {}", name.as_ref().unwrap_or(&"Database".to_string()))
                     }
                     crate::config::SourceConfig::Csv { path, .. } => format!("CSV: {}", path),
                     crate::config::SourceConfig::Excel { path, .. } => format!("Excel: {}", path),
-                    crate::config::SourceConfig::Flatfile { path, .. } => {
-                        format!("Flatfile: {}", path)
-                    }
+                    crate::config::SourceConfig::Flatfile { path, .. } => format!("Flatfile: {}", path),
                 };
 
                 let style = if i == app.selected_index {
@@ -130,10 +121,7 @@ fn draw_source_list(f: &mut Frame, area: Rect, app: &App) {
                     Style::default()
                 };
 
-                ListItem::new(Line::from(vec![Span::styled(
-                    format!("  {}", content),
-                    style,
-                )]))
+                ListItem::new(Line::from(vec![Span::styled(format!("  {}", content), style)]))
             })
             .collect();
 
@@ -148,10 +136,7 @@ fn draw_source_list(f: &mut Frame, area: Rect, app: &App) {
 
     // 2. Add Source Section
     match &app.state {
-        AppState::AddingSource {
-            source_type,
-            input_text,
-        } => {
+        AppState::AddingSource { source_type, input_text } => {
             let add_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
@@ -235,11 +220,8 @@ fn draw_results(f: &mut Frame, area: Rect, app: &App) {
             .split(area);
 
         // 1. Summary Table
-        let summary_header = Row::new(vec!["Metric", "Count"]).style(
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        );
+        let summary_header = Row::new(vec!["Metric", "Count"])
+            .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
 
         let tables_count = result.tables.len().to_string();
         let relationships_count = result.relationships.len().to_string();
@@ -257,17 +239,10 @@ fn draw_results(f: &mut Frame, area: Rect, app: &App) {
             Row::new(vec!["Reconciliations", &reconciliation_count]),
         ];
 
-        let summary_table = Table::new(
-            summary_rows,
-            [Constraint::Percentage(50), Constraint::Percentage(50)],
-        )
-        .header(summary_header)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Analysis Summary "),
-        );
-
+        let summary_table = Table::new(summary_rows, [Constraint::Percentage(50), Constraint::Percentage(50)])
+            .header(summary_header)
+            .block(Block::default().borders(Borders::ALL).title(" Analysis Summary "));
+        
         f.render_widget(summary_table, chunks[0]);
 
         // 2. Detailed results rendered in a table layout
@@ -372,11 +347,7 @@ fn draw_results(f: &mut Frame, area: Rect, app: &App) {
                             "Correlations",
                             format!(
                                 "{} ↔ {} ({:?}, strength {:.2}) – {}",
-                                corr.column_a,
-                                corr.column_b,
-                                corr.correlation_type,
-                                corr.strength,
-                                corr.description
+                                corr.column_a, corr.column_b, corr.correlation_type, corr.strength, corr.description
                             ),
                         );
                     }
@@ -391,10 +362,7 @@ fn draw_results(f: &mut Frame, area: Rect, app: &App) {
                         "Reconciliation",
                         format!(
                             "{} vs {} • {:.1}% match • {} matches",
-                            recon.source1_name,
-                            recon.source2_name,
-                            recon.match_percentage,
-                            recon.matches
+                            recon.source1_name, recon.source2_name, recon.match_percentage, recon.matches
                         ),
                     );
                     push_entry(
@@ -479,10 +447,7 @@ fn draw_results(f: &mut Frame, area: Rect, app: &App) {
                     };
 
                     if analysis.grouping_dimensions.is_empty() {
-                        push_entry(
-                            "Grouping",
-                            format!("{}No suitable grouping dimensions", prefix),
-                        );
+                        push_entry("Grouping", format!("{}No suitable grouping dimensions", prefix));
                     } else {
                         for dim in &analysis.grouping_dimensions {
                             let mut detail = format!(
@@ -498,19 +463,13 @@ fn draw_results(f: &mut Frame, area: Rect, app: &App) {
                                     .example_groups
                                     .iter()
                                     .take(2)
-                                    .map(|example| {
-                                        format!(
-                                            "{} ({} records)",
-                                            example.group_value, example.record_count
-                                        )
-                                    })
+                                    .map(|example| format!("{} ({} records)", example.group_value, example.record_count))
                                     .collect::<Vec<_>>()
                                     .join(", ");
                                 detail.push_str(&format!(" • Examples: {}", examples));
                             }
                             if !dim.insights.is_empty() {
-                                detail
-                                    .push_str(&format!(" • Insights: {}", dim.insights.join("; ")));
+                                detail.push_str(&format!(" • Insights: {}", dim.insights.join("; ")));
                             }
                             push_entry("Grouping", detail);
                         }
@@ -542,10 +501,7 @@ fn draw_results(f: &mut Frame, area: Rect, app: &App) {
         }
 
         if detail_entries.is_empty() {
-            detail_entries.push((
-                "Details".to_string(),
-                "No detailed analysis entries".to_string(),
-            ));
+            detail_entries.push(("Details".to_string(), "No detailed analysis entries".to_string()));
         }
 
         let detail_height = area.height.saturating_sub(3);
@@ -565,15 +521,11 @@ fn draw_results(f: &mut Frame, area: Rect, app: &App) {
         let header_row = Row::new(vec![
             Cell::from(Span::styled(
                 "Section",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             )),
             Cell::from(Span::styled(
                 "Details",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             )),
         ]);
 
@@ -582,10 +534,7 @@ fn draw_results(f: &mut Frame, area: Rect, app: &App) {
             .skip(scroll_offset)
             .take(visible_rows)
             .map(|(section, detail)| {
-                Row::new(vec![
-                    Cell::from(section.as_str()),
-                    Cell::from(detail.as_str()),
-                ])
+                Row::new(vec![Cell::from(section.as_str()), Cell::from(detail.as_str())])
             })
             .collect::<Vec<_>>();
 
@@ -620,22 +569,16 @@ fn draw_reconcile(f: &mut Frame, area: Rect, app: &App) {
     }
 
     if app.sources.len() < 2 {
-        let message = Paragraph::new(
-            "Need at least 2 sources to reconcile.\n\nPress Esc to return to main menu.",
-        )
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).title(" Reconcile "));
+        let message = Paragraph::new("Need at least 2 sources to reconcile.\n\nPress Esc to return to main menu.")
+            .alignment(Alignment::Center)
+            .block(Block::default().borders(Borders::ALL).title(" Reconcile "));
 
         let centered_area = center_rect(50, 30, area);
         f.render_widget(message, centered_area);
         return;
     }
 
-    let (source1_idx, source2_idx) = if let AppState::Reconciling {
-        source1_idx,
-        source2_idx,
-    } = &app.state
-    {
+    let (source1_idx, source2_idx) = if let AppState::Reconciling { source1_idx, source2_idx } = &app.state {
         (*source1_idx, *source2_idx)
     } else {
         (None, None)
@@ -648,10 +591,7 @@ fn draw_reconcile(f: &mut Frame, area: Rect, app: &App) {
         .map(|(i, source)| {
             let content = match source {
                 crate::config::SourceConfig::Mssql { name, .. } => {
-                    format!(
-                        "MSSQL: {}",
-                        name.as_ref().unwrap_or(&"Database".to_string())
-                    )
+                    format!("MSSQL: {}", name.as_ref().unwrap_or(&"Database".to_string()))
                 }
                 crate::config::SourceConfig::Csv { path, .. } => format!("CSV: {}", path),
                 crate::config::SourceConfig::Excel { path, .. } => format!("Excel: {}", path),
@@ -671,10 +611,7 @@ fn draw_reconcile(f: &mut Frame, area: Rect, app: &App) {
                 style = style.fg(Color::Yellow).add_modifier(Modifier::BOLD);
             }
 
-            ListItem::new(Line::from(vec![Span::styled(
-                format!("{}{}", prefix, content),
-                style,
-            )]))
+            ListItem::new(Line::from(vec![Span::styled(format!("{}{}", prefix, content), style)]))
         })
         .collect();
 
@@ -698,10 +635,9 @@ fn draw_reconcile(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_export(f: &mut Frame, area: Rect, app: &App) {
     if app.analysis_result.is_none() {
-        let message =
-            Paragraph::new("No analysis results to export.\n\nRun analysis first (option 2).")
-                .alignment(Alignment::Center)
-                .block(Block::default().borders(Borders::ALL).title(" Export "));
+        let message = Paragraph::new("No analysis results to export.\n\nRun analysis first (option 2).")
+            .alignment(Alignment::Center)
+            .block(Block::default().borders(Borders::ALL).title(" Export "));
 
         let centered_area = center_rect(50, 30, area);
         f.render_widget(message, centered_area);
@@ -762,10 +698,8 @@ fn draw_export(f: &mut Frame, area: Rect, app: &App) {
                     .block(Block::default().borders(Borders::ALL));
                 f.render_widget(input_widget, chunks[1]);
 
-                let help = Paragraph::new(
-                    "Enter filename (without extension), then press Enter. Esc to go back.",
-                )
-                .style(Style::default().fg(Color::Gray));
+                let help = Paragraph::new("Enter filename (without extension), then press Enter. Esc to go back.")
+                    .style(Style::default().fg(Color::Gray));
                 f.render_widget(help, chunks[2]);
             }
         }
@@ -777,12 +711,7 @@ fn draw_export(f: &mut Frame, area: Rect, app: &App) {
 
 fn draw_help(f: &mut Frame, area: Rect) {
     let help_text = vec![
-        Line::from(vec![Span::styled(
-            "Keyboard Shortcuts",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )]),
+        Line::from(vec![Span::styled("Keyboard Shortcuts", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))]),
         Line::from(""),
         Line::from("Global:"),
         Line::from("  q           - Quit application"),
@@ -831,7 +760,11 @@ fn draw_file_browser(f: &mut Frame, area: Rect, browser: &FileBrowser) {
         .iter()
         .enumerate()
         .map(|(i, entry)| {
-            let icon = if entry.is_dir { "📁" } else { "📄" };
+            let icon = if entry.is_dir {
+                "📁"
+            } else {
+                "📄"
+            };
 
             let size_str = if let Some(size) = entry.size {
                 format!(" ({})", FileBrowser::format_size(size))
@@ -851,22 +784,20 @@ fn draw_file_browser(f: &mut Frame, area: Rect, browser: &FileBrowser) {
                 Style::default().fg(Color::White)
             };
 
-            ListItem::new(Line::from(vec![Span::styled(
-                format!("  {}", content),
-                style,
-            )]))
+            ListItem::new(Line::from(vec![Span::styled(format!("  {}", content), style)]))
         })
         .collect();
 
-    let current_path = browser.current_dir.to_string_lossy().to_string();
+    let current_path = browser
+        .current_dir
+        .to_string_lossy()
+        .to_string();
 
     let list = List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
             .title(format!(" Select File - {} ", current_path))
-            .title_bottom(
-                " ↑↓/jk: Navigate | Enter/→: Select | ←/Backspace: Parent | Esc: Cancel ",
-            ),
+            .title_bottom(" ↑↓/jk: Navigate | Enter/→: Select | ←/Backspace: Parent | Esc: Cancel "),
     );
 
     f.render_widget(list, area);

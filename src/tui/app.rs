@@ -61,6 +61,8 @@ pub struct App {
     pub analysis_result: Option<AnalysisResult>,
     pub status_message: String,
     pub scroll_offset: usize,
+    pub results_tab: usize,
+    pub results_row: usize,
 }
 
 impl App {
@@ -73,6 +75,8 @@ impl App {
             analysis_result: None,
             status_message: String::from("Ready"),
             scroll_offset: 0,
+            results_tab: 0,
+            results_row: 0,
         }
     }
 
@@ -252,27 +256,34 @@ impl App {
 
     fn handle_results_view_key(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
+            KeyCode::Tab => {
+                self.results_tab = (self.results_tab + 1) % 7;
+                self.results_row = 0;
+            }
+            KeyCode::BackTab => {
+                self.results_tab = (self.results_tab + 6) % 7;
+                self.results_row = 0;
+            }
             KeyCode::Up | KeyCode::Char('k') => {
-                if self.scroll_offset > 0 {
-                    self.scroll_offset -= 1;
-                }
+                self.results_row = self.results_row.saturating_sub(1);
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                self.scroll_offset += 1;
+                self.results_row += 1;
             }
             KeyCode::PageUp => {
-                self.scroll_offset = self.scroll_offset.saturating_sub(10);
+                self.results_row = self.results_row.saturating_sub(10);
             }
             KeyCode::PageDown => {
-                self.scroll_offset += 10;
+                self.results_row += 10;
             }
-            KeyCode::Home => {
-                self.scroll_offset = 0;
+            KeyCode::Home | KeyCode::Char('g') => {
+                self.results_row = 0;
             }
             KeyCode::Esc => {
                 self.state = AppState::Normal;
                 self.screen = Screen::Home;
-                self.scroll_offset = 0;
+                self.results_tab = 0;
+                self.results_row = 0;
             }
             _ => {}
         }
@@ -283,12 +294,10 @@ impl App {
     fn handle_results_view_mouse(&mut self, mouse: crossterm::event::MouseEvent) -> Result<()> {
         match mouse.kind {
             MouseEventKind::ScrollUp => {
-                if self.scroll_offset > 0 {
-                    self.scroll_offset = self.scroll_offset.saturating_sub(3);
-                }
+                self.results_row = self.results_row.saturating_sub(3);
             }
             MouseEventKind::ScrollDown => {
-                self.scroll_offset += 3;
+                self.results_row += 3;
             }
             _ => {}
         }

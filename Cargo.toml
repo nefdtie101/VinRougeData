@@ -43,6 +43,9 @@ tracing = "0.1"
 # CLI
 clap = { version = "4.5", features = ["derive"] }
 
+# OpenSSL vendored so cross-compilation doesn't need system OpenSSL headers
+openssl = { version = "0.10", features = ["vendored"] }
+
 # Async runtime
 tokio = { version = "1.42", features = ["full"] }
 
