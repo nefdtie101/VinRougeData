@@ -85,8 +85,8 @@ jobs:
     name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    # Run even if some build jobs failed, but not if the whole workflow was cancelled
-    if: always() && !cancelled() && startsWith(github.ref, 'refs/tags/v')
+    # Run on version tags and successful master pushes (not PRs)
+    if: always() && !cancelled() && (startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/master' && github.event_name == 'push'))
     permissions:
       contents: write
 
@@ -107,8 +107,23 @@ jobs:
             exit 1
           fi
 
-      - name: Create GitHub Release
+      - name: Create versioned GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*
           generate_release_notes: true
+
+      - name: Update rolling 'latest' release (on master)
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest build (master)"
+          prerelease: true
+          files: artifacts/**/*
+          body: |
+            Automated build from the latest commit on `master`.
+            Binaries are updated on every successful push.
+
+            **Commit:** ${{ github.sha }}
