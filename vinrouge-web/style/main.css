@@ -169,6 +169,17 @@ body {
   font-weight: 500;
   border-bottom: 1px solid var(--border);
 }
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sortable-th:hover { color: var(--text); }
+.sort-indicator {
+  margin-left: 0.3rem;
+  font-size: 0.7em;
+  opacity: 0.6;
+}
 .data-table td {
   padding: 0.4rem 0.75rem;
   border-bottom: 1px solid var(--border);
