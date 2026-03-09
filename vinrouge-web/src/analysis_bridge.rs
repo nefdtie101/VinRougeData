@@ -90,6 +90,7 @@ pub async fn run_analysis(files: Vec<UploadedFile>) -> Result<AnalysisResult> {
         let config = ReconciliationConfig {
             key_columns: vec![],   // auto-detect
             compare_columns: None, // compare all
+            column_mappings: vec![],
             case_sensitive: false,
             trim_whitespace: true,
             max_mismatches: 1_000,
