@@ -1,0 +1,100 @@
+name: Build Binaries
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    name: Build - ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: vinrouge
+            asset_name: vinrouge-linux-x86_64
+
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: vinrouge
+            asset_name: vinrouge-linux-aarch64
+            use_cross: true
+
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact_name: vinrouge
+            asset_name: vinrouge-macos-x86_64
+
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact_name: vinrouge
+            asset_name: vinrouge-macos-aarch64
+
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact_name: vinrouge.exe
+            asset_name: vinrouge-windows-x86_64.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (for cross-compilation)
+        if: matrix.use_cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build binary (cross)
+        if: matrix.use_cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build binary
+        if: "!matrix.use_cross"
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Rename binary for release
+        shell: bash
+        run: |
+          src="target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
+          dst="${{ matrix.asset_name }}"
+          cp "$src" "$dst"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
