@@ -33,11 +33,13 @@ jobs:
             os: macos-latest
             artifact_name: vinrouge
             asset_name: vinrouge-macos-x86_64
+            archive_ext: tar.gz
 
           - target: aarch64-apple-darwin
             os: macos-latest
             artifact_name: vinrouge
             asset_name: vinrouge-macos-aarch64
+            archive_ext: tar.gz
 
           - target: x86_64-pc-windows-msvc
             os: windows-latest
@@ -67,14 +69,31 @@ jobs:
         if: "!matrix.use_cross"
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary for release
+      - name: Package macOS binary (tar.gz preserves execute permissions)
+        if: matrix.archive_ext == 'tar.gz'
+        run: |
+          tar -czf ${{ matrix.asset_name }}.tar.gz \
+            -C target/${{ matrix.target }}/release \
+            ${{ matrix.artifact_name }}
+
+      - name: Rename binary for release (non-macOS)
+        if: matrix.archive_ext != 'tar.gz'
         shell: bash
         run: |
           src="target/${{ matrix.target }}/release/${{ matrix.artifact_name }}"
           dst="${{ matrix.asset_name }}"
           cp "$src" "$dst"
 
-      - name: Upload artifact
+      - name: Upload artifact (macOS tar.gz)
+        if: matrix.archive_ext == 'tar.gz'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}.tar.gz
+          if-no-files-found: error
+
+      - name: Upload artifact (other)
+        if: matrix.archive_ext != 'tar.gz'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
