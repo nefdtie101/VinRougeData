@@ -49,7 +49,9 @@ impl FlatfileSource {
     }
 
     fn parse_delimited_line(&self, line: &str, delimiter: char) -> Vec<String> {
-        line.split(delimiter).map(|s| s.trim().to_string()).collect()
+        line.split(delimiter)
+            .map(|s| s.trim().to_string())
+            .collect()
     }
 
     fn parse_fixed_width_line(&self, line: &str, widths: &[usize]) -> Vec<String> {
@@ -94,10 +96,7 @@ impl FlatfileSource {
 
             if has_boolean {
                 let lower = trimmed.to_lowercase();
-                if !matches!(
-                    lower.as_str(),
-                    "true" | "false" | "yes" | "no" | "1" | "0"
-                ) {
+                if !matches!(lower.as_str(), "true" | "false" | "yes" | "no" | "1" | "0") {
                     has_boolean = false;
                 }
             }
@@ -119,7 +118,7 @@ impl FlatfileSource {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl DataSource for FlatfileSource {
     async fn extract_schema(&mut self) -> Result<Vec<Table>> {
         let path = Path::new(&self.file_path);

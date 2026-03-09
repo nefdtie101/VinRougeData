@@ -4,10 +4,10 @@ use std::collections::HashSet;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DetectionMethod {
-    Delimited(String),    // e.g., ","
-    VocabularySegmented,  // DP match against cross-column vocabulary
-    PatternRepetition,    // structural shape repeat
-    LengthOutlier,        // MAD-based length outlier
+    Delimited(String),   // e.g., ","
+    VocabularySegmented, // DP match against cross-column vocabulary
+    PatternRepetition,   // structural shape repeat
+    LengthOutlier,       // MAD-based length outlier
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,7 +106,8 @@ impl MultiValueDetector {
                     continue;
                 }
 
-                if let Some(delim_result) = delimiter_results.get(col_idx).and_then(|r| r.as_ref()) {
+                if let Some(delim_result) = delimiter_results.get(col_idx).and_then(|r| r.as_ref())
+                {
                     // Delimiter-confirmed
                     let multi_cells: Vec<&str> = non_empty
                         .iter()
@@ -114,7 +115,8 @@ impl MultiValueDetector {
                         .copied()
                         .collect();
 
-                    let examples_raw: Vec<String> = multi_cells.iter().take(3).map(|s| s.to_string()).collect();
+                    let examples_raw: Vec<String> =
+                        multi_cells.iter().take(3).map(|s| s.to_string()).collect();
                     let examples_split: Vec<Vec<String>> = multi_cells
                         .iter()
                         .take(3)
@@ -137,7 +139,8 @@ impl MultiValueDetector {
                     };
 
                     // If >50% of split tokens are numeric — it's likely formatted numbers
-                    let is_numeric_values = self.check_mostly_numeric(&delim_result.delimiter, &non_empty);
+                    let is_numeric_values =
+                        self.check_mostly_numeric(&delim_result.delimiter, &non_empty);
 
                     let mut confidence = delim_result.fraction;
                     if (avg_parts - 2.0).abs() < 0.5 {
@@ -151,12 +154,15 @@ impl MultiValueDetector {
                         continue;
                     }
 
-                    let atoms: Vec<String> = delim_result.vocabulary.iter().take(50).cloned().collect();
+                    let atoms: Vec<String> =
+                        delim_result.vocabulary.iter().take(50).cloned().collect();
 
                     multi_value_columns.push(MultiValueColumnAnalysis {
                         column_name: column.name.clone(),
                         table_name: table_name.clone(),
-                        detection_method: DetectionMethod::Delimited(delim_result.delimiter.clone()),
+                        detection_method: DetectionMethod::Delimited(
+                            delim_result.delimiter.clone(),
+                        ),
                         delimiter: Some(delim_result.delimiter.clone()),
                         confidence: confidence.min(1.0),
                         multi_value_cell_count: multi_cells.len(),
@@ -175,17 +181,13 @@ impl MultiValueDetector {
                         &global_vocab,
                     ) {
                         multi_value_columns.push(analysis);
-                    } else if let Some(analysis) = self.detect_pattern_repetition(
-                        &column.name,
-                        table_name,
-                        &non_empty,
-                    ) {
+                    } else if let Some(analysis) =
+                        self.detect_pattern_repetition(&column.name, table_name, &non_empty)
+                    {
                         multi_value_columns.push(analysis);
-                    } else if let Some(analysis) = self.detect_length_outliers(
-                        &column.name,
-                        table_name,
-                        &non_empty,
-                    ) {
+                    } else if let Some(analysis) =
+                        self.detect_length_outliers(&column.name, table_name, &non_empty)
+                    {
                         multi_value_columns.push(analysis);
                     }
                 }
@@ -274,8 +276,16 @@ impl MultiValueDetector {
         }
 
         let confidence = (ratio * 1.5).min(0.95);
-        let example_raw: Vec<String> = segmented_cells.iter().take(3).map(|(s, _)| s.to_string()).collect();
-        let example_split: Vec<Vec<String>> = segmented_cells.iter().take(3).map(|(_, parts)| parts.clone()).collect();
+        let example_raw: Vec<String> = segmented_cells
+            .iter()
+            .take(3)
+            .map(|(s, _)| s.to_string())
+            .collect();
+        let example_split: Vec<Vec<String>> = segmented_cells
+            .iter()
+            .take(3)
+            .map(|(_, parts)| parts.clone())
+            .collect();
 
         // Collect unique atoms seen in splits
         let mut atoms: HashSet<String> = HashSet::new();
@@ -394,7 +404,11 @@ impl MultiValueDetector {
         }
 
         let confidence = ratio * 0.6;
-        let example_raw: Vec<String> = flagged.iter().take(3).map(|&i| cells[i].to_string()).collect();
+        let example_raw: Vec<String> = flagged
+            .iter()
+            .take(3)
+            .map(|&i| cells[i].to_string())
+            .collect();
         let example_split: Vec<Vec<String>> = example_raw
             .iter()
             .map(|s| vec!["[pattern-based]".to_string(), s.clone()])
@@ -458,7 +472,11 @@ impl MultiValueDetector {
 
         let ratio = flagged.len() as f64 / cells.len() as f64;
         let confidence = ratio * 0.4;
-        let example_raw: Vec<String> = flagged.iter().take(3).map(|&i| cells[i].to_string()).collect();
+        let example_raw: Vec<String> = flagged
+            .iter()
+            .take(3)
+            .map(|&i| cells[i].to_string())
+            .collect();
         let example_split: Vec<Vec<String>> = example_raw
             .iter()
             .map(|s| vec!["[length-outlier]".to_string(), s.clone()])
@@ -486,8 +504,7 @@ impl MultiValueDetector {
                 // Simple check: has at least two '/' or '-' separating digit groups
                 let slashes = s.chars().filter(|&c| c == '/').count();
                 let dashes = s.chars().filter(|&c| c == '-').count();
-                (slashes >= 2 || dashes >= 2)
-                    && s.chars().any(|c| c.is_ascii_digit())
+                (slashes >= 2 || dashes >= 2) && s.chars().any(|c| c.is_ascii_digit())
             })
             .count();
 

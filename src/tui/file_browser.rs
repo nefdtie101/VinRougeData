@@ -146,7 +146,9 @@ impl FileBrowser {
     }
 
     pub fn get_selected_path(&self) -> Option<&Path> {
-        self.entries.get(self.selected_index).map(|e| e.path.as_path())
+        self.entries
+            .get(self.selected_index)
+            .map(|e| e.path.as_path())
     }
 
     pub fn format_size(size: u64) -> String {

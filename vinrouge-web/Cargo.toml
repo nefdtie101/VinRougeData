@@ -1,0 +1,39 @@
+[package]
+name = "vinrouge-web"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+vinrouge = { path = ".." }
+
+# WASM core
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "console",
+    "File", "FileReader", "FileList",
+    "Blob", "BlobPropertyBag",
+    "Url",
+    "HtmlInputElement", "HtmlAnchorElement",
+    "DragEvent", "DataTransfer",
+    "Window", "Document", "Element",
+    "Event", "EventTarget",
+] }
+
+# UI
+leptos = { version = "0.7", features = ["csr"] }
+
+# Shared
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+
+# WASM dev-quality-of-life
+console_error_panic_hook = "0.1"
+tracing-wasm = "0.2"
+getrandom = { version = "0.2", features = ["js"] }

@@ -1,7 +1,7 @@
 mod column;
-mod table;
 mod relationship;
+mod table;
 
 pub use column::{Column, DataType};
-pub use table::Table;
 pub use relationship::{Relationship, RelationshipType};
+pub use table::Table;

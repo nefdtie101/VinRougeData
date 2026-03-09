@@ -199,7 +199,8 @@ impl RelationshipDetector {
                     // Check if target column exists
                     if table.columns.iter().any(|c| {
                         c.name.to_lowercase() == target_col
-                            || c.name.to_lowercase() == format!("{}_{}", potential_table, target_col).to_lowercase()
+                            || c.name.to_lowercase()
+                                == format!("{}_{}", potential_table, target_col).to_lowercase()
                     }) {
                         return Some((table.full_name.clone(), target_col.to_string()));
                     }

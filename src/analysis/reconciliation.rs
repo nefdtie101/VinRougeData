@@ -82,7 +82,11 @@ impl Reconciliator {
         let key_indices_2 = self.get_column_indices(&key_columns, source2_columns);
 
         if key_indices_1.is_empty() || key_indices_2.is_empty() {
-            return self.empty_result(source1_name, source2_name, "Key columns not found in both sources");
+            return self.empty_result(
+                source1_name,
+                source2_name,
+                "Key columns not found in both sources",
+            );
         }
 
         // Build key maps
@@ -103,14 +107,11 @@ impl Reconciliator {
 
                 // Compare first occurrence of each key
                 if let (Some(&idx1), Some(&idx2)) = (indices1.first(), indices2.first()) {
-                    if let (Some(row1), Some(row2)) = (source1_data.get(idx1), source2_data.get(idx2)) {
-                        let mismatches = self.compare_rows(
-                            key,
-                            row1,
-                            source1_columns,
-                            row2,
-                            source2_columns,
-                        );
+                    if let (Some(row1), Some(row2)) =
+                        (source1_data.get(idx1), source2_data.get(idx2))
+                    {
+                        let mismatches =
+                            self.compare_rows(key, row1, source1_columns, row2, source2_columns);
                         field_mismatches.extend(mismatches);
                     }
                 }
@@ -302,7 +303,12 @@ impl Reconciliator {
         mismatches
     }
 
-    fn empty_result(&self, source1_name: &str, source2_name: &str, reason: &str) -> ReconciliationResult {
+    fn empty_result(
+        &self,
+        source1_name: &str,
+        source2_name: &str,
+        reason: &str,
+    ) -> ReconciliationResult {
         ReconciliationResult {
             source1_name: source1_name.to_string(),
             source2_name: source2_name.to_string(),

@@ -3,18 +3,38 @@ use crate::sources::DataSource;
 use anyhow::{Context, Result};
 use csv::ReaderBuilder;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::io::Cursor;
 
 pub struct CsvSource {
-    file_path: String,
+    inner: CsvSourceInner,
     has_header: bool,
     delimiter: u8,
 }
 
+enum CsvSourceInner {
+    #[cfg(not(target_arch = "wasm32"))]
+    Path(String),
+    Content {
+        data: Vec<u8>,
+        name: String,
+    },
+}
+
 impl CsvSource {
+    /// Native constructor — opens from a file path.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(file_path: String) -> Self {
         Self {
-            file_path,
+            inner: CsvSourceInner::Path(file_path),
+            has_header: true,
+            delimiter: b',',
+        }
+    }
+
+    /// WASM-safe constructor — reads from raw bytes (e.g. from a browser FileReader).
+    pub fn from_bytes(bytes: Vec<u8>, name: String) -> Self {
+        Self {
+            inner: CsvSourceInner::Content { data: bytes, name },
             has_header: true,
             delimiter: b',',
         }
@@ -28,6 +48,26 @@ impl CsvSource {
     pub fn with_header(mut self, has_header: bool) -> Self {
         self.has_header = has_header;
         self
+    }
+
+    fn display_name(&self) -> &str {
+        match &self.inner {
+            #[cfg(not(target_arch = "wasm32"))]
+            CsvSourceInner::Path(p) => p.as_str(),
+            CsvSourceInner::Content { name, .. } => name.as_str(),
+        }
+    }
+
+    fn make_reader(&self) -> Result<csv::Reader<Cursor<Vec<u8>>>> {
+        let bytes = match &self.inner {
+            #[cfg(not(target_arch = "wasm32"))]
+            CsvSourceInner::Path(path) => std::fs::read(path).context("Failed to read CSV file")?,
+            CsvSourceInner::Content { data, .. } => data.clone(),
+        };
+        Ok(ReaderBuilder::new()
+            .delimiter(self.delimiter)
+            .has_headers(self.has_header)
+            .from_reader(Cursor::new(bytes)))
     }
 
     fn infer_data_type(&self, values: &[String]) -> DataType {
@@ -45,17 +85,14 @@ impl CsvSource {
 
             max_length = max_length.max(trimmed.len());
 
-            // Check integer
             if has_integer && trimmed.parse::<i64>().is_err() {
                 has_integer = false;
             }
 
-            // Check float
             if has_float && trimmed.parse::<f64>().is_err() {
                 has_float = false;
             }
 
-            // Check boolean
             if has_boolean {
                 let lower = trimmed.to_lowercase();
                 if !matches!(
@@ -66,13 +103,10 @@ impl CsvSource {
                 }
             }
 
-            // Check date patterns (basic)
             if has_date {
-                // Simple date pattern check
                 let has_slash = trimmed.contains('/');
                 let has_dash = trimmed.contains('-');
                 let has_digits = trimmed.chars().any(|c| c.is_ascii_digit());
-
                 if !has_digits || (!has_slash && !has_dash) {
                     has_date = false;
                 }
@@ -122,32 +156,27 @@ impl CsvSource {
             column.unique_count = Some(unique_values.len());
             column.null_count = Some(null_count);
 
-            // Heuristic: if column has unique values for all non-null records, could be a key
             if null_count == 0 && unique_values.len() == total_count {
-                // Potential primary key - mark it for analysis
-                column.add_note("Potential primary key (all values unique and non-null)");
+                column.sample_values.insert(
+                    0,
+                    "NOTE: Potential primary key (all values unique and non-null)".to_string(),
+                );
             }
         }
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait::async_trait(?Send)]
 impl DataSource for CsvSource {
     async fn extract_schema(&mut self) -> Result<Vec<Table>> {
-        let path = Path::new(&self.file_path);
-        let file_name = path
+        let stem = std::path::Path::new(self.display_name())
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown")
             .to_string();
 
-        let mut reader = ReaderBuilder::new()
-            .delimiter(self.delimiter)
-            .has_headers(self.has_header)
-            .from_path(&self.file_path)
-            .context("Failed to open CSV file")?;
+        let mut reader = self.make_reader()?;
 
-        // Get headers
         let headers: Vec<String> = if self.has_header {
             reader
                 .headers()
@@ -156,7 +185,6 @@ impl DataSource for CsvSource {
                 .map(|s| s.to_string())
                 .collect()
         } else {
-            // Generate column names
             let first_record = reader.records().next();
             if let Some(Ok(record)) = first_record {
                 (0..record.len())
@@ -167,7 +195,6 @@ impl DataSource for CsvSource {
             }
         };
 
-        // Sample records for type inference (max 1000 rows)
         let mut records = Vec::new();
         let mut column_samples: HashMap<usize, Vec<String>> = HashMap::new();
 
@@ -175,7 +202,6 @@ impl DataSource for CsvSource {
             if idx >= 1000 {
                 break;
             }
-
             let record = result.context("Failed to read CSV record")?;
             let values: Vec<String> = record.iter().map(|s| s.to_string()).collect();
 
@@ -185,11 +211,9 @@ impl DataSource for CsvSource {
                     .or_insert_with(Vec::new)
                     .push(value.clone());
             }
-
             records.push(values);
         }
 
-        // Create columns with inferred types
         let mut columns = Vec::new();
         for (idx, header) in headers.iter().enumerate() {
             let samples = column_samples.get(&idx).cloned().unwrap_or_default();
@@ -197,7 +221,6 @@ impl DataSource for CsvSource {
 
             let mut column = Column::new(header.clone(), data_type);
 
-            // Store sample values (first 5 unique)
             let unique_samples: HashSet<String> = samples
                 .iter()
                 .filter(|s| !s.trim().is_empty())
@@ -208,11 +231,10 @@ impl DataSource for CsvSource {
             columns.push(column);
         }
 
-        // Detect potential keys
         self.detect_potential_keys(&mut columns, &records);
 
-        // Create table
-        let mut table = Table::new(file_name, "csv".to_string(), self.file_path.clone());
+        let display = self.display_name().to_string();
+        let mut table = Table::new(stem, "csv".to_string(), display);
         table.row_count = Some(records.len());
 
         for column in columns {
@@ -223,12 +245,7 @@ impl DataSource for CsvSource {
     }
 
     async fn read_data(&mut self) -> Result<Vec<Vec<String>>> {
-        let mut reader = ReaderBuilder::new()
-            .delimiter(self.delimiter)
-            .has_headers(self.has_header)
-            .from_path(&self.file_path)
-            .context("Failed to open CSV file")?;
-
+        let mut reader = self.make_reader()?;
         let mut data = Vec::new();
 
         for result in reader.records() {
@@ -242,20 +259,5 @@ impl DataSource for CsvSource {
 
     fn source_type(&self) -> &str {
         "csv"
-    }
-}
-
-// Helper trait extension for adding notes to columns
-trait ColumnExt {
-    fn add_note(&mut self, note: &str);
-}
-
-impl ColumnExt for Column {
-    fn add_note(&mut self, note: &str) {
-        // For now, we'll store this in the sample_values as a marker
-        // In a real implementation, you'd add a `notes` field to Column
-        if !self.sample_values.contains(&format!("NOTE: {}", note)) {
-            self.sample_values.insert(0, format!("NOTE: {}", note));
-        }
     }
 }

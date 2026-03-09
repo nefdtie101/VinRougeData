@@ -46,6 +46,33 @@ impl ExcelExporter {
         Ok(())
     }
 
+    /// Returns the workbook as raw bytes — used by the WASM web UI to trigger
+    /// a browser download without writing to the filesystem.
+    pub fn export_to_bytes(&self, result: &AnalysisResult) -> Result<Vec<u8>> {
+        let mut workbook = Workbook::new();
+
+        self.write_summary_sheet(&mut workbook, result)?;
+
+        if !result.tables.is_empty() {
+            self.write_tables_sheet(&mut workbook, result)?;
+        }
+        if !result.relationships.is_empty() {
+            self.write_relationships_sheet(&mut workbook, result)?;
+        }
+        if !result.workflows.is_empty() {
+            self.write_workflows_sheet(&mut workbook, result)?;
+        }
+        if !result.reconciliation_results.is_empty() {
+            self.write_reconciliation_sheet(&mut workbook, result)?;
+        }
+        if !result.multi_value_analyses.is_empty() {
+            self.write_multi_value_sheet(&mut workbook, result)?;
+        }
+
+        let bytes = workbook.save_to_buffer()?;
+        Ok(bytes)
+    }
+
     fn write_summary_sheet(&self, workbook: &mut Workbook, result: &AnalysisResult) -> Result<()> {
         let worksheet = workbook.add_worksheet().set_name("Summary")?;
 
@@ -58,7 +85,14 @@ impl ExcelExporter {
 
         // Write title
         worksheet.write_with_format(0, 0, "VinRouge Analysis Report", &header_format)?;
-        worksheet.write(1, 0, format!("Generated: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S")))?;
+        worksheet.write(
+            1,
+            0,
+            format!(
+                "Generated: {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+            ),
+        )?;
 
         // Summary statistics
         let bold = Format::new().set_bold();
@@ -132,7 +166,11 @@ impl ExcelExporter {
         Ok(())
     }
 
-    fn write_relationships_sheet(&self, workbook: &mut Workbook, result: &AnalysisResult) -> Result<()> {
+    fn write_relationships_sheet(
+        &self,
+        workbook: &mut Workbook,
+        result: &AnalysisResult,
+    ) -> Result<()> {
         let worksheet = workbook.add_worksheet().set_name("Relationships")?;
 
         let header_format = Format::new().set_bold();
@@ -164,7 +202,11 @@ impl ExcelExporter {
         Ok(())
     }
 
-    fn write_workflows_sheet(&self, workbook: &mut Workbook, result: &AnalysisResult) -> Result<()> {
+    fn write_workflows_sheet(
+        &self,
+        workbook: &mut Workbook,
+        result: &AnalysisResult,
+    ) -> Result<()> {
         let worksheet = workbook.add_worksheet().set_name("Workflows")?;
 
         let header_format = Format::new().set_bold();
@@ -193,7 +235,11 @@ impl ExcelExporter {
         Ok(())
     }
 
-    fn write_reconciliation_sheet(&self, workbook: &mut Workbook, result: &AnalysisResult) -> Result<()> {
+    fn write_reconciliation_sheet(
+        &self,
+        workbook: &mut Workbook,
+        result: &AnalysisResult,
+    ) -> Result<()> {
         let worksheet = workbook.add_worksheet().set_name("Reconciliation")?;
 
         let header_format = Format::new().set_bold();
@@ -231,20 +277,40 @@ impl ExcelExporter {
         }
 
         // Add field mismatches detail section if any exist
-        if result.reconciliation_results.iter().any(|r| !r.field_mismatches.is_empty()) {
+        if result
+            .reconciliation_results
+            .iter()
+            .any(|r| !r.field_mismatches.is_empty())
+        {
             let mut current_row = result.reconciliation_results.len() as u32 + 3;
 
             for recon in &result.reconciliation_results {
                 if !recon.field_mismatches.is_empty() {
-                    worksheet.write_with_format(current_row, 0,
-                        format!("Mismatches: {} vs {}", recon.source1_name, recon.source2_name),
-                        &header_format)?;
+                    worksheet.write_with_format(
+                        current_row,
+                        0,
+                        format!(
+                            "Mismatches: {} vs {}",
+                            recon.source1_name, recon.source2_name
+                        ),
+                        &header_format,
+                    )?;
                     current_row += 1;
 
                     worksheet.write_with_format(current_row, 0, "Key Value", &header_format)?;
                     worksheet.write_with_format(current_row, 1, "Column", &header_format)?;
-                    worksheet.write_with_format(current_row, 2, "Source 1 Value", &header_format)?;
-                    worksheet.write_with_format(current_row, 3, "Source 2 Value", &header_format)?;
+                    worksheet.write_with_format(
+                        current_row,
+                        2,
+                        "Source 1 Value",
+                        &header_format,
+                    )?;
+                    worksheet.write_with_format(
+                        current_row,
+                        3,
+                        "Source 2 Value",
+                        &header_format,
+                    )?;
                     current_row += 1;
 
                     for mismatch in recon.field_mismatches.iter().take(50) {
@@ -262,7 +328,11 @@ impl ExcelExporter {
         Ok(())
     }
 
-    fn write_multi_value_sheet(&self, workbook: &mut Workbook, result: &AnalysisResult) -> Result<()> {
+    fn write_multi_value_sheet(
+        &self,
+        workbook: &mut Workbook,
+        result: &AnalysisResult,
+    ) -> Result<()> {
         use crate::analysis::DetectionMethod;
 
         let worksheet = workbook.add_worksheet().set_name("Multi-Value Columns")?;
@@ -304,7 +374,11 @@ impl ExcelExporter {
                 worksheet.write(row, 6, col_analysis.total_cell_count as f64)?;
                 worksheet.write(row, 7, (col_analysis.multi_value_ratio * 100.0).round())?;
 
-                let raw_example = col_analysis.example_raw.first().map(|s| s.as_str()).unwrap_or("");
+                let raw_example = col_analysis
+                    .example_raw
+                    .first()
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 worksheet.write(row, 8, raw_example)?;
 
                 let split_example = col_analysis

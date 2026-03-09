@@ -1,6 +1,11 @@
-use crate::analysis::{RelationshipDetector, WorkflowDetector, DataProfiler, GroupingAnalyzer, Reconciliator, ReconciliationConfig, MultiValueDetector};
+use crate::analysis::{
+    DataProfiler, GroupingAnalyzer, MultiValueDetector, ReconciliationConfig, Reconciliator,
+    RelationshipDetector, WorkflowDetector,
+};
 use crate::config::SourceConfig;
-use crate::export::{AnalysisResult, ExportFormat, Exporter, JsonExporter, MarkdownExporter, ExcelExporter};
+use crate::export::{
+    AnalysisResult, ExcelExporter, ExportFormat, Exporter, JsonExporter, MarkdownExporter,
+};
 use crate::sources::{CsvSource, DataSource, ExcelSource, MssqlSource};
 use crate::tui::events::{is_exit_key, AppEvent};
 use crate::tui::file_browser::{FileBrowser, FileFilter};
@@ -103,80 +108,78 @@ impl App {
     }
 
     async fn handle_normal_mode(&mut self, key: KeyEvent) -> Result<()> {
-                match self.screen {
-                    Screen::Home => {
-                        match key.code {
-                            KeyCode::Char('1') => self.screen = Screen::SourceList,
-                            KeyCode::Char('2') => {
-                                if !self.sources.is_empty() {
-                                    self.run_analysis().await?;
-                                } else {
-                                    self.status_message = "No sources configured. Add a source first.".to_string();
-                                }
-                            }
-                            KeyCode::Char('3') => {
-                                if self.analysis_result.is_some() {
-                                    self.screen = Screen::Results;
-                                    self.state = AppState::ViewingResults;
-                                } else {
-                                    self.status_message = "No results yet. Run analysis first.".to_string();
-                                }
-                            }
-                            KeyCode::Char('4') => {
-                                if self.sources.len() >= 2 {
-                                    self.screen = Screen::Reconcile;
-                                    self.state = AppState::Reconciling {
-                                        source1_idx: None,
-                                        source2_idx: None,
-                                    };
-                                    self.selected_index = 0;
-                                } else {
-                                    self.status_message = "Need at least 2 sources to reconcile.".to_string();
-                                }
-                            }
-                            KeyCode::Char('5') => {
-                                if self.analysis_result.is_some() {
-                                    self.screen = Screen::Export;
-                                    self.state = AppState::Exporting {
-                                        format: None,
-                                        filename: String::from("analysis_results"),
-                                    };
-                                } else {
-                                    self.status_message = "No results to export. Run analysis first.".to_string();
-                                }
-                            }
-                            KeyCode::Char('?') | KeyCode::F(1) => self.screen = Screen::Help,
-                            _ => {}
-                        }
+        match self.screen {
+            Screen::Home => match key.code {
+                KeyCode::Char('1') => self.screen = Screen::SourceList,
+                KeyCode::Char('2') => {
+                    if !self.sources.is_empty() {
+                        self.run_analysis().await?;
+                    } else {
+                        self.status_message =
+                            "No sources configured. Add a source first.".to_string();
                     }
-            Screen::SourceList => {
-                match key.code {
-                    KeyCode::Char('1') => self.start_file_browser(SourceType::Csv),
-                    KeyCode::Char('2') => self.start_file_browser(SourceType::Excel),
-                    KeyCode::Char('3') => self.start_adding_source(SourceType::Mssql),
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        if self.selected_index > 0 {
+                }
+                KeyCode::Char('3') => {
+                    if self.analysis_result.is_some() {
+                        self.screen = Screen::Results;
+                        self.state = AppState::ViewingResults;
+                    } else {
+                        self.status_message = "No results yet. Run analysis first.".to_string();
+                    }
+                }
+                KeyCode::Char('4') => {
+                    if self.sources.len() >= 2 {
+                        self.screen = Screen::Reconcile;
+                        self.state = AppState::Reconciling {
+                            source1_idx: None,
+                            source2_idx: None,
+                        };
+                        self.selected_index = 0;
+                    } else {
+                        self.status_message = "Need at least 2 sources to reconcile.".to_string();
+                    }
+                }
+                KeyCode::Char('5') => {
+                    if self.analysis_result.is_some() {
+                        self.screen = Screen::Export;
+                        self.state = AppState::Exporting {
+                            format: None,
+                            filename: String::from("analysis_results"),
+                        };
+                    } else {
+                        self.status_message =
+                            "No results to export. Run analysis first.".to_string();
+                    }
+                }
+                KeyCode::Char('?') | KeyCode::F(1) => self.screen = Screen::Help,
+                _ => {}
+            },
+            Screen::SourceList => match key.code {
+                KeyCode::Char('1') => self.start_file_browser(SourceType::Csv),
+                KeyCode::Char('2') => self.start_file_browser(SourceType::Excel),
+                KeyCode::Char('3') => self.start_adding_source(SourceType::Mssql),
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if self.selected_index > 0 {
+                        self.selected_index -= 1;
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if self.selected_index < self.sources.len().saturating_sub(1) {
+                        self.selected_index += 1;
+                    }
+                }
+                KeyCode::Delete | KeyCode::Char('d') => {
+                    if !self.sources.is_empty() && self.selected_index < self.sources.len() {
+                        self.sources.remove(self.selected_index);
+                        if self.selected_index >= self.sources.len() && self.selected_index > 0 {
                             self.selected_index -= 1;
                         }
+                        self.status_message = "Source deleted".to_string();
                     }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        if self.selected_index < self.sources.len().saturating_sub(1) {
-                            self.selected_index += 1;
-                        }
-                    }
-                    KeyCode::Delete | KeyCode::Char('d') => {
-                        if !self.sources.is_empty() && self.selected_index < self.sources.len() {
-                            self.sources.remove(self.selected_index);
-                            if self.selected_index >= self.sources.len() && self.selected_index > 0 {
-                                self.selected_index -= 1;
-                            }
-                            self.status_message = "Source deleted".to_string();
-                        }
-                    }
-                    KeyCode::Esc => self.screen = Screen::Home,
-                    _ => {}
                 }
-            }
+                KeyCode::Esc => self.screen = Screen::Home,
+                _ => {}
+            },
             Screen::Help => {
                 if matches!(key.code, KeyCode::Esc | KeyCode::Char('q')) {
                     self.screen = Screen::Home;
@@ -374,11 +377,14 @@ impl App {
         let mut all_tables = Vec::new();
         let mut all_data_profiles = Vec::new();
         let mut all_grouping_analyses = Vec::new();
-        let mut loaded_sources: Vec<(String, Vec<Vec<String>>, Vec<crate::schema::Column>)> = Vec::new();
+        let mut loaded_sources: Vec<(String, Vec<Vec<String>>, Vec<crate::schema::Column>)> =
+            Vec::new();
 
         for source_config in &self.sources {
             let tables = match source_config {
-                SourceConfig::Mssql { connection_string, .. } => {
+                SourceConfig::Mssql {
+                    connection_string, ..
+                } => {
                     let mut source = MssqlSource::new(connection_string.clone());
                     match source.extract_schema().await {
                         Ok(tables) => tables,
@@ -389,7 +395,11 @@ impl App {
                         }
                     }
                 }
-                SourceConfig::Csv { path, delimiter, has_header } => {
+                SourceConfig::Csv {
+                    path,
+                    delimiter,
+                    has_header,
+                } => {
                     let mut source = CsvSource::new(path.clone());
                     if let Some(delim) = delimiter {
                         source = source.with_delimiter(*delim);
@@ -406,8 +416,13 @@ impl App {
                                         let table = &tables[0];
 
                                         // Store for reconciliation
-                                        let name = path.split('/').last().unwrap_or(path).to_string();
-                                        loaded_sources.push((name, data.clone(), table.columns.clone()));
+                                        let name =
+                                            path.split('/').last().unwrap_or(path).to_string();
+                                        loaded_sources.push((
+                                            name,
+                                            data.clone(),
+                                            table.columns.clone(),
+                                        ));
 
                                         // Run data profiling
                                         let profiler = DataProfiler::new(10000);
@@ -416,14 +431,19 @@ impl App {
 
                                         // Run grouping analysis
                                         let analyzer = GroupingAnalyzer::new(1000);
-                                        let grouping = analyzer.analyze_groupings(&data, &table.columns);
+                                        let grouping =
+                                            analyzer.analyze_groupings(&data, &table.columns);
                                         let dim_count = grouping.grouping_dimensions.len();
                                         all_grouping_analyses.push(grouping);
 
-                                        self.status_message = format!("Analyzed {} rows, found {} grouping dimensions",
-                                            data.len(), dim_count);
+                                        self.status_message = format!(
+                                            "Analyzed {} rows, found {} grouping dimensions",
+                                            data.len(),
+                                            dim_count
+                                        );
                                     } else if data.is_empty() {
-                                        self.status_message = "Warning: File has no data rows".to_string();
+                                        self.status_message =
+                                            "Warning: File has no data rows".to_string();
                                     }
                                 }
                                 Err(e) => {
@@ -439,7 +459,11 @@ impl App {
                         }
                     }
                 }
-                SourceConfig::Excel { path, sheet, has_header } => {
+                SourceConfig::Excel {
+                    path,
+                    sheet,
+                    has_header,
+                } => {
                     let mut source = ExcelSource::new(path.clone());
                     if let Some(sheet_name) = sheet {
                         source = source.with_sheet(sheet_name.clone());
@@ -456,8 +480,13 @@ impl App {
                                         let table = &tables[0];
 
                                         // Store for reconciliation
-                                        let name = path.split('/').last().unwrap_or(path).to_string();
-                                        loaded_sources.push((name, data.clone(), table.columns.clone()));
+                                        let name =
+                                            path.split('/').last().unwrap_or(path).to_string();
+                                        loaded_sources.push((
+                                            name,
+                                            data.clone(),
+                                            table.columns.clone(),
+                                        ));
 
                                         // Run data profiling
                                         let profiler = DataProfiler::new(10000);
@@ -466,14 +495,19 @@ impl App {
 
                                         // Run grouping analysis
                                         let analyzer = GroupingAnalyzer::new(1000);
-                                        let grouping = analyzer.analyze_groupings(&data, &table.columns);
+                                        let grouping =
+                                            analyzer.analyze_groupings(&data, &table.columns);
                                         let dim_count = grouping.grouping_dimensions.len();
                                         all_grouping_analyses.push(grouping);
 
-                                        self.status_message = format!("Analyzed {} rows, found {} grouping dimensions",
-                                            data.len(), dim_count);
+                                        self.status_message = format!(
+                                            "Analyzed {} rows, found {} grouping dimensions",
+                                            data.len(),
+                                            dim_count
+                                        );
                                     } else if data.is_empty() {
-                                        self.status_message = "Warning: File has no data rows".to_string();
+                                        self.status_message =
+                                            "Warning: File has no data rows".to_string();
                                     }
                                 }
                                 Err(e) => {
@@ -500,7 +534,8 @@ impl App {
         let relationships = relationship_detector.detect_relationships();
 
         // Detect workflows
-        let mut workflow_detector = WorkflowDetector::new(all_tables.clone(), relationships.clone());
+        let mut workflow_detector =
+            WorkflowDetector::new(all_tables.clone(), relationships.clone());
         let workflows = workflow_detector.detect_workflows();
 
         // Auto-reconcile all pairs of loaded sources
@@ -520,7 +555,10 @@ impl App {
             }
 
             if !reconciliation_results.is_empty() {
-                self.status_message = format!("Analysis complete! {} reconciliations performed.", reconciliation_results.len());
+                self.status_message = format!(
+                    "Analysis complete! {} reconciliations performed.",
+                    reconciliation_results.len()
+                );
             }
         }
 
@@ -549,7 +587,11 @@ impl App {
     }
 
     async fn handle_reconciling(&mut self, key: KeyEvent) -> Result<()> {
-        let (source1_idx, source2_idx) = if let AppState::Reconciling { source1_idx, source2_idx } = &self.state {
+        let (source1_idx, source2_idx) = if let AppState::Reconciling {
+            source1_idx,
+            source2_idx,
+        } = &self.state
+        {
             (*source1_idx, *source2_idx)
         } else {
             return Ok(());
@@ -584,7 +626,8 @@ impl App {
                         source2_idx: Some(self.selected_index),
                     };
                     // Run reconciliation
-                    self.run_reconciliation(source1_idx, Some(self.selected_index)).await?;
+                    self.run_reconciliation(source1_idx, Some(self.selected_index))
+                        .await?;
                 } else if Some(self.selected_index) == source1_idx {
                     self.status_message = "Cannot reconcile a source with itself.".to_string();
                 }
@@ -603,7 +646,11 @@ impl App {
         Ok(())
     }
 
-    async fn run_reconciliation(&mut self, source1_idx: Option<usize>, source2_idx: Option<usize>) -> Result<()> {
+    async fn run_reconciliation(
+        &mut self,
+        source1_idx: Option<usize>,
+        source2_idx: Option<usize>,
+    ) -> Result<()> {
         let (idx1, idx2) = match (source1_idx, source2_idx) {
             (Some(i1), Some(i2)) => (i1, i2),
             _ => {
@@ -665,11 +712,18 @@ impl App {
         Ok(())
     }
 
-    async fn load_source_data(&self, idx: usize) -> Result<(Vec<Vec<String>>, Vec<crate::schema::Column>, String)> {
+    async fn load_source_data(
+        &self,
+        idx: usize,
+    ) -> Result<(Vec<Vec<String>>, Vec<crate::schema::Column>, String)> {
         let source_config = &self.sources[idx];
 
         match source_config {
-            SourceConfig::Csv { path, delimiter, has_header } => {
+            SourceConfig::Csv {
+                path,
+                delimiter,
+                has_header,
+            } => {
                 let mut source = CsvSource::new(path.clone());
                 if let Some(delim) = delimiter {
                     source = source.with_delimiter(*delim);
@@ -680,9 +734,20 @@ impl App {
                 let tables = source.extract_schema().await?;
                 let data = source.read_data().await?;
                 let name = path.split('/').last().unwrap_or(path).to_string();
-                Ok((data, tables.first().map(|t| t.columns.clone()).unwrap_or_default(), name))
+                Ok((
+                    data,
+                    tables
+                        .first()
+                        .map(|t| t.columns.clone())
+                        .unwrap_or_default(),
+                    name,
+                ))
             }
-            SourceConfig::Excel { path, sheet, has_header } => {
+            SourceConfig::Excel {
+                path,
+                sheet,
+                has_header,
+            } => {
                 let mut source = ExcelSource::new(path.clone());
                 if let Some(sheet_name) = sheet {
                     source = source.with_sheet(sheet_name.clone());
@@ -693,7 +758,14 @@ impl App {
                 let tables = source.extract_schema().await?;
                 let data = source.read_data().await?;
                 let name = path.split('/').last().unwrap_or(path).to_string();
-                Ok((data, tables.first().map(|t| t.columns.clone()).unwrap_or_default(), name))
+                Ok((
+                    data,
+                    tables
+                        .first()
+                        .map(|t| t.columns.clone())
+                        .unwrap_or_default(),
+                    name,
+                ))
             }
             _ => {
                 anyhow::bail!("Reconciliation only supported for CSV and Excel sources")
@@ -792,12 +864,18 @@ impl App {
                             use crate::export::GroupedDataExporter;
                             let mut exported_count = 0;
 
-                            for (idx, (name, data, columns)) in result.source_data.iter().enumerate() {
+                            for (idx, (name, data, columns)) in
+                                result.source_data.iter().enumerate()
+                            {
                                 if idx < result.grouping_analyses.len() {
                                     let grouping = &result.grouping_analyses[idx];
                                     if !grouping.grouping_dimensions.is_empty() {
                                         let file_path = if result.source_data.len() > 1 {
-                                            format!("{}_{}.xlsx", filename, name.replace(".csv", "").replace(".xlsx", ""))
+                                            format!(
+                                                "{}_{}.xlsx",
+                                                filename,
+                                                name.replace(".csv", "").replace(".xlsx", "")
+                                            )
                                         } else {
                                             format!("{}.xlsx", filename)
                                         };
@@ -810,7 +888,9 @@ impl App {
                                             .unwrap_or(&[]);
 
                                         let exporter = GroupedDataExporter::new(file_path);
-                                        exporter.export_grouped_data(data, columns, grouping, mv_cols)?;
+                                        exporter.export_grouped_data(
+                                            data, columns, grouping, mv_cols,
+                                        )?;
                                         exported_count += 1;
                                     }
                                 }
