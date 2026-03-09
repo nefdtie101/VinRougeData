@@ -136,16 +136,21 @@ jobs:
           files: artifacts/**/*
           generate_release_notes: true
 
-      - name: Update rolling 'latest' release (on master)
+      - name: Compute unique build tag
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        id: build_tag
+        run: echo "tag=build-$(date +%Y%m%d)-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Create unique build release (on master)
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: "Latest build (master)"
+          tag_name: ${{ steps.build_tag.outputs.tag }}
+          name: "Dev build ${{ steps.build_tag.outputs.tag }}"
           prerelease: true
           files: artifacts/**/*
           body: |
             Automated build from the latest commit on `master`.
-            Binaries are updated on every successful push.
 
             **Commit:** ${{ github.sha }}
+            **Run:** #${{ github.run_number }}
