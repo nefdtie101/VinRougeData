@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "vinrouge-web"]
+members = ["."]
 resolver = "2"
 
 [package]
@@ -70,13 +70,8 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 getrandom = { version = "0.2", features = ["js"] }
 
-# ── Release profile ──────────────────────────────────────────────────────────
-# Applied to all workspace members including vinrouge-web (WASM).
-# These settings here are the ones that actually take effect; the copy in
-# vinrouge-web/Cargo.toml is ignored by Cargo for workspace builds.
 [profile.release]
-opt-level = "z"      # minimise binary size (wasm bundle)
-lto = true           # cross-crate inlining
-codegen-units = 1    # single codegen unit → better LTO
-panic = "abort"      # no unwinding machinery in WASM
-strip = true         # strip debug symbols from native binary
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
