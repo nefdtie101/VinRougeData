@@ -38,7 +38,7 @@ jobs:
       - name: Install trunk
         uses: jetli/trunk-action@v0.5.0
         with:
-          version: latest
+          version: "v0.21.7"
 
       - name: Build
         working-directory: vinrouge-web
