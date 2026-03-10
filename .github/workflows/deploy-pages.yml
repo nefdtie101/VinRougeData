@@ -40,6 +40,14 @@ jobs:
         with:
           version: "v0.21.7"
 
+      - name: Install binaryen and patch trunk's wasm-opt
+        run: |
+          sudo apt-get install -y binaryen
+          mkdir -p "$HOME/.cache/trunk/wasm-opt-version_116/bin"
+          printf '#!/bin/sh\nexec /usr/bin/wasm-opt --enable-bulk-memory --enable-nontrapping-float-to-int "$@"\n' \
+            > "$HOME/.cache/trunk/wasm-opt-version_116/bin/wasm-opt"
+          chmod +x "$HOME/.cache/trunk/wasm-opt-version_116/bin/wasm-opt"
+
       - name: Build
         working-directory: vinrouge-web
         run: trunk build --release --public-url "/${{ github.event.repository.name }}/"
