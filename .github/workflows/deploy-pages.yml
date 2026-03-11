@@ -44,23 +44,16 @@ jobs:
         run: |
           wget https://github.com/WebAssembly/binaryen/releases/download/version_119/binaryen-version_119-x86_64-linux.tar.gz
           tar -xzf binaryen-version_119-x86_64-linux.tar.gz
-          sudo cp binaryen-version_119/bin/wasm-opt /usr/local/bin/
-          wasm-opt --version
+          sudo cp binaryen-version_119/bin/wasm-opt /usr/local/bin/wasm-opt-real
+          # Wrapper ensures --enable-bulk-memory and --enable-nontrapping-float-to-int
+          # are always passed, regardless of which tool (Trunk or manual) calls wasm-opt.
+          printf '#!/bin/sh\nexec /usr/local/bin/wasm-opt-real --enable-bulk-memory --enable-nontrapping-float-to-int "$@"\n' | sudo tee /usr/local/bin/wasm-opt > /dev/null
+          sudo chmod +x /usr/local/bin/wasm-opt
+          wasm-opt-real --version
 
       - name: Build
         working-directory: vinrouge-web
         run: trunk build --release --public-url "/${{ github.event.repository.name }}/"
-
-      - name: Optimize WASM with wasm-opt
-        working-directory: vinrouge-web
-        run: |
-          for wasm in dist/*.wasm; do
-            if [ -f "$wasm" ]; then
-              echo "Optimizing $wasm"
-              wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int "$wasm" -o "${wasm}.tmp"
-              mv "${wasm}.tmp" "$wasm"
-            fi
-          done
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
