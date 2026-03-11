@@ -40,20 +40,9 @@ jobs:
         with:
           version: "v0.21.7"
 
-      - name: Install binaryen (wasm-opt)
-        run: |
-          wget https://github.com/WebAssembly/binaryen/releases/download/version_119/binaryen-version_119-x86_64-linux.tar.gz
-          tar -xzf binaryen-version_119-x86_64-linux.tar.gz
-          sudo cp binaryen-version_119/bin/wasm-opt /usr/local/bin/
-          wasm-opt --version
-
       - name: Build
         working-directory: vinrouge-web
-        run: |
-          trunk build --release --public-url "/${{ github.event.repository.name }}/"
-          for wasm in dist/*.wasm; do
-            wasm-opt -O --enable-bulk-memory --enable-nontrapping-float-to-int "$wasm" -o "$wasm"
-          done
+        run: trunk build --release --public-url "/${{ github.event.repository.name }}/"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
