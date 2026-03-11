@@ -40,9 +40,25 @@ jobs:
         with:
           version: "v0.21.7"
 
+      - name: Install wasm-opt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binaryen
+
       - name: Build
         working-directory: vinrouge-web
         run: trunk build --release --public-url "/${{ github.event.repository.name }}/"
+
+      - name: Optimize WASM with wasm-opt
+        working-directory: vinrouge-web
+        run: |
+          for wasm in dist/*.wasm; do
+            if [ -f "$wasm" ]; then
+              echo "Optimizing $wasm"
+              wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int "$wasm" -o "${wasm}.tmp"
+              mv "${wasm}.tmp" "$wasm"
+            fi
+          done
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
