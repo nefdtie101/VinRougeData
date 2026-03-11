@@ -2,10 +2,7 @@
 target = "index.html"
 dist = "dist"
 public_url = "/"
-
-[tools.wasm-opt]
-version = "116"
-args = ["--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+wasm_opt = false
 
 [watch]
 ignore = []

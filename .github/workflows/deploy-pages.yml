@@ -49,7 +49,11 @@ jobs:
 
       - name: Build
         working-directory: vinrouge-web
-        run: trunk build --release --public-url "/${{ github.event.repository.name }}/"
+        run: |
+          trunk build --release --public-url "/${{ github.event.repository.name }}/"
+          for wasm in dist/*.wasm; do
+            wasm-opt -O --enable-bulk-memory --enable-nontrapping-float-to-int "$wasm" -o "$wasm"
+          done
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
