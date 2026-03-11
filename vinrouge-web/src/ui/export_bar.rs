@@ -1,6 +1,8 @@
 use leptos::prelude::*;
 use std::sync::Arc;
-use vinrouge::export::{AnalysisResult, ExcelExporter, Exporter, JsonExporter, MarkdownExporter};
+use vinrouge::export::{
+    AnalysisResult, ExcelExporter, Exporter, GroupedDataExporter, JsonExporter, MarkdownExporter,
+};
 use wasm_bindgen::JsCast;
 
 fn trigger_download(filename: &str, bytes: &[u8], mime: &str) {
@@ -29,6 +31,7 @@ pub fn ExportBar(result: Arc<AnalysisResult>) -> impl IntoView {
     let result_json = result.clone();
     let result_md = result.clone();
     let result_xlsx = result.clone();
+    let result_grouped = result.clone();
 
     let export_json = move |_| {
         let exporter = JsonExporter::new(true);
@@ -59,12 +62,20 @@ pub fn ExportBar(result: Arc<AnalysisResult>) -> impl IntoView {
         }
     };
 
+    let export_grouped = move |_| {
+        let exporter = GroupedDataExporter::new(String::new());
+        if let Ok(bytes) = exporter.export_all_to_zip(&result_grouped) {
+            trigger_download("vinrouge-grouped.zip", &bytes, "application/zip");
+        }
+    };
+
     view! {
         <div class="export-bar">
             <span class="export-label">"Export:"</span>
             <button class="btn btn-export" on:click=export_json>"JSON"</button>
             <button class="btn btn-export" on:click=export_md>"Markdown"</button>
             <button class="btn btn-export" on:click=export_xlsx>"Excel"</button>
+            <button class="btn btn-export" on:click=export_grouped>"Grouped Data (ZIP)"</button>
         </div>
     }
 }
