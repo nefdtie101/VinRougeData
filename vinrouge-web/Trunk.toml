@@ -5,11 +5,7 @@ public_url = "/"
 
 [tools.wasm-opt]
 version = "116"
-
-[[build.hooks]]
-stage = "post_build"
-command = "wasm-opt"
-command_arguments = ["--enable-bulk-memory", "--enable-nontrapping-float-to-int", "-Oz", "{wasm}", "-o", "{wasm}"]
+args = ["--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
 [watch]
 ignore = []
