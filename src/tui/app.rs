@@ -6,11 +6,36 @@ use crate::config::SourceConfig;
 use crate::export::{
     AnalysisResult, ExcelExporter, ExportFormat, Exporter, JsonExporter, MarkdownExporter,
 };
+use crate::ollama::{self, OllamaClient};
 use crate::sources::{CsvSource, DataSource, ExcelSource, MssqlSource};
 use crate::tui::events::{is_exit_key, AppEvent};
 use crate::tui::file_browser::{FileBrowser, FileFilter};
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEventKind};
+use serde::{Deserialize, Serialize};
+use std::process::Child;
+
+// ── Persisted TUI settings ────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+struct TuiSettings {
+    #[serde(default)]
+    ollama_url: String,
+    #[serde(default)]
+    ollama_model: String,
+    #[serde(default)]
+    ollama_models_dir: Option<String>,
+}
+
+impl Default for TuiSettings {
+    fn default() -> Self {
+        Self {
+            ollama_url: ollama::DEFAULT_URL.to_string(),
+            ollama_model: ollama::DEFAULT_MODEL.to_string(),
+            ollama_models_dir: None,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Screen {
@@ -21,6 +46,8 @@ pub enum Screen {
     Reconcile,
     Export,
     Help,
+    Ollama,
+    OllamaModelPicker,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +78,19 @@ pub enum AppState {
         format: Option<crate::export::ExportFormat>,
         filename: String,
     },
+    AskingOllama {
+        input: String,
+        response: Option<String>,
+        loading: bool,
+        editing_model: bool,
+        editing_models_dir: bool,
+        available_models: Vec<String>,
+    },
+    PickingOllamaModel {
+        models: Vec<String>,
+        selected: usize,
+        loading: bool,
+    },
 }
 
 pub struct App {
@@ -63,10 +103,16 @@ pub struct App {
     pub scroll_offset: usize,
     pub results_tab: usize,
     pub results_row: usize,
+    pub ollama_url: String,
+    pub ollama_model: String,
+    pub ollama_models_dir: Option<String>,
+    pub ollama_process: Option<Child>,
+    pub ollama_is_running: bool,
 }
 
 impl App {
     pub fn new() -> Self {
+        let settings = Self::load_settings();
         Self {
             screen: Screen::Home,
             state: AppState::Normal,
@@ -77,10 +123,89 @@ impl App {
             scroll_offset: 0,
             results_tab: 0,
             results_row: 0,
+            ollama_url: settings.ollama_url,
+            ollama_model: settings.ollama_model,
+            ollama_models_dir: settings.ollama_models_dir,
+            ollama_process: None,
+            ollama_is_running: false,
         }
     }
 
+    // ── Settings persistence ──────────────────────────────────────────────────
+
+    fn settings_path() -> std::path::PathBuf {
+        if let Ok(home) = std::env::var("HOME") {
+            std::path::PathBuf::from(home)
+                .join(".config")
+                .join("vinrouge")
+                .join("tui.toml")
+        } else {
+            std::path::PathBuf::from("vinrouge-tui.toml")
+        }
+    }
+
+    fn load_settings() -> TuiSettings {
+        let path = Self::settings_path();
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| toml::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save_settings(&self) {
+        let path = Self::settings_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let settings = TuiSettings {
+            ollama_url: self.ollama_url.clone(),
+            ollama_model: self.ollama_model.clone(),
+            ollama_models_dir: self.ollama_models_dir.clone(),
+        };
+        if let Ok(content) = toml::to_string_pretty(&settings) {
+            let _ = std::fs::write(&path, content);
+        }
+    }
+
+    // ── Ollama process management ─────────────────────────────────────────────
+
+    fn spawn_ollama(&mut self) -> std::io::Result<()> {
+        let binary = ollama::find_binary()?;
+        let mut cmd = std::process::Command::new(binary);
+        cmd.arg("serve");
+
+        // Resolve port — pick a free one if the preferred port is already in use
+        let preferred = ollama::port_from_url(&self.ollama_url);
+        let (port, changed) = ollama::resolve_port(preferred);
+        if changed {
+            self.ollama_url = format!("http://127.0.0.1:{port}");
+            self.status_message = format!(
+                "Port {preferred} in use — Ollama starting on port {port}"
+            );
+        }
+        cmd.env("OLLAMA_HOST", format!("127.0.0.1:{port}"));
+
+        // Models dir: TUI override (F3) first, then DEFAULT_MODELS_DIR in code
+        if let Some(dir) = ollama::resolve_models_dir(self.ollama_models_dir.as_deref()) {
+            cmd.env("OLLAMA_MODELS", dir);
+        }
+
+        self.ollama_process = Some(cmd.spawn()?);
+        self.ollama_is_running = true;
+        Ok(())
+    }
+
+    /// Refresh the cached `ollama_is_running` flag by polling the child process.
+    pub fn refresh_ollama_status(&mut self) {
+        self.ollama_is_running = match &mut self.ollama_process {
+            Some(child) => matches!(child.try_wait(), Ok(None)),
+            None => false,
+        };
+    }
+
     pub async fn handle_event(&mut self, event: AppEvent) -> Result<bool> {
+        self.refresh_ollama_status();
+
         match event {
             AppEvent::Key(key) => {
                 // Global exit keys
@@ -98,6 +223,8 @@ impl App {
                     AppState::ViewingResults => self.handle_results_view_key(key)?,
                     AppState::Reconciling { .. } => self.handle_reconciling(key).await?,
                     AppState::Exporting { .. } => self.handle_exporting(key).await?,
+                    AppState::AskingOllama { .. } => self.handle_ollama_key(key).await?,
+                    AppState::PickingOllamaModel { .. } => self.handle_model_picker_key(key).await?,
                 }
             }
             AppEvent::Mouse(mouse) => {
@@ -153,6 +280,38 @@ impl App {
                     } else {
                         self.status_message =
                             "No results to export. Run analysis first.".to_string();
+                    }
+                }
+                KeyCode::Char('6') => {
+                    if !self.ollama_is_running {
+                        match self.spawn_ollama() {
+                            Ok(()) => self.status_message = "Ollama started automatically.".to_string(),
+                            Err(e) => self.status_message = format!("Warning: could not start Ollama: {e}"),
+                        }
+                    }
+                    self.screen = Screen::Ollama;
+                    self.state = AppState::AskingOllama {
+                        input: String::new(),
+                        response: None,
+                        loading: false,
+                        editing_model: false,
+                        editing_models_dir: false,
+                        available_models: Vec::new(),
+                    };
+                }
+                KeyCode::Char('7') => {
+                    if self.ollama_is_running {
+                        if let Some(child) = &mut self.ollama_process {
+                            let _ = child.kill();
+                        }
+                        self.ollama_process = None;
+                        self.ollama_is_running = false;
+                        self.status_message = "Ollama stopped.".to_string();
+                    } else {
+                        match self.spawn_ollama() {
+                            Ok(()) => self.status_message = "Ollama started. Use option 6 to chat.".to_string(),
+                            Err(e) => self.status_message = format!("Could not launch ollama: {e}"),
+                        }
                     }
                 }
                 KeyCode::Char('?') | KeyCode::F(1) => self.screen = Screen::Help,
@@ -928,4 +1087,283 @@ impl App {
 
         Ok(())
     }
+
+    pub async fn handle_ollama_key(&mut self, key: KeyEvent) -> Result<()> {
+        let editing_model = matches!(
+            &self.state,
+            AppState::AskingOllama { editing_model: true, .. }
+        );
+        let editing_dir = matches!(
+            &self.state,
+            AppState::AskingOllama { editing_models_dir: true, .. }
+        );
+        let editing = editing_model || editing_dir;
+
+        match key.code {
+            KeyCode::Esc => {
+                if editing_model {
+                    if let AppState::AskingOllama { editing_model, .. } = &mut self.state {
+                        *editing_model = false;
+                    }
+                } else if editing_dir {
+                    if let AppState::AskingOllama { editing_models_dir, .. } = &mut self.state {
+                        *editing_models_dir = false;
+                    }
+                } else {
+                    self.state = AppState::Normal;
+                    self.screen = Screen::Home;
+                }
+            }
+
+            // F2: edit model name
+            KeyCode::F(2) => {
+                if let AppState::AskingOllama { editing_model, editing_models_dir, .. } = &mut self.state {
+                    *editing_models_dir = false;
+                    *editing_model = !*editing_model;
+                }
+            }
+
+            // F3: edit models storage directory
+            KeyCode::F(3) => {
+                if let AppState::AskingOllama { editing_model, editing_models_dir, .. } = &mut self.state {
+                    *editing_model = false;
+                    *editing_models_dir = !*editing_models_dir;
+                }
+            }
+
+            // F5: open model picker
+            KeyCode::F(5) => {
+                if !self.ollama_is_running {
+                    match self.spawn_ollama() {
+                        Ok(()) => tokio::time::sleep(std::time::Duration::from_millis(1500)).await,
+                        Err(e) => {
+                            self.status_message = format!("Could not start Ollama: {e}");
+                            return Ok(());
+                        }
+                    }
+                }
+                self.status_message = "Fetching installed models…".to_string();
+                let client = OllamaClient::new(self.ollama_url.clone(), self.ollama_model.clone());
+                match client.list_models().await {
+                    Ok(models) if models.is_empty() => {
+                        self.status_message = "No models found — is Ollama running?".to_string();
+                    }
+                    Ok(models) => {
+                        let selected = models
+                            .iter()
+                            .position(|m| m == &self.ollama_model)
+                            .unwrap_or(0);
+                        self.screen = Screen::OllamaModelPicker;
+                        self.state = AppState::PickingOllamaModel {
+                            models,
+                            selected,
+                            loading: false,
+                        };
+                        self.status_message = "Pick a model with ↑↓, Enter to confirm".to_string();
+                    }
+                    Err(e) => self.status_message = format!("Could not list models: {e}"),
+                }
+            }
+
+            KeyCode::Backspace => {
+                if editing_model {
+                    self.ollama_model.pop();
+                } else if editing_dir {
+                    let dir = self.ollama_models_dir.get_or_insert_with(String::new);
+                    dir.pop();
+                    if dir.is_empty() {
+                        self.ollama_models_dir = None;
+                    }
+                } else if let AppState::AskingOllama { input, .. } = &mut self.state {
+                    input.pop();
+                }
+            }
+
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if editing_model {
+                    self.ollama_model.push(c);
+                } else if editing_dir {
+                    self.ollama_models_dir.get_or_insert_with(String::new).push(c);
+                } else if let AppState::AskingOllama { input, .. } = &mut self.state {
+                    input.push(c);
+                }
+            }
+
+            KeyCode::Enter => {
+                if editing_model {
+                    if let AppState::AskingOllama { editing_model, .. } = &mut self.state {
+                        *editing_model = false;
+                    }
+                    self.save_settings();
+                    self.status_message = format!("Model set to '{}'", self.ollama_model);
+                    return Ok(());
+                }
+
+                if editing_dir {
+                    if let AppState::AskingOllama { editing_models_dir, .. } = &mut self.state {
+                        *editing_models_dir = false;
+                    }
+                    self.save_settings();
+                    let msg = match &self.ollama_models_dir {
+                        Some(d) => format!("Models dir set to '{d}'"),
+                        None => "Models dir reset to Ollama default".to_string(),
+                    };
+                    self.status_message = msg;
+                    return Ok(());
+                }
+
+                let prompt = if let AppState::AskingOllama { input, .. } = &self.state {
+                    input.trim().to_string()
+                } else {
+                    return Ok(());
+                };
+
+                if prompt.is_empty() {
+                    return Ok(());
+                }
+
+                // Ensure Ollama is running before we send
+                if !self.ollama_is_running {
+                    match self.spawn_ollama() {
+                        Ok(()) => tokio::time::sleep(std::time::Duration::from_millis(1500)).await,
+                        Err(e) => {
+                            self.status_message = format!("Could not start Ollama: {e}");
+                            return Ok(());
+                        }
+                    }
+                }
+
+                let context = self
+                    .analysis_result
+                    .as_ref()
+                    .map(|r| build_analysis_summary(r))
+                    .unwrap_or_else(|| "No analysis has been run yet.".to_string());
+
+                let full_prompt = ollama::build_prompt(&context, &prompt);
+
+                if let AppState::AskingOllama { loading, response, .. } = &mut self.state {
+                    *loading = true;
+                    *response = None;
+                }
+
+                self.status_message = format!("Asking {} …", self.ollama_model);
+
+                let client = OllamaClient::new(self.ollama_url.clone(), self.ollama_model.clone());
+                match client.chat(&full_prompt).await {
+                    Ok(answer) => {
+                        if let AppState::AskingOllama { loading, response, .. } = &mut self.state {
+                            *loading = false;
+                            *response = Some(answer);
+                        }
+                        self.status_message = "Response received".to_string();
+                    }
+                    Err(e) => {
+                        if let AppState::AskingOllama { loading, .. } = &mut self.state {
+                            *loading = false;
+                        }
+                        self.status_message = format!("Ollama error: {e}");
+                    }
+                }
+            }
+
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    pub async fn handle_model_picker_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => {
+                // Go back to Ollama chat screen
+                self.screen = Screen::Ollama;
+                self.state = AppState::AskingOllama {
+                    input: String::new(),
+                    response: None,
+                    loading: false,
+                    editing_model: false,
+                    editing_models_dir: false,
+                    available_models: Vec::new(),
+                };
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let AppState::PickingOllamaModel { selected, models, .. } = &mut self.state {
+                    if *selected > 0 {
+                        *selected -= 1;
+                    } else {
+                        *selected = models.len().saturating_sub(1);
+                    }
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let AppState::PickingOllamaModel { selected, models, .. } = &mut self.state {
+                    *selected = (*selected + 1) % models.len().max(1);
+                }
+            }
+            KeyCode::Enter => {
+                let chosen = if let AppState::PickingOllamaModel { selected, models, .. } = &self.state {
+                    models.get(*selected).cloned()
+                } else {
+                    None
+                };
+                if let Some(model) = chosen {
+                    self.ollama_model = model;
+                }
+                self.screen = Screen::Ollama;
+                self.state = AppState::AskingOllama {
+                    input: String::new(),
+                    response: None,
+                    loading: false,
+                    editing_model: false,
+                    editing_models_dir: false,
+                    available_models: Vec::new(),
+                };
+                self.status_message = format!("Model set to '{}'", self.ollama_model);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+/// Produce a short plain-text summary of an analysis result for use as LLM context.
+fn build_analysis_summary(result: &AnalysisResult) -> String {
+    let mut s = String::new();
+
+    s.push_str(&format!("Tables ({}):\n", result.tables.len()));
+    for t in &result.tables {
+        s.push_str(&format!(
+            "  - {} ({} columns, ~{} rows)\n",
+            t.full_name,
+            t.columns.len(),
+            t.row_count.unwrap_or(0)
+        ));
+        for c in &t.columns {
+            s.push_str(&format!(
+                "      {}: {:?}{}\n",
+                c.name,
+                c.data_type,
+                if c.nullable { "" } else { " NOT NULL" }
+            ));
+        }
+    }
+
+    if !result.relationships.is_empty() {
+        s.push_str(&format!("\nRelationships ({}):\n", result.relationships.len()));
+        for r in &result.relationships {
+            s.push_str(&format!(
+                "  - {}.{} -> {}.{}\n",
+                r.from_table, r.from_column, r.to_table, r.to_column
+            ));
+        }
+    }
+
+    if !result.workflows.is_empty() {
+        s.push_str(&format!("\nWorkflows ({}):\n", result.workflows.len()));
+        for w in &result.workflows {
+            s.push_str(&format!("  - {:?}: {}\n", w.workflow_type, w.description));
+        }
+    }
+
+    s
 }

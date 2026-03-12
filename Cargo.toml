@@ -1,11 +1,12 @@
 [workspace]
-members = ["."]
+members = [".", "vinrouge-web"]
 resolver = "2"
 
 [package]
 name = "vinrouge"
 version = "0.1.0"
 edition = "2021"
+license = "GPL-3.0-or-later"
 
 [lib]
 name = "vinrouge"
@@ -42,6 +43,9 @@ tracing = "0.1"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # CLI
 clap = { version = "4.5", features = ["derive"] }
+
+# HTTP client (for Ollama integration)
+reqwest = { version = "0.12", features = ["json"] }
 
 # OpenSSL vendored so cross-compilation doesn't need system OpenSSL headers
 openssl = { version = "0.10", features = ["vendored"] }

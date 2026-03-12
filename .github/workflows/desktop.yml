@@ -1,0 +1,112 @@
+name: Build Desktop App
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            os: ubuntu-22.04
+            tauri_triple: x86_64-unknown-linux-gnu
+            ollama_url: https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64
+          - platform: macos-aarch64
+            os: macos-latest
+            tauri_triple: aarch64-apple-darwin
+            ollama_url: https://github.com/ollama/ollama/releases/latest/download/ollama-darwin
+          - platform: windows-x86_64
+            os: windows-latest
+            tauri_triple: x86_64-pc-windows-msvc
+            ollama_url: https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies (webkit2gtk, etc.)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            pkg-config libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: vinrouge-desktop -> target
+
+      - name: Install trunk (for building the Leptos frontend)
+        uses: jetli/trunk-action@v0.5.0
+        with:
+          version: "v0.21.7"
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Download Ollama binary (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          curl -L "${{ matrix.ollama_url }}" -o vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
+          chmod +x vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
+
+      - name: Download Ollama binary (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          Invoke-WebRequest -Uri "${{ matrix.ollama_url }}" -OutFile "vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}.exe"
+        shell: pwsh
+
+      - name: Build Leptos frontend
+        working-directory: vinrouge-web
+        run: trunk build --release --public-url ./
+
+      - name: Build desktop app
+        working-directory: vinrouge-desktop
+        run: cargo tauri build
+
+      - name: Upload macOS bundle
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: VinRouge-${{ matrix.platform }}
+          path: vinrouge-desktop/target/release/bundle/dmg/*.dmg
+          if-no-files-found: warn
+
+      - name: Upload Linux bundle
+        if: matrix.os == 'ubuntu-22.04'
+        uses: actions/upload-artifact@v4
+        with:
+          name: VinRouge-${{ matrix.platform }}
+          path: |
+            vinrouge-desktop/target/release/bundle/deb/*.deb
+            vinrouge-desktop/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: warn
+
+      - name: Upload Windows bundle
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: VinRouge-${{ matrix.platform }}
+          path: vinrouge-desktop/target/release/bundle/msi/*.msi
+          if-no-files-found: warn

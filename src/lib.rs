@@ -5,6 +5,9 @@ pub mod schema;
 pub mod sources;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod ollama;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod tui;
 
 pub use analysis::{RelationshipDetector, WorkflowDetector};

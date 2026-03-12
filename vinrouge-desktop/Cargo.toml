@@ -1,0 +1,23 @@
+# Isolated workspace so `cargo check` at the repo root doesn't pull in Tauri/webkit2gtk.
+# Build this crate with: cargo tauri build   (from vinrouge-desktop/)
+[workspace]
+
+[package]
+name = "vinrouge-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri             = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+
+# Core analysis (native, so all features available)
+vinrouge = { path = ".." }
+
+serde      = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio      = { version = "1", features = ["full"] }
+anyhow     = "1.0"

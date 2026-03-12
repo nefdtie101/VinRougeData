@@ -25,14 +25,18 @@ pub fn draw(f: &mut Frame, app: &App) {
     // Content based on screen and state
     match &app.state {
         AppState::BrowsingFiles { browser, .. } => draw_file_browser(f, chunks[1], browser),
+        AppState::AskingOllama { .. } => draw_ollama(f, chunks[1], app),
+        AppState::PickingOllamaModel { .. } => draw_model_picker(f, chunks[1], app),
         _ => match app.screen {
-            Screen::Home => draw_home(f, chunks[1]),
+            Screen::Home => draw_home_with_status(f, chunks[1], app.ollama_is_running),
             Screen::SourceList => draw_source_list(f, chunks[1], app),
             Screen::Analysis => draw_analysis(f, chunks[1], app),
             Screen::Results => draw_results(f, chunks[1], app),
             Screen::Reconcile => draw_reconcile(f, chunks[1], app),
             Screen::Export => draw_export(f, chunks[1], app),
             Screen::Help => draw_help(f, chunks[1]),
+            Screen::Ollama => draw_ollama(f, chunks[1], app),
+            Screen::OllamaModelPicker => draw_model_picker(f, chunks[1], app),
         },
     }
 
@@ -53,12 +57,28 @@ fn draw_title(f: &mut Frame, area: Rect) {
 }
 
 fn draw_home(f: &mut Frame, area: Rect) {
+    draw_home_inner(f, area, false)
+}
+
+pub fn draw_home_with_status(f: &mut Frame, area: Rect, ollama_running: bool) {
+    draw_home_inner(f, area, ollama_running)
+}
+
+fn draw_home_inner(f: &mut Frame, area: Rect, ollama_running: bool) {
+    let ollama_status = if ollama_running {
+        "7. Ollama  [running — press to stop]"
+    } else {
+        "7. Ollama  [stopped — press to start]"
+    };
+
     let menu_items = vec![
         "1. Manage Data Sources",
         "2. Run Analysis",
         "3. View Results",
         "4. Reconcile Data",
         "5. Export Results",
+        "6. Chat with Ollama  (auto-starts, F5 to pick model)",
+        ollama_status,
         "",
         "?. Help",
         "q. Quit",
@@ -871,6 +891,202 @@ fn draw_file_browser(f: &mut Frame, area: Rect, browser: &FileBrowser) {
             ),
     );
 
+    f.render_widget(list, area);
+}
+
+fn draw_ollama(f: &mut Frame, area: Rect, app: &App) {
+    use crate::tui::app::AppState;
+
+    let (input, response, loading, editing_model, editing_models_dir, available_models) =
+        match &app.state {
+            AppState::AskingOllama {
+                input,
+                response,
+                loading,
+                editing_model,
+                editing_models_dir,
+                available_models,
+            } => (
+                input.as_str(),
+                response.as_deref(),
+                *loading,
+                *editing_model,
+                *editing_models_dir,
+                available_models.as_slice(),
+            ),
+            _ => ("", None, false, false, false, &[][..]),
+        };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // model field
+            Constraint::Length(3), // models dir field
+            Constraint::Length(3), // question input
+            Constraint::Min(0),    // response area
+            Constraint::Length(3), // hint
+        ])
+        .split(area);
+
+    // ── Model field ───────────────────────────────────────────────────────────
+    let model_title = if editing_model {
+        " Model (type name, Enter to confirm, Esc to cancel) "
+    } else {
+        " Model (F2 to edit, F5 to pick from installed) "
+    };
+    let model_text = Line::from(vec![
+        Span::raw("  "),
+        Span::styled(
+            app.ollama_model.as_str(),
+            Style::default()
+                .fg(if editing_model { Color::Yellow } else { Color::Cyan })
+                .add_modifier(if editing_model { Modifier::BOLD } else { Modifier::empty() }),
+        ),
+        if !available_models.is_empty() {
+            Span::styled(
+                format!("   [{}]", available_models.join("  ")),
+                Style::default().fg(Color::DarkGray),
+            )
+        } else {
+            Span::raw("")
+        },
+    ]);
+    let model_widget = Paragraph::new(model_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(model_title)
+            .border_style(Style::default().fg(if editing_model {
+                Color::Yellow
+            } else {
+                Color::Cyan
+            })),
+    );
+    f.render_widget(model_widget, chunks[0]);
+
+    // ── Models dir field ──────────────────────────────────────────────────────
+    let dir_title = if editing_models_dir {
+        " Models dir (type path, Enter to confirm, Esc to cancel, clear to use default) "
+    } else {
+        " Models dir (F3 to set, blank = Ollama default ~/.ollama/models) "
+    };
+    let dir_display = app
+        .ollama_models_dir
+        .as_deref()
+        .unwrap_or("(using Ollama default: ~/.ollama/models)");
+    let dir_text = Line::from(vec![Span::styled(
+        format!("  {dir_display}"),
+        Style::default()
+            .fg(if editing_models_dir {
+                Color::Yellow
+            } else if app.ollama_models_dir.is_some() {
+                Color::Cyan
+            } else {
+                Color::DarkGray
+            })
+            .add_modifier(if editing_models_dir {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            }),
+    )]);
+    let dir_widget = Paragraph::new(dir_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(dir_title)
+            .border_style(Style::default().fg(if editing_models_dir {
+                Color::Yellow
+            } else {
+                Color::Cyan
+            })),
+    );
+    f.render_widget(dir_widget, chunks[1]);
+
+    // ── Question input ────────────────────────────────────────────────────────
+    let busy = editing_model || editing_models_dir;
+    let input_title = if loading {
+        " Question (thinking…) "
+    } else if busy {
+        " Question (confirm the field above first) "
+    } else {
+        " Question (Enter to send, Esc to go back) "
+    };
+    let input_widget = Paragraph::new(input)
+        .style(Style::default().fg(if busy { Color::DarkGray } else { Color::Yellow }))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(input_title)
+                .border_style(Style::default().fg(if loading || busy {
+                    Color::DarkGray
+                } else {
+                    Color::Yellow
+                })),
+        );
+    f.render_widget(input_widget, chunks[2]);
+
+    // ── Response area ─────────────────────────────────────────────────────────
+    let response_text = if loading {
+        "Waiting for Ollama response…".to_string()
+    } else {
+        response
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "No response yet. Type a question and press Enter.".to_string())
+    };
+    let response_widget = Paragraph::new(response_text)
+        .wrap(Wrap { trim: false })
+        .style(Style::default().fg(if loading { Color::DarkGray } else { Color::White }))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Response ")
+                .border_style(Style::default().fg(Color::Green)),
+        );
+    f.render_widget(response_widget, chunks[3]);
+
+    // ── Hint bar ──────────────────────────────────────────────────────────────
+    let hint = Paragraph::new(
+        "  F2: model name   F3: models dir   F5: pick installed model   Enter: send   Esc: back",
+    )
+    .style(Style::default().fg(Color::DarkGray))
+    .block(Block::default().borders(Borders::ALL));
+    f.render_widget(hint, chunks[4]);
+}
+
+fn draw_model_picker(f: &mut Frame, area: Rect, app: &App) {
+    use crate::tui::app::AppState;
+
+    let (models, selected) = match &app.state {
+        AppState::PickingOllamaModel { models, selected, .. } => (models.as_slice(), *selected),
+        _ => return,
+    };
+
+    let items: Vec<ListItem> = models
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let style = if i == selected {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let prefix = if i == selected { "▶  " } else { "   " };
+            ListItem::new(Line::from(vec![Span::styled(
+                format!("{prefix}{name}"),
+                style,
+            )]))
+        })
+        .collect();
+
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Select Model (↑↓ to move, Enter to pick, Esc to cancel) ")
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
+
+    let area = center_rect(60, 80, area);
     f.render_widget(list, area);
 }
 

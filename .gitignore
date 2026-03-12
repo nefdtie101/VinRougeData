@@ -1,5 +1,6 @@
 # Rust
 /target/
+**/target/
 **/*.rs.bk
 *.pdb
 
@@ -25,3 +26,6 @@ data/
 
 # Trunk build output
 vinrouge-web/dist/
+
+# Bundled binaries (large, platform-specific)
+vinrouge-desktop/binaries/ollama-*
