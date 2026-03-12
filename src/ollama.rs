@@ -195,7 +195,11 @@ pub fn resolve_port(preferred: u16) -> (u16, bool) {
 /// 2. `which ollama` via PATH
 /// 3. Common macOS / Linux install locations
 pub fn find_binary() -> std::io::Result<std::path::PathBuf> {
-    let bin_name = if cfg!(target_os = "windows") { "ollama.exe" } else { "ollama" };
+    let bin_name = if cfg!(target_os = "windows") {
+        "ollama.exe"
+    } else {
+        "ollama"
+    };
 
     // 1. Bundled next to the running executable (TUI zip or Tauri sidecar)
     if let Ok(exe) = std::env::current_exe() {
@@ -217,7 +221,11 @@ pub fn find_binary() -> std::io::Result<std::path::PathBuf> {
     }
 
     // 2. PATH lookup (works when launched from a terminal)
-    let which_cmd = if cfg!(target_os = "windows") { "where" } else { "which" };
+    let which_cmd = if cfg!(target_os = "windows") {
+        "where"
+    } else {
+        "which"
+    };
     if let Ok(out) = std::process::Command::new(which_cmd).arg("ollama").output() {
         if out.status.success() {
             let path = String::from_utf8_lossy(&out.stdout).trim().to_string();

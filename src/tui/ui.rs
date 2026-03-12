@@ -939,8 +939,16 @@ fn draw_ollama(f: &mut Frame, area: Rect, app: &App) {
         Span::styled(
             app.ollama_model.as_str(),
             Style::default()
-                .fg(if editing_model { Color::Yellow } else { Color::Cyan })
-                .add_modifier(if editing_model { Modifier::BOLD } else { Modifier::empty() }),
+                .fg(if editing_model {
+                    Color::Yellow
+                } else {
+                    Color::Cyan
+                })
+                .add_modifier(if editing_model {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                }),
         ),
         if !available_models.is_empty() {
             Span::styled(
@@ -1034,7 +1042,11 @@ fn draw_ollama(f: &mut Frame, area: Rect, app: &App) {
     };
     let response_widget = Paragraph::new(response_text)
         .wrap(Wrap { trim: false })
-        .style(Style::default().fg(if loading { Color::DarkGray } else { Color::White }))
+        .style(Style::default().fg(if loading {
+            Color::DarkGray
+        } else {
+            Color::White
+        }))
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -1056,7 +1068,9 @@ fn draw_model_picker(f: &mut Frame, area: Rect, app: &App) {
     use crate::tui::app::AppState;
 
     let (models, selected) = match &app.state {
-        AppState::PickingOllamaModel { models, selected, .. } => (models.as_slice(), *selected),
+        AppState::PickingOllamaModel {
+            models, selected, ..
+        } => (models.as_slice(), *selected),
         _ => return,
     };
 

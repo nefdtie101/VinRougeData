@@ -179,9 +179,8 @@ impl App {
         let (port, changed) = ollama::resolve_port(preferred);
         if changed {
             self.ollama_url = format!("http://127.0.0.1:{port}");
-            self.status_message = format!(
-                "Port {preferred} in use — Ollama starting on port {port}"
-            );
+            self.status_message =
+                format!("Port {preferred} in use — Ollama starting on port {port}");
         }
         cmd.env("OLLAMA_HOST", format!("127.0.0.1:{port}"));
 
@@ -224,7 +223,9 @@ impl App {
                     AppState::Reconciling { .. } => self.handle_reconciling(key).await?,
                     AppState::Exporting { .. } => self.handle_exporting(key).await?,
                     AppState::AskingOllama { .. } => self.handle_ollama_key(key).await?,
-                    AppState::PickingOllamaModel { .. } => self.handle_model_picker_key(key).await?,
+                    AppState::PickingOllamaModel { .. } => {
+                        self.handle_model_picker_key(key).await?
+                    }
                 }
             }
             AppEvent::Mouse(mouse) => {
@@ -285,8 +286,13 @@ impl App {
                 KeyCode::Char('6') => {
                     if !self.ollama_is_running {
                         match self.spawn_ollama() {
-                            Ok(()) => self.status_message = "Ollama started automatically.".to_string(),
-                            Err(e) => self.status_message = format!("Warning: could not start Ollama: {e}"),
+                            Ok(()) => {
+                                self.status_message = "Ollama started automatically.".to_string()
+                            }
+                            Err(e) => {
+                                self.status_message =
+                                    format!("Warning: could not start Ollama: {e}")
+                            }
                         }
                     }
                     self.screen = Screen::Ollama;
@@ -309,7 +315,10 @@ impl App {
                         self.status_message = "Ollama stopped.".to_string();
                     } else {
                         match self.spawn_ollama() {
-                            Ok(()) => self.status_message = "Ollama started. Use option 6 to chat.".to_string(),
+                            Ok(()) => {
+                                self.status_message =
+                                    "Ollama started. Use option 6 to chat.".to_string()
+                            }
                             Err(e) => self.status_message = format!("Could not launch ollama: {e}"),
                         }
                     }
@@ -1091,11 +1100,17 @@ impl App {
     pub async fn handle_ollama_key(&mut self, key: KeyEvent) -> Result<()> {
         let editing_model = matches!(
             &self.state,
-            AppState::AskingOllama { editing_model: true, .. }
+            AppState::AskingOllama {
+                editing_model: true,
+                ..
+            }
         );
         let editing_dir = matches!(
             &self.state,
-            AppState::AskingOllama { editing_models_dir: true, .. }
+            AppState::AskingOllama {
+                editing_models_dir: true,
+                ..
+            }
         );
         let editing = editing_model || editing_dir;
 
@@ -1106,7 +1121,10 @@ impl App {
                         *editing_model = false;
                     }
                 } else if editing_dir {
-                    if let AppState::AskingOllama { editing_models_dir, .. } = &mut self.state {
+                    if let AppState::AskingOllama {
+                        editing_models_dir, ..
+                    } = &mut self.state
+                    {
                         *editing_models_dir = false;
                     }
                 } else {
@@ -1117,7 +1135,12 @@ impl App {
 
             // F2: edit model name
             KeyCode::F(2) => {
-                if let AppState::AskingOllama { editing_model, editing_models_dir, .. } = &mut self.state {
+                if let AppState::AskingOllama {
+                    editing_model,
+                    editing_models_dir,
+                    ..
+                } = &mut self.state
+                {
                     *editing_models_dir = false;
                     *editing_model = !*editing_model;
                 }
@@ -1125,7 +1148,12 @@ impl App {
 
             // F3: edit models storage directory
             KeyCode::F(3) => {
-                if let AppState::AskingOllama { editing_model, editing_models_dir, .. } = &mut self.state {
+                if let AppState::AskingOllama {
+                    editing_model,
+                    editing_models_dir,
+                    ..
+                } = &mut self.state
+                {
                     *editing_model = false;
                     *editing_models_dir = !*editing_models_dir;
                 }
@@ -1183,7 +1211,9 @@ impl App {
                 if editing_model {
                     self.ollama_model.push(c);
                 } else if editing_dir {
-                    self.ollama_models_dir.get_or_insert_with(String::new).push(c);
+                    self.ollama_models_dir
+                        .get_or_insert_with(String::new)
+                        .push(c);
                 } else if let AppState::AskingOllama { input, .. } = &mut self.state {
                     input.push(c);
                 }
@@ -1200,7 +1230,10 @@ impl App {
                 }
 
                 if editing_dir {
-                    if let AppState::AskingOllama { editing_models_dir, .. } = &mut self.state {
+                    if let AppState::AskingOllama {
+                        editing_models_dir, ..
+                    } = &mut self.state
+                    {
                         *editing_models_dir = false;
                     }
                     self.save_settings();
@@ -1241,7 +1274,10 @@ impl App {
 
                 let full_prompt = ollama::build_prompt(&context, &prompt);
 
-                if let AppState::AskingOllama { loading, response, .. } = &mut self.state {
+                if let AppState::AskingOllama {
+                    loading, response, ..
+                } = &mut self.state
+                {
                     *loading = true;
                     *response = None;
                 }
@@ -1251,7 +1287,10 @@ impl App {
                 let client = OllamaClient::new(self.ollama_url.clone(), self.ollama_model.clone());
                 match client.chat(&full_prompt).await {
                     Ok(answer) => {
-                        if let AppState::AskingOllama { loading, response, .. } = &mut self.state {
+                        if let AppState::AskingOllama {
+                            loading, response, ..
+                        } = &mut self.state
+                        {
                             *loading = false;
                             *response = Some(answer);
                         }
@@ -1287,7 +1326,10 @@ impl App {
                 };
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                if let AppState::PickingOllamaModel { selected, models, .. } = &mut self.state {
+                if let AppState::PickingOllamaModel {
+                    selected, models, ..
+                } = &mut self.state
+                {
                     if *selected > 0 {
                         *selected -= 1;
                     } else {
@@ -1296,12 +1338,18 @@ impl App {
                 }
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                if let AppState::PickingOllamaModel { selected, models, .. } = &mut self.state {
+                if let AppState::PickingOllamaModel {
+                    selected, models, ..
+                } = &mut self.state
+                {
                     *selected = (*selected + 1) % models.len().max(1);
                 }
             }
             KeyCode::Enter => {
-                let chosen = if let AppState::PickingOllamaModel { selected, models, .. } = &self.state {
+                let chosen = if let AppState::PickingOllamaModel {
+                    selected, models, ..
+                } = &self.state
+                {
                     models.get(*selected).cloned()
                 } else {
                     None
@@ -1349,7 +1397,10 @@ fn build_analysis_summary(result: &AnalysisResult) -> String {
     }
 
     if !result.relationships.is_empty() {
-        s.push_str(&format!("\nRelationships ({}):\n", result.relationships.len()));
+        s.push_str(&format!(
+            "\nRelationships ({}):\n",
+            result.relationships.len()
+        ));
         for r in &result.relationships {
             s.push_str(&format!(
                 "  - {}.{} -> {}.{}\n",

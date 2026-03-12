@@ -43,11 +43,10 @@ async fn tauri_pick_and_analyze() -> Result<Option<AnalysisResult>, String> {
         .map_err(|_| "no __TAURI__")?;
     let core = js_sys::Reflect::get(&tauri, &JsValue::from_str("core"))
         .map_err(|_| "no __TAURI__.core")?;
-    let invoke: js_sys::Function =
-        js_sys::Reflect::get(&core, &JsValue::from_str("invoke"))
-            .map_err(|_| "no invoke")?
-            .dyn_into()
-            .map_err(|_| "invoke not a function")?;
+    let invoke: js_sys::Function = js_sys::Reflect::get(&core, &JsValue::from_str("invoke"))
+        .map_err(|_| "no invoke")?
+        .dyn_into()
+        .map_err(|_| "invoke not a function")?;
 
     let promise: js_sys::Promise = invoke
         .call1(&JsValue::UNDEFINED, &JsValue::from_str("pick_and_analyze"))
@@ -93,10 +92,13 @@ async fn analyze_bytes(bytes: Vec<u8>, name: &str) -> Result<AnalysisResult, Str
     };
 
     let relationships = RelationshipDetector::new(tables.clone()).detect_relationships();
-    let workflows =
-        WorkflowDetector::new(tables.clone(), relationships.clone()).detect_workflows();
+    let workflows = WorkflowDetector::new(tables.clone(), relationships.clone()).detect_workflows();
 
-    Ok(AnalysisResult { tables, relationships, workflows })
+    Ok(AnalysisResult {
+        tables,
+        relationships,
+        workflows,
+    })
 }
 
 async fn read_file_bytes(file: &web_sys::File) -> Result<Vec<u8>, JsValue> {
@@ -322,7 +324,10 @@ fn Results(result: AnalysisResult) -> impl IntoView {
 #[component]
 fn TableCard(table: Table) -> impl IntoView {
     let open = RwSignal::new(true);
-    let rows = table.row_count.map(|r| format!("{r} rows")).unwrap_or_default();
+    let rows = table
+        .row_count
+        .map(|r| format!("{r} rows"))
+        .unwrap_or_default();
     let cols = format!("{} cols", table.columns.len());
     let name = table.name.clone();
     let columns = table.columns.clone();
@@ -590,7 +595,10 @@ fn build_web_summary(result: &AnalysisResult) -> String {
     }
 
     if !result.relationships.is_empty() {
-        s.push_str(&format!("\nRelationships ({}):\n", result.relationships.len()));
+        s.push_str(&format!(
+            "\nRelationships ({}):\n",
+            result.relationships.len()
+        ));
         for r in &result.relationships {
             s.push_str(&format!(
                 "  - {}.{} -> {}.{}\n",
