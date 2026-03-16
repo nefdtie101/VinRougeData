@@ -34,7 +34,7 @@ thiserror = "1.0"
 async-trait = "0.1"
 
 # Date/time (wasmbind enables JS Date on wasm32)
-chrono = { version = "0.4", features = ["wasmbind"] }
+chrono = { version = "0.4", features = ["wasmbind", "serde"] }
 
 # Logging (WASM-compatible core)
 tracing = "0.1"
@@ -54,8 +54,17 @@ openssl = { version = "0.10", features = ["vendored"] }
 tokio = { version = "1.42", features = ["full"] }
 
 # Database
-tiberius = { version = "0.12", features = ["chrono", "sql-browser-tokio"] }
+tiberius  = { version = "0.12", features = ["chrono", "sql-browser-tokio"] }
 tokio-util = { version = "0.7", features = ["compat"] }
+rusqlite   = { version = "0.31", features = ["bundled"] }
+uuid       = { version = "1", features = ["v4"] }
+
+# PDF text extraction + OCR
+pdf-extract    = "0.7"
+pdfium-render  = { version = "0.8", features = ["image"] }
+ocrs           = "0.7"
+rten           = "0.9"   # must match the version ocrs 0.7 uses internally
+ureq           = "2"     # lightweight sync HTTP — used to auto-download OCR models
 
 # Configuration
 config = "0.14"
