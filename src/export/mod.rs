@@ -3,12 +3,14 @@ mod excel;
 mod grouped_excel;
 mod json;
 mod markdown;
+mod voortrekkers;
 
 pub use console::ConsoleExporter;
 pub use excel::ExcelExporter;
 pub use grouped_excel::GroupedDataExporter;
 pub use json::JsonExporter;
 pub use markdown::MarkdownExporter;
+pub use voortrekkers::VoortrekkersExporter;
 
 use crate::analysis::{
     DataProfile, GroupingAnalysis, MultiValueAnalysis, ReconciliationResult, Workflow,

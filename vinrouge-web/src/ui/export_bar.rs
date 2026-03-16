@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use std::sync::Arc;
 use vinrouge::export::{
     AnalysisResult, ExcelExporter, Exporter, GroupedDataExporter, JsonExporter, MarkdownExporter,
+    VoortrekkersExporter,
 };
 use wasm_bindgen::JsCast;
 
@@ -32,6 +33,7 @@ pub fn ExportBar(result: Arc<AnalysisResult>) -> impl IntoView {
     let result_md = result.clone();
     let result_xlsx = result.clone();
     let result_grouped = result.clone();
+    let result_voortrekkers = result.clone();
 
     let export_json = move |_| {
         let exporter = JsonExporter::new(true);
@@ -69,6 +71,17 @@ pub fn ExportBar(result: Arc<AnalysisResult>) -> impl IntoView {
         }
     };
 
+    let export_voortrekkers = move |_| {
+        let exporter = VoortrekkersExporter::new();
+        if let Ok(bytes) = exporter.export_to_bytes(&result_voortrekkers) {
+            trigger_download(
+                "voortrekkers.xlsx",
+                &bytes,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            );
+        }
+    };
+
     view! {
         <div class="export-bar">
             <span class="export-label">"Export:"</span>
@@ -76,6 +89,7 @@ pub fn ExportBar(result: Arc<AnalysisResult>) -> impl IntoView {
             <button class="btn btn-export" on:click=export_md>"Markdown"</button>
             <button class="btn btn-export" on:click=export_xlsx>"Excel"</button>
             <button class="btn btn-export" on:click=export_grouped>"Grouped Data (ZIP)"</button>
+            <button class="btn btn-export btn-voortrekkers" on:click=export_voortrekkers>"Voortrekkers"</button>
         </div>
     }
 }
