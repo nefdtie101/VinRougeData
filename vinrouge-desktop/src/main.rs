@@ -452,6 +452,37 @@ fn list_audit_plan(
     projects::list_audit_plan(&project_dir)
 }
 
+#[tauri::command]
+fn add_control(
+    process_id: String,
+    control_ref: String,
+    control_objective: String,
+    control_description: String,
+    test_procedure: String,
+    risk_level: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<projects::Control, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::add_control(
+        &project_dir,
+        &process_id,
+        &control_ref,
+        &control_objective,
+        &control_description,
+        &test_procedure,
+        &risk_level,
+    )
+}
+
+#[tauri::command]
+fn delete_control(
+    control_id: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<(), String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::delete_control(&project_dir, &control_id)
+}
+
 /// Patch a single field on a control row.
 #[tauri::command]
 fn update_control_field(
@@ -474,6 +505,86 @@ fn update_process_field(
 ) -> Result<(), String> {
     let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
     projects::update_process_field(&project_dir, &process_id, &field, &value)
+}
+
+#[tauri::command]
+fn list_pbc_groups(
+    state: tauri::State<ProjectsState>,
+) -> Result<Vec<projects::PbcGroup>, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::list_pbc_groups(&project_dir)
+}
+
+#[tauri::command]
+fn save_pbc_item(
+    control_id: String,
+    control_ref: String,
+    name: String,
+    item_type: String,
+    table_name: Option<String>,
+    fields: Vec<String>,
+    purpose: String,
+    scope_format: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<projects::PbcItem, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::save_pbc_item(
+        &project_dir, &control_id, &control_ref, &name, &item_type,
+        table_name.as_deref(), &fields, &purpose, &scope_format,
+    )
+}
+
+#[tauri::command]
+fn delete_pbc_item(
+    item_id: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<(), String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::delete_pbc_item(&project_dir, &item_id)
+}
+
+#[tauri::command]
+fn clear_pbc_items(
+    state: tauri::State<ProjectsState>,
+) -> Result<(), String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::clear_pbc_items(&project_dir)
+}
+
+#[tauri::command]
+fn update_pbc_item_fields(
+    item_id: String,
+    fields: Vec<String>,
+    state: tauri::State<ProjectsState>,
+) -> Result<(), String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::update_pbc_item_fields(&project_dir, &item_id, &fields)
+}
+
+#[tauri::command]
+fn toggle_pbc_item_approved(
+    item_id: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<bool, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::toggle_pbc_item_approved(&project_dir, &item_id)
+}
+
+#[tauri::command]
+fn get_pbc_list_approved(
+    state: tauri::State<ProjectsState>,
+) -> Result<bool, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::get_pbc_list_approved(&project_dir)
+}
+
+#[tauri::command]
+fn set_pbc_list_approved(
+    approved: bool,
+    state: tauri::State<ProjectsState>,
+) -> Result<(), String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::set_pbc_list_approved(&project_dir, approved)
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -503,8 +614,18 @@ fn main() {
             read_project_file,
             save_audit_plan,
             list_audit_plan,
+            add_control,
+            delete_control,
             update_control_field,
             update_process_field,
+            list_pbc_groups,
+            save_pbc_item,
+            delete_pbc_item,
+            clear_pbc_items,
+            update_pbc_item_fields,
+            toggle_pbc_item_approved,
+            get_pbc_list_approved,
+            set_pbc_list_approved,
         ])
         .setup(|app| {
             // Auto-start Ollama when the desktop app launches

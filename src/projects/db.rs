@@ -70,6 +70,24 @@ pub fn open_project(project_dir: &Path) -> Result<Connection> {
             risk_level          TEXT NOT NULL DEFAULT 'Medium',
             sort_order          INTEGER NOT NULL DEFAULT 0,
             created_at          TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS pbc_items (
+            id           TEXT PRIMARY KEY,
+            control_id   TEXT NOT NULL,
+            control_ref  TEXT NOT NULL DEFAULT '',
+            name         TEXT NOT NULL DEFAULT '',
+            item_type    TEXT NOT NULL DEFAULT 'SQL',
+            table_name   TEXT,
+            fields       TEXT NOT NULL DEFAULT '[]',
+            purpose      TEXT NOT NULL DEFAULT '',
+            scope_format TEXT NOT NULL DEFAULT '',
+            approved     INTEGER NOT NULL DEFAULT 0,
+            sort_order   INTEGER NOT NULL DEFAULT 0,
+            created_at   TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS pbc_list_status (
+            id       TEXT PRIMARY KEY DEFAULT 'singleton',
+            approved INTEGER NOT NULL DEFAULT 0
         );",
     )?;
     Ok(conn)

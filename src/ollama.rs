@@ -1,4 +1,6 @@
+#[cfg(not(target_arch = "wasm32"))]
 use anyhow::{anyhow, Result};
+#[cfg(not(target_arch = "wasm32"))]
 use serde::{Deserialize, Serialize};
 
 // =============================================================================
@@ -25,8 +27,9 @@ pub const DEFAULT_URL: &str = "http://localhost:11434";
 //
 // =============================================================================
 
-// ── Wire types ────────────────────────────────────────────────────────────────
+// ── Wire types (native only) ──────────────────────────────────────────────────
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Serialize)]
 struct ChatRequest<'a> {
     model: &'a str,
@@ -34,6 +37,7 @@ struct ChatRequest<'a> {
     stream: bool,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Serialize, Deserialize)]
 struct Message<'a> {
     role: &'a str,
@@ -41,24 +45,28 @@ struct Message<'a> {
     content: std::borrow::Cow<'a, str>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Deserialize)]
 struct ChatResponse {
     message: OwnedMessage,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Deserialize)]
 struct OwnedMessage {
     content: String,
 }
 
-// ── Client ────────────────────────────────────────────────────────────────────
+// ── Client (native only) ──────────────────────────────────────────────────────
 
+#[cfg(not(target_arch = "wasm32"))]
 /// A thin async client for the Ollama `/api/chat` endpoint.
 pub struct OllamaClient {
     base_url: String,
     pub model: String,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl OllamaClient {
     pub fn new(base_url: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
@@ -129,8 +137,9 @@ impl OllamaClient {
     }
 }
 
-// ── Models directory ─────────────────────────────────────────────────────────
+// ── Models directory (native only) ────────────────────────────────────────────
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Resolve the models directory to pass as `OLLAMA_MODELS`.
 ///
 /// Priority:
@@ -144,6 +153,7 @@ pub fn resolve_models_dir(override_dir: Option<&str>) -> Option<String> {
     Some(expand_home(raw))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn expand_home(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("~/") {
         if let Ok(home) = std::env::var("HOME") {
@@ -153,8 +163,9 @@ fn expand_home(path: &str) -> String {
     path.to_string()
 }
 
-// ── Port management ───────────────────────────────────────────────────────────
+// ── Port management (native only) ─────────────────────────────────────────────
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Extract the port number from a URL like `http://localhost:11434`.
 pub fn port_from_url(url: &str) -> u16 {
     url.rsplit(':')
@@ -163,11 +174,13 @@ pub fn port_from_url(url: &str) -> u16 {
         .unwrap_or(11434)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Returns `true` if something is already listening on `port`.
 pub fn port_in_use(port: u16) -> bool {
     std::net::TcpStream::connect(("127.0.0.1", port)).is_ok()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Ask the OS for a free TCP port by binding to port 0.
 pub fn find_free_port() -> Option<u16> {
     std::net::TcpListener::bind("127.0.0.1:0")
@@ -176,6 +189,7 @@ pub fn find_free_port() -> Option<u16> {
         .map(|a| a.port())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Return the port to use: the preferred port if free, otherwise a new free one.
 /// Also returns whether the port changed.
 pub fn resolve_port(preferred: u16) -> (u16, bool) {
@@ -188,8 +202,9 @@ pub fn resolve_port(preferred: u16) -> (u16, bool) {
     }
 }
 
-// ── Binary discovery ─────────────────────────────────────────────────────────
+// ── Binary discovery (native only) ───────────────────────────────────────────
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Locate the `ollama` binary. Search order:
 /// 1. Next to the running executable (bundled distribution / Tauri sidecar)
 /// 2. `which ollama` via PATH
@@ -252,8 +267,9 @@ pub fn find_binary() -> std::io::Result<std::path::PathBuf> {
     ))
 }
 
-// ── Context builder ───────────────────────────────────────────────────────────
+// ── Context builder (native only) ─────────────────────────────────────────────
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Build a prompt that gives Ollama a summary of the analysis result as context,
 /// then appends the user's question.
 pub fn build_prompt(analysis_summary: &str, user_question: &str) -> String {
@@ -262,4 +278,114 @@ pub fn build_prompt(analysis_summary: &str, user_question: &str) -> String {
          schema and findings:\n\n{analysis_summary}\n\nBased on this information, answer the \
          following question concisely:\n\n{user_question}"
     )
+}
+
+// ── WASM HTTP helpers ─────────────────────────────────────────────────────────
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn ask_ollama_wasm(
+    _base_url: &str,
+    _model: &str,
+    _context: &str,
+    _question: &str,
+) -> Result<String, String> {
+    Err("ask_ollama_wasm is only available on wasm32".to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn ask_ollama_wasm(
+    base_url: &str,
+    model: &str,
+    context: &str,
+    question: &str,
+) -> Result<String, String> {
+    use gloo_net::http::Request;
+    use serde_json::json;
+
+    let prompt = if context.trim().is_empty() {
+        format!("You are a data analyst assistant. Answer the following question concisely:\n\n{question}")
+    } else {
+        format!(
+            "You are a data analyst assistant. The user analysed a dataset with the following \
+             schema and findings:\n\n{context}\n\nBased on this, answer concisely:\n\n{question}"
+        )
+    };
+
+    let body = json!({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": false
+    });
+
+    let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
+
+    let resp = Request::post(&url)
+        .json(&body)
+        .map_err(|e| format!("Failed to build request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!(
+            "Could not reach Ollama at {url}. \
+             Is it running? Did you set OLLAMA_ORIGINS=*? Error: {e}"
+        ))?;
+
+    if !resp.ok() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Ollama returned HTTP {status}: {text}"));
+    }
+
+    let val: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+    val["message"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("Unexpected response shape: {val}"))
+}
+
+/// Sends `prompt` to Ollama with `"format":"json"` and returns the raw JSON string.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn ask_ollama_json(_base_url: &str, _model: &str, _prompt: &str) -> Result<String, String> {
+    Err("ask_ollama_json is only available on wasm32".to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn ask_ollama_json(base_url: &str, model: &str, prompt: &str) -> Result<String, String> {
+    use gloo_net::http::Request;
+    use serde_json::json;
+
+    let body = json!({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": false,
+        "format": "json"
+    });
+
+    let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
+
+    let resp = Request::post(&url)
+        .json(&body)
+        .map_err(|e| format!("Failed to build request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach Ollama at {url}: {e}"))?;
+
+    if !resp.ok() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Ollama returned HTTP {status}: {text}"));
+    }
+
+    let val: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+    val["message"]["content"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("Unexpected response shape: {val}"))
 }
