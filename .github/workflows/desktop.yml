@@ -83,6 +83,10 @@ jobs:
         working-directory: vinrouge-web
         run: trunk build --release --public-url ./
 
+      - name: Generate app icons
+        working-directory: vinrouge-desktop
+        run: cargo tauri icon icons/icon.png
+
       - name: Build desktop app
         working-directory: vinrouge-desktop
         run: cargo tauri build
