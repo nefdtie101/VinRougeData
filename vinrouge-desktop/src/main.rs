@@ -1,6 +1,8 @@
 // Prevent a console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod session_db;
+
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -448,6 +450,67 @@ async fn get_data_file_headers(
     rx.await.map_err(|e| e.to_string())?
 }
 
+/// Parse a project CSV/Excel file and write mapped rows into the session store.
+/// `mappings` is a list of `[source_column, pbc_field]` pairs; columns mapped to
+/// an empty string are discarded.  Returns the new `import_id`.
+#[tauri::command]
+fn import_data_file(
+    file_id: String,
+    mappings: Vec<(String, String)>,
+    sheet: Option<String>,
+    state: tauri::State<ProjectsState>,
+) -> Result<String, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let path = projects::get_file_path(&project_dir, &file_id)?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("Read error: {e}"))?;
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
+    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+    let db = session_db::SessionDb::new(&conn);
+
+    match ext.as_str() {
+        "csv" => db.import_csv(Some(&file_id), &name, bytes, &mappings),
+        "xlsx" | "xls" => db.import_excel(Some(&file_id), &name, bytes, &mappings, sheet.as_deref()),
+        _ => Err(format!("Unsupported file type: .{ext}")),
+    }
+}
+
+/// List all session imports for the active project.
+#[tauri::command]
+fn list_session_imports(
+    state: tauri::State<ProjectsState>,
+) -> Result<Vec<session_db::SessionImport>, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+    session_db::SessionDb::new(&conn).list_imports()
+}
+
+/// Fetch all rows for a specific import (keyed by PBC field name).
+#[tauri::command]
+fn get_session_rows(
+    import_id: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+    session_db::SessionDb::new(&conn).get_rows(&import_id)
+}
+
+/// Delete a session import and all its rows.
+#[tauri::command]
+fn delete_session_import(
+    import_id: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<(), String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+    session_db::SessionDb::new(&conn).delete_import(&import_id)
+}
+
 // ── SOP / Audit-plan commands ─────────────────────────────────────────────────
 
 /// Read the text content of a project file so the frontend can send it to Ollama.
@@ -834,6 +897,10 @@ fn main() {
             export_pbc_docx,
             add_data_file,
             get_data_file_headers,
+            import_data_file,
+            list_session_imports,
+            get_session_rows,
+            delete_session_import,
         ])
         .setup(|app| {
             // Auto-start Ollama when the desktop app launches

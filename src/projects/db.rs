@@ -88,6 +88,21 @@ pub fn open_project(project_dir: &Path) -> Result<Connection> {
         CREATE TABLE IF NOT EXISTS pbc_list_status (
             id       TEXT PRIMARY KEY DEFAULT 'singleton',
             approved INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS session_imports (
+            id            TEXT PRIMARY KEY,
+            file_id       TEXT,
+            source_type   TEXT NOT NULL,
+            source_name   TEXT NOT NULL,
+            row_count     INTEGER NOT NULL DEFAULT 0,
+            mappings_json TEXT NOT NULL DEFAULT '[]',
+            imported_at   TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS session_rows (
+            id         TEXT PRIMARY KEY,
+            import_id  TEXT NOT NULL REFERENCES session_imports(id) ON DELETE CASCADE,
+            row_index  INTEGER NOT NULL,
+            data_json  TEXT NOT NULL
         );",
     )?;
     Ok(conn)
