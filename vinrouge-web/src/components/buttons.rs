@@ -1,11 +1,11 @@
-use leptos::prelude::*;
 use crate::components::spinner::Spinner;
+use leptos::prelude::*;
 
 /// The small square send button used at the end of AI instruction rows.
 /// Shows a spinner while loading, an arrow icon when idle.
 #[component]
 pub fn SendButton(
-    loading:  Signal<bool>,
+    loading: Signal<bool>,
     #[prop(default = Signal::derive(|| false))] disabled: Signal<bool>,
     #[prop(into)] on_click: Callback<()>,
 ) -> impl IntoView {
@@ -32,10 +32,7 @@ pub fn SendButton(
 
 /// Dashed ghost button used for "Add control" / "Add request" within cards.
 #[component]
-pub fn DashedAddButton(
-    label:    &'static str,
-    #[prop(into)] on_click: Callback<()>,
-) -> impl IntoView {
+pub fn DashedAddButton(label: &'static str, #[prop(into)] on_click: Callback<()>) -> impl IntoView {
     view! {
         <button
             class="add-control-btn"
@@ -53,14 +50,18 @@ pub fn DashedAddButton(
 /// Accent-filled primary action button. Shows a spinner when loading.
 #[component]
 pub fn PrimaryButton(
-    label:         &'static str,
-    #[prop(default = Signal::derive(|| false))] loading:  Signal<bool>,
+    label: &'static str,
+    #[prop(default = Signal::derive(|| false))] loading: Signal<bool>,
     #[prop(default = Signal::derive(|| false))] disabled: Signal<bool>,
     #[prop(default = None)] loading_label: Option<&'static str>,
     #[prop(into)] on_click: Callback<()>,
 ) -> impl IntoView {
     let effective_label = move || {
-        if loading.get() { loading_label.unwrap_or(label) } else { label }
+        if loading.get() {
+            loading_label.unwrap_or(label)
+        } else {
+            label
+        }
     };
     view! {
         <button
@@ -80,7 +81,7 @@ pub fn PrimaryButton(
 /// Optionally shows a left-arrow icon when `back = true`.
 #[component]
 pub fn GhostButton(
-    label:    &'static str,
+    label: &'static str,
     #[prop(default = false)] back: bool,
     #[prop(default = Signal::derive(|| false))] disabled: Signal<bool>,
     #[prop(into)] on_click: Callback<()>,

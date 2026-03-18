@@ -227,8 +227,7 @@ pub fn add_file_to_project(project_dir: &Path, src_path: &Path) -> Result<Projec
         .to_lowercase();
 
     let dest = project_dir.join("files").join(&file_name);
-    std::fs::copy(src_path, &dest)
-        .map_err(|e| format!("Failed to copy file: {e}"))?;
+    std::fs::copy(src_path, &dest).map_err(|e| format!("Failed to copy file: {e}"))?;
 
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
 
@@ -242,7 +241,13 @@ pub fn add_file_to_project(project_dir: &Path, src_path: &Path) -> Result<Projec
 
     conn.execute(
         "INSERT INTO files (id, name, path, type, uploaded_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![file.id, file.name, file.path, file.file_type, file.uploaded_at],
+        rusqlite::params![
+            file.id,
+            file.name,
+            file.path,
+            file.file_type,
+            file.uploaded_at
+        ],
     )
     .map_err(|e| format!("DB insert failed: {e}"))?;
 
@@ -280,7 +285,13 @@ pub fn add_file_bytes_to_project(
 
     conn.execute(
         "INSERT INTO files (id, name, path, type, uploaded_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![file.id, file.name, file.path, file.file_type, file.uploaded_at],
+        rusqlite::params![
+            file.id,
+            file.name,
+            file.path,
+            file.file_type,
+            file.uploaded_at
+        ],
     )
     .map_err(|e| format!("DB insert failed: {e}"))?;
 
@@ -291,11 +302,9 @@ pub fn add_file_bytes_to_project(
 pub fn get_file_path(project_dir: &Path, file_id: &str) -> Result<PathBuf, String> {
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
     let path_str: String = conn
-        .query_row(
-            "SELECT path FROM files WHERE id = ?1",
-            [file_id],
-            |row| row.get(0),
-        )
+        .query_row("SELECT path FROM files WHERE id = ?1", [file_id], |row| {
+            row.get(0)
+        })
         .map_err(|e| format!("File not found: {e}"))?;
     Ok(PathBuf::from(path_str))
 }
@@ -434,10 +443,20 @@ pub fn load_project_details(project_dir: &Path) -> Result<Option<ProjectDetails>
     match result {
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(format!("DB query failed: {e}")),
-        Ok((client, engagement_ref, period_start, period_end, report_due,
-            audit_type, notes, standards_json, scope, materiality, risk_framework)) => {
-            let standards: Vec<String> =
-                serde_json::from_str(&standards_json).unwrap_or_default();
+        Ok((
+            client,
+            engagement_ref,
+            period_start,
+            period_end,
+            report_due,
+            audit_type,
+            notes,
+            standards_json,
+            scope,
+            materiality,
+            risk_framework,
+        )) => {
+            let standards: Vec<String> = serde_json::from_str(&standards_json).unwrap_or_default();
             Ok(Some(ProjectDetails {
                 client,
                 engagement_ref,
@@ -462,7 +481,11 @@ pub fn load_project_details(project_dir: &Path) -> Result<Option<ProjectDetails>
 pub fn replace_audit_plan(
     project_dir: &Path,
     sop_file_id: &str,
-    processes: &[(String, String, Vec<(String, String, String, String, String)>)],
+    processes: &[(
+        String,
+        String,
+        Vec<(String, String, String, String, String)>,
+    )],
     // each process: (process_name, description, Vec<(ref, objective, desc, test, risk)>)
 ) -> Result<(), String> {
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
@@ -472,11 +495,13 @@ pub fn replace_audit_plan(
         "DELETE FROM controls WHERE process_id IN \
          (SELECT id FROM audit_processes WHERE sop_file_id = ?1)",
         rusqlite::params![sop_file_id],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
     conn.execute(
         "DELETE FROM audit_processes WHERE sop_file_id = ?1",
         rusqlite::params![sop_file_id],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
 
     let now = Utc::now().to_rfc3339();
 
@@ -506,20 +531,22 @@ pub fn list_audit_plan(project_dir: &Path) -> Result<Vec<AuditProcessWithControl
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
 
     let mut pstmt = conn
-        .prepare("SELECT id, sop_file_id, process_name, description, sort_order, created_at \
-                  FROM audit_processes ORDER BY sort_order ASC")
+        .prepare(
+            "SELECT id, sop_file_id, process_name, description, sort_order, created_at \
+                  FROM audit_processes ORDER BY sort_order ASC",
+        )
         .map_err(|e| e.to_string())?;
 
     let process_rows = pstmt
         .query_map([], |row| {
             Ok(AuditProcessWithControls {
-                id:           row.get(0)?,
-                sop_file_id:  row.get(1)?,
+                id: row.get(0)?,
+                sop_file_id: row.get(1)?,
                 process_name: row.get(2)?,
-                description:  row.get(3)?,
-                sort_order:   row.get(4)?,
-                created_at:   row.get(5)?,
-                controls:     vec![],
+                description: row.get(3)?,
+                sort_order: row.get(4)?,
+                created_at: row.get(5)?,
+                controls: vec![],
             })
         })
         .map_err(|e| e.to_string())?
@@ -529,23 +556,25 @@ pub fn list_audit_plan(project_dir: &Path) -> Result<Vec<AuditProcessWithControl
     let mut result = Vec::with_capacity(process_rows.len());
     for mut proc in process_rows {
         let mut cstmt = conn
-            .prepare("SELECT id, process_id, control_ref, control_objective, control_description, \
+            .prepare(
+                "SELECT id, process_id, control_ref, control_objective, control_description, \
                       test_procedure, risk_level, sort_order, created_at \
-                      FROM controls WHERE process_id = ?1 ORDER BY sort_order ASC")
+                      FROM controls WHERE process_id = ?1 ORDER BY sort_order ASC",
+            )
             .map_err(|e| e.to_string())?;
 
         let controls = cstmt
             .query_map(rusqlite::params![proc.id], |row| {
                 Ok(Control {
-                    id:                  row.get(0)?,
-                    process_id:          row.get(1)?,
-                    control_ref:         row.get(2)?,
-                    control_objective:   row.get(3)?,
+                    id: row.get(0)?,
+                    process_id: row.get(1)?,
+                    control_ref: row.get(2)?,
+                    control_objective: row.get(3)?,
                     control_description: row.get(4)?,
-                    test_procedure:      row.get(5)?,
-                    risk_level:          row.get(6)?,
-                    sort_order:          row.get(7)?,
-                    created_at:          row.get(8)?,
+                    test_procedure: row.get(5)?,
+                    risk_level: row.get(6)?,
+                    sort_order: row.get(7)?,
+                    created_at: row.get(8)?,
                 })
             })
             .map_err(|e| e.to_string())?
@@ -566,11 +595,11 @@ pub fn update_control_field(
     value: &str,
 ) -> Result<(), String> {
     let sql = match field {
-        "control_ref"         => "UPDATE controls SET control_ref         = ?1 WHERE id = ?2",
-        "control_objective"   => "UPDATE controls SET control_objective   = ?1 WHERE id = ?2",
+        "control_ref" => "UPDATE controls SET control_ref         = ?1 WHERE id = ?2",
+        "control_objective" => "UPDATE controls SET control_objective   = ?1 WHERE id = ?2",
         "control_description" => "UPDATE controls SET control_description = ?1 WHERE id = ?2",
-        "test_procedure"      => "UPDATE controls SET test_procedure      = ?1 WHERE id = ?2",
-        "risk_level"          => "UPDATE controls SET risk_level          = ?1 WHERE id = ?2",
+        "test_procedure" => "UPDATE controls SET test_procedure      = ?1 WHERE id = ?2",
+        "risk_level" => "UPDATE controls SET risk_level          = ?1 WHERE id = ?2",
         _ => return Err(format!("Unknown control field: {field}")),
     };
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
@@ -587,7 +616,7 @@ pub fn update_process_field(
 ) -> Result<(), String> {
     let sql = match field {
         "process_name" => "UPDATE audit_processes SET process_name = ?1 WHERE id = ?2",
-        "description"  => "UPDATE audit_processes SET description  = ?1 WHERE id = ?2",
+        "description" => "UPDATE audit_processes SET description  = ?1 WHERE id = ?2",
         _ => return Err(format!("Unknown process field: {field}")),
     };
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
@@ -661,7 +690,12 @@ pub fn list_pbc_groups(project_dir: &Path) -> Result<Vec<PbcGroup>, String> {
         )
         .map_err(|e| e.to_string())?;
 
-    struct CtrlMeta { id: String, control_ref: String, process_name: String, control_objective: String }
+    struct CtrlMeta {
+        id: String,
+        control_ref: String,
+        process_name: String,
+        control_objective: String,
+    }
     let ctrl_meta: Vec<CtrlMeta> = cstmt
         .query_map([], |row| {
             Ok(CtrlMeta {
@@ -689,32 +723,72 @@ pub fn list_pbc_groups(project_dir: &Path) -> Result<Vec<PbcGroup>, String> {
             .query_map(rusqlite::params![cm.id], |row| {
                 let fields_json: String = row.get(6)?;
                 let approved_int: i64 = row.get(9)?;
-                Ok((row.get::<_,String>(0)?, row.get::<_,String>(1)?, row.get::<_,String>(2)?,
-                    row.get::<_,String>(3)?, row.get::<_,String>(4)?, row.get::<_,Option<String>>(5)?,
-                    fields_json, row.get::<_,String>(7)?, row.get::<_,String>(8)?,
-                    approved_int, row.get::<_,i64>(10)?, row.get::<_,String>(11)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    fields_json,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    approved_int,
+                    row.get::<_, i64>(10)?,
+                    row.get::<_, String>(11)?,
+                ))
             })
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?
             .into_iter()
-            .map(|(id, control_id, control_ref, name, item_type, table_name,
-                   fields_json, purpose, scope_format, approved_int, sort_order, created_at)| {
-                let fields: Vec<String> = serde_json::from_str(&fields_json).unwrap_or_default();
-                PbcItem {
-                    id, control_id, control_ref, name, item_type, table_name,
-                    fields, purpose, scope_format,
-                    approved: approved_int != 0,
-                    sort_order, created_at,
-                }
-            })
+            .map(
+                |(
+                    id,
+                    control_id,
+                    control_ref,
+                    name,
+                    item_type,
+                    table_name,
+                    fields_json,
+                    purpose,
+                    scope_format,
+                    approved_int,
+                    sort_order,
+                    created_at,
+                )| {
+                    let fields: Vec<String> =
+                        serde_json::from_str(&fields_json).unwrap_or_default();
+                    PbcItem {
+                        id,
+                        control_id,
+                        control_ref,
+                        name,
+                        item_type,
+                        table_name,
+                        fields,
+                        purpose,
+                        scope_format,
+                        approved: approved_int != 0,
+                        sort_order,
+                        created_at,
+                    }
+                },
+            )
             .collect();
 
         // Title: first item name (most descriptive for a PBC group), then objective, then ref
-        let title = items.first()
+        let title = items
+            .first()
             .filter(|i| !i.name.is_empty())
             .map(|i| i.name.clone())
-            .or_else(|| if !cm.control_objective.is_empty() { Some(cm.control_objective.clone()) } else { None })
+            .or_else(|| {
+                if !cm.control_objective.is_empty() {
+                    Some(cm.control_objective.clone())
+                } else {
+                    None
+                }
+            })
             .unwrap_or_else(|| cm.control_ref.clone());
 
         groups.push(PbcGroup {
@@ -761,12 +835,18 @@ pub fn save_pbc_item(
     ).map_err(|e| format!("DB insert pbc_item: {e}"))?;
 
     Ok(PbcItem {
-        id, control_id: control_id.to_string(), control_ref: control_ref.to_string(),
-        name: name.to_string(), item_type: item_type.to_string(),
+        id,
+        control_id: control_id.to_string(),
+        control_ref: control_ref.to_string(),
+        name: name.to_string(),
+        item_type: item_type.to_string(),
         table_name: table_name.map(|s| s.to_string()),
-        fields: fields.to_vec(), purpose: purpose.to_string(),
-        scope_format: scope_format.to_string(), approved: false,
-        sort_order, created_at: now,
+        fields: fields.to_vec(),
+        purpose: purpose.to_string(),
+        scope_format: scope_format.to_string(),
+        approved: false,
+        sort_order,
+        created_at: now,
     })
 }
 
@@ -803,26 +883,36 @@ pub fn update_pbc_item(
     Ok(())
 }
 
-pub fn update_pbc_item_fields(project_dir: &Path, id: &str, fields: &[String]) -> Result<(), String> {
+pub fn update_pbc_item_fields(
+    project_dir: &Path,
+    id: &str,
+    fields: &[String],
+) -> Result<(), String> {
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
     let fields_json = serde_json::to_string(fields).unwrap_or_else(|_| "[]".to_string());
     conn.execute(
         "UPDATE pbc_items SET fields = ?1 WHERE id = ?2",
         rusqlite::params![fields_json, id],
-    ).map_err(|e| format!("DB update pbc_item fields: {e}"))?;
+    )
+    .map_err(|e| format!("DB update pbc_item fields: {e}"))?;
     Ok(())
 }
 
 pub fn toggle_pbc_item_approved(project_dir: &Path, id: &str) -> Result<bool, String> {
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
     let current: i64 = conn
-        .query_row("SELECT approved FROM pbc_items WHERE id = ?1", rusqlite::params![id], |r| r.get(0))
+        .query_row(
+            "SELECT approved FROM pbc_items WHERE id = ?1",
+            rusqlite::params![id],
+            |r| r.get(0),
+        )
         .map_err(|e| format!("DB read pbc_item: {e}"))?;
     let new_val = if current == 0 { 1i64 } else { 0i64 };
     conn.execute(
         "UPDATE pbc_items SET approved = ?1 WHERE id = ?2",
         rusqlite::params![new_val, id],
-    ).map_err(|e| format!("DB update pbc_item approved: {e}"))?;
+    )
+    .map_err(|e| format!("DB update pbc_item approved: {e}"))?;
     Ok(new_val != 0)
 }
 
@@ -831,9 +921,14 @@ pub fn get_pbc_list_approved(project_dir: &Path) -> Result<bool, String> {
     conn.execute(
         "INSERT OR IGNORE INTO pbc_list_status (id, approved) VALUES ('singleton', 0)",
         [],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
     let val: i64 = conn
-        .query_row("SELECT approved FROM pbc_list_status WHERE id = 'singleton'", [], |r| r.get(0))
+        .query_row(
+            "SELECT approved FROM pbc_list_status WHERE id = 'singleton'",
+            [],
+            |r| r.get(0),
+        )
         .map_err(|e| e.to_string())?;
     Ok(val != 0)
 }
@@ -843,7 +938,8 @@ pub fn set_pbc_list_approved(project_dir: &Path, approved: bool) -> Result<(), S
     conn.execute(
         "INSERT OR REPLACE INTO pbc_list_status (id, approved) VALUES ('singleton', ?1)",
         rusqlite::params![if approved { 1i64 } else { 0i64 }],
-    ).map_err(|e| e.to_string())?;
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -873,10 +969,9 @@ pub fn read_project_file_text(project_dir: &Path, file_id: &str) -> Result<Strin
     match ext.as_str() {
         "pdf" => {
             // 1. Try the embedded text layer first (fast, no models needed)
-            let bytes = std::fs::read(&path)
-                .map_err(|e| format!("Could not read PDF {path}: {e}"))?;
-            let text = pdf_extract::extract_text_from_mem(&bytes)
-                .unwrap_or_default();
+            let bytes =
+                std::fs::read(&path).map_err(|e| format!("Could not read PDF {path}: {e}"))?;
+            let text = pdf_extract::extract_text_from_mem(&bytes).unwrap_or_default();
 
             // 2. If sparse the PDF is likely scanned — fall back to OCR
             if text.split_whitespace().count() >= 50 {
@@ -885,8 +980,6 @@ pub fn read_project_file_text(project_dir: &Path, file_id: &str) -> Result<Strin
                 ocr::ocr_pdf(&path).or(Ok(text))
             }
         }
-        _ => std::fs::read_to_string(&path)
-            .map_err(|e| format!("Could not read file {path}: {e}")),
+        _ => std::fs::read_to_string(&path).map_err(|e| format!("Could not read file {path}: {e}")),
     }
 }
-

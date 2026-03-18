@@ -1,16 +1,23 @@
+use crate::components::{
+    DashedAddButton, GhostButton, InlineInput, InlineTextarea, PrimaryButton, SectionPrompt,
+    Spinner,
+};
+use crate::ipc::{tauri_invoke, tauri_invoke_args};
+use crate::ollama::{ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::types::{AuditProcessWithControls, Control, ProjectFile};
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-use crate::types::{AuditProcessWithControls, Control, ProjectFile};
-use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, ask_ollama_json};
-use crate::components::{DashedAddButton, GhostButton, InlineInput, InlineTextarea, PrimaryButton, SectionPrompt, Spinner};
 
 fn build_regen_prompt(scope: &[String], sop_text: &str) -> String {
     let base = crate::step1::prompts::ANALYZE_SOP;
     if scope.is_empty() {
         return format!("{base}\n\n{sop_text}");
     }
-    let scope_list = scope.iter().map(|s| format!("- {s}")).collect::<Vec<_>>().join("\n");
+    let scope_list = scope
+        .iter()
+        .map(|s| format!("- {s}"))
+        .collect::<Vec<_>>()
+        .join("\n");
     format!(
         "{base}\n\nIMPORTANT: You MUST generate exactly one process entry for EACH of the following \
 processes — do not skip, merge, or add extras:\n{scope_list}\n\nSOP TEXT:\n{sop_text}"
@@ -21,53 +28,77 @@ processes — do not skip, merge, or add extras:\n{scope_list}\n\nSOP TEXT:\n{so
 
 #[component]
 pub fn Step2View(
-    audit_plan:       RwSignal<Vec<AuditProcessWithControls>>,
-    audit_ui_step:    RwSignal<u8>,
+    audit_plan: RwSignal<Vec<AuditProcessWithControls>>,
+    audit_ui_step: RwSignal<u8>,
     plan_needs_regen: RwSignal<bool>,
-    sop_analyzing:    RwSignal<Option<String>>,
-    project_files:    RwSignal<Vec<ProjectFile>>,
-    status:           RwSignal<String>,
-    setup_scope:      RwSignal<Vec<String>>,
+    sop_analyzing: RwSignal<Option<String>>,
+    project_files: RwSignal<Vec<ProjectFile>>,
+    status: RwSignal<String>,
+    setup_scope: RwSignal<Vec<String>>,
 ) -> impl IntoView {
     // Shared regenerate logic (used by both regen banner and footer button)
     let export_open: RwSignal<bool> = RwSignal::new(false);
 
-    let do_regen = move || {
-        let files = project_files.get();
-        let sop = files.into_iter().find(|f| f.file_type == "pdf" || f.file_type == "txt");
-        if let Some(f) = sop {
-            let fid   = f.id.clone();
-            let fname = f.name.clone();
-            let scope = setup_scope.get_untracked();
-            sop_analyzing.set(Some(fid.clone()));
-            spawn_local(async move {
-                let text = match tauri_invoke_args::<String>("read_project_file",
-                    serde_json::json!({ "fileId": fid.clone() })).await
-                {
-                    Ok(t)  => t,
-                    Err(e) => { status.set(format!("Read error: {e}")); sop_analyzing.set(None); return; }
-                };
-                let prompt = build_regen_prompt(&scope, &text);
-                let json_str = match ask_ollama_json(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &prompt).await {
-                    Ok(s)  => s,
-                    Err(e) => { status.set(format!("Ollama error: {e}")); sop_analyzing.set(None); return; }
-                };
-                if let Err(e) = tauri_invoke_args::<()>("save_audit_plan",
-                    serde_json::json!({ "sopFileId": fid, "processesJson": json_str })).await
-                {
-                    status.set(format!("Save error: {e}")); sop_analyzing.set(None); return;
-                }
-                if let Ok(p) = tauri_invoke::<Vec<AuditProcessWithControls>>("list_audit_plan").await {
-                    audit_plan.set(p);
-                }
-                plan_needs_regen.set(false);
-                sop_analyzing.set(None);
-                status.set(format!("Audit plan regenerated for \"{}\"", fname));
-            });
-        } else {
-            status.set("No SOP file found — upload a PDF or TXT file in setup first.".into());
-        }
-    };
+    let do_regen =
+        move || {
+            let files = project_files.get();
+            let sop = files
+                .into_iter()
+                .find(|f| f.file_type == "pdf" || f.file_type == "txt");
+            if let Some(f) = sop {
+                let fid = f.id.clone();
+                let fname = f.name.clone();
+                let scope = setup_scope.get_untracked();
+                sop_analyzing.set(Some(fid.clone()));
+                spawn_local(async move {
+                    let text = match tauri_invoke_args::<String>(
+                        "read_project_file",
+                        serde_json::json!({ "fileId": fid.clone() }),
+                    )
+                    .await
+                    {
+                        Ok(t) => t,
+                        Err(e) => {
+                            status.set(format!("Read error: {e}"));
+                            sop_analyzing.set(None);
+                            return;
+                        }
+                    };
+                    let prompt = build_regen_prompt(&scope, &text);
+                    let json_str =
+                        match ask_ollama_json(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &prompt)
+                            .await
+                        {
+                            Ok(s) => s,
+                            Err(e) => {
+                                status.set(format!("Ollama error: {e}"));
+                                sop_analyzing.set(None);
+                                return;
+                            }
+                        };
+                    if let Err(e) = tauri_invoke_args::<()>(
+                        "save_audit_plan",
+                        serde_json::json!({ "sopFileId": fid, "processesJson": json_str }),
+                    )
+                    .await
+                    {
+                        status.set(format!("Save error: {e}"));
+                        sop_analyzing.set(None);
+                        return;
+                    }
+                    if let Ok(p) =
+                        tauri_invoke::<Vec<AuditProcessWithControls>>("list_audit_plan").await
+                    {
+                        audit_plan.set(p);
+                    }
+                    plan_needs_regen.set(false);
+                    sop_analyzing.set(None);
+                    status.set(format!("Audit plan regenerated for \"{}\"", fname));
+                });
+            } else {
+                status.set("No SOP file found — upload a PDF or TXT file in setup first.".into());
+            }
+        };
 
     view! {
         <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
@@ -216,7 +247,10 @@ pub fn Step2View(
 // ── AuditPlanView ─────────────────────────────────────────────────────────────
 
 #[component]
-fn AuditPlanView(plan: Vec<AuditProcessWithControls>, audit_ui_step: RwSignal<u8>) -> impl IntoView {
+fn AuditPlanView(
+    plan: Vec<AuditProcessWithControls>,
+    audit_ui_step: RwSignal<u8>,
+) -> impl IntoView {
     let count = plan.len();
     view! {
         <div class="audit-plan">
@@ -235,38 +269,48 @@ fn AuditPlanView(plan: Vec<AuditProcessWithControls>, audit_ui_step: RwSignal<u8
 fn AuditProcessCard(proc: AuditProcessWithControls) -> impl IntoView {
     let open: RwSignal<bool> = RwSignal::new(true);
 
-    let proc_id:      RwSignal<String>            = RwSignal::new(proc.id.clone());
-    let pname_sig:    RwSignal<String>            = RwSignal::new(proc.process_name.clone());
-    let pdesc_sig:    RwSignal<String>            = RwSignal::new(proc.description.clone());
-    let prompt_sig:   RwSignal<String>            = RwSignal::new(proc.audit_prompt.clone());
-    let controls_sig: RwSignal<Vec<Control>>      = RwSignal::new(proc.controls.clone());
-    let ai_loading:   RwSignal<bool>              = RwSignal::new(false);
-    let ai_status:    RwSignal<Option<String>>    = RwSignal::new(None);
-    let edit_name:    RwSignal<bool>              = RwSignal::new(false);
-    let edit_desc:    RwSignal<bool>              = RwSignal::new(false);
+    let proc_id: RwSignal<String> = RwSignal::new(proc.id.clone());
+    let pname_sig: RwSignal<String> = RwSignal::new(proc.process_name.clone());
+    let pdesc_sig: RwSignal<String> = RwSignal::new(proc.description.clone());
+    let prompt_sig: RwSignal<String> = RwSignal::new(proc.audit_prompt.clone());
+    let controls_sig: RwSignal<Vec<Control>> = RwSignal::new(proc.controls.clone());
+    let ai_loading: RwSignal<bool> = RwSignal::new(false);
+    let ai_status: RwSignal<Option<String>> = RwSignal::new(None);
+    let edit_name: RwSignal<bool> = RwSignal::new(false);
+    let edit_desc: RwSignal<bool> = RwSignal::new(false);
 
     // Persist prompt text on blur
     let prompt_blur_save = Callback::new(move |v: String| {
         let id = proc_id.get_untracked();
         spawn_local(async move {
-            let _ = tauri_invoke_args::<()>("update_process_field",
-                serde_json::json!({"processId": id, "field": "audit_prompt", "value": v})).await;
+            let _ = tauri_invoke_args::<()>(
+                "update_process_field",
+                serde_json::json!({"processId": id, "field": "audit_prompt", "value": v}),
+            )
+            .await;
         });
     });
 
     // Send to AI
     let on_send_ai = Callback::new(move |_: ()| {
         let instruction = prompt_sig.get();
-        if instruction.trim().is_empty() || ai_loading.get() { return; }
+        if instruction.trim().is_empty() || ai_loading.get() {
+            return;
+        }
 
-        let name  = pname_sig.get();
-        let desc  = pdesc_sig.get();
+        let name = pname_sig.get();
+        let desc = pdesc_sig.get();
         let ctrls = controls_sig.get();
         let mut ctx = format!("Current process:\nName: {name}\nDescription: {desc}\nControls:\n");
         for c in &ctrls {
-            ctx.push_str(&format!("- {} | {} | {} | {} | {}\n",
-                c.control_ref, c.control_objective,
-                c.control_description, c.test_procedure, c.risk_level));
+            ctx.push_str(&format!(
+                "- {} | {} | {} | {} | {}\n",
+                c.control_ref,
+                c.control_objective,
+                c.control_description,
+                c.test_procedure,
+                c.risk_level
+            ));
         }
         ctx.push_str(&format!("\nUser instruction: {instruction}"));
         let full_prompt = format!("{}{ctx}", vinrouge::audit_prompts::UPDATE_SECTION);
@@ -275,38 +319,59 @@ fn AuditProcessCard(proc: AuditProcessWithControls) -> impl IntoView {
         ai_status.set(None);
 
         spawn_local(async move {
-            let raw = match ask_ollama_json(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &full_prompt).await {
-                Ok(s)  => s,
-                Err(e) => { ai_status.set(Some(format!("Error: {e}"))); ai_loading.set(false); return; }
+            let raw = match ask_ollama_json(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &full_prompt)
+                .await
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    ai_status.set(Some(format!("Error: {e}")));
+                    ai_loading.set(false);
+                    return;
+                }
             };
             let v: serde_json::Value = match serde_json::from_str(&raw) {
-                Ok(v)  => v,
-                Err(e) => { ai_status.set(Some(format!("Parse error: {e}"))); ai_loading.set(false); return; }
+                Ok(v) => v,
+                Err(e) => {
+                    ai_status.set(Some(format!("Parse error: {e}")));
+                    ai_loading.set(false);
+                    return;
+                }
             };
 
             if let Some(new_name) = v["process_name"].as_str() {
                 pname_sig.set(new_name.to_string());
                 let pid = proc_id.get_untracked();
                 let val = new_name.to_string();
-                let _ = tauri_invoke_args::<()>("update_process_field",
-                    serde_json::json!({"processId":pid,"field":"process_name","value":val})).await;
+                let _ = tauri_invoke_args::<()>(
+                    "update_process_field",
+                    serde_json::json!({"processId":pid,"field":"process_name","value":val}),
+                )
+                .await;
             }
             if let Some(new_desc) = v["description"].as_str() {
                 pdesc_sig.set(new_desc.to_string());
                 let pid = proc_id.get_untracked();
                 let val = new_desc.to_string();
-                let _ = tauri_invoke_args::<()>("update_process_field",
-                    serde_json::json!({"processId":pid,"field":"description","value":val})).await;
+                let _ = tauri_invoke_args::<()>(
+                    "update_process_field",
+                    serde_json::json!({"processId":pid,"field":"description","value":val}),
+                )
+                .await;
             }
             if let Some(arr) = v["controls"].as_array() {
                 let current = controls_sig.get();
-                let ai_refs: Vec<&str> = arr.iter()
-                    .filter_map(|c| c["control_ref"].as_str()).collect();
+                let ai_refs: Vec<&str> = arr
+                    .iter()
+                    .filter_map(|c| c["control_ref"].as_str())
+                    .collect();
                 for ctrl in &current {
                     if !ai_refs.contains(&ctrl.control_ref.as_str()) {
                         let id = ctrl.id.clone();
-                        let _ = tauri_invoke_args::<()>("delete_control",
-                            serde_json::json!({"controlId": id})).await;
+                        let _ = tauri_invoke_args::<()>(
+                            "delete_control",
+                            serde_json::json!({"controlId": id}),
+                        )
+                        .await;
                     }
                 }
                 let mut new_controls: Vec<Control> = vec![];
@@ -316,26 +381,34 @@ fn AuditProcessCard(proc: AuditProcessWithControls) -> impl IntoView {
                         let mut ctrl = existing.clone();
                         let id = ctrl.id.clone();
                         let fields = [
-                            ("control_ref",         ctrl_json["control_ref"].as_str()),
-                            ("control_objective",   ctrl_json["control_objective"].as_str()),
-                            ("control_description", ctrl_json["control_description"].as_str()),
-                            ("test_procedure",      ctrl_json["test_procedure"].as_str()),
-                            ("risk_level",          ctrl_json["risk_level"].as_str()),
+                            ("control_ref", ctrl_json["control_ref"].as_str()),
+                            ("control_objective", ctrl_json["control_objective"].as_str()),
+                            (
+                                "control_description",
+                                ctrl_json["control_description"].as_str(),
+                            ),
+                            ("test_procedure", ctrl_json["test_procedure"].as_str()),
+                            ("risk_level", ctrl_json["risk_level"].as_str()),
                         ];
                         for (field, maybe_val) in fields {
                             if let Some(val) = maybe_val {
                                 match field {
-                                    "control_ref"         => ctrl.control_ref = val.to_string(),
-                                    "control_objective"   => ctrl.control_objective = val.to_string(),
-                                    "control_description" => ctrl.control_description = val.to_string(),
-                                    "test_procedure"      => ctrl.test_procedure = val.to_string(),
-                                    "risk_level"          => ctrl.risk_level = val.to_string(),
+                                    "control_ref" => ctrl.control_ref = val.to_string(),
+                                    "control_objective" => ctrl.control_objective = val.to_string(),
+                                    "control_description" => {
+                                        ctrl.control_description = val.to_string()
+                                    }
+                                    "test_procedure" => ctrl.test_procedure = val.to_string(),
+                                    "risk_level" => ctrl.risk_level = val.to_string(),
                                     _ => {}
                                 }
                                 let cid = id.clone();
                                 let fv = val.to_string();
-                                let _ = tauri_invoke_args::<()>("update_control_field",
-                                    serde_json::json!({"controlId":cid,"field":field,"value":fv})).await;
+                                let _ = tauri_invoke_args::<()>(
+                                    "update_control_field",
+                                    serde_json::json!({"controlId":cid,"field":field,"value":fv}),
+                                )
+                                .await;
                             }
                         }
                         new_controls.push(ctrl);
@@ -492,23 +565,59 @@ fn AuditProcessCard(proc: AuditProcessWithControls) -> impl IntoView {
 
 #[component]
 fn ControlRow(ctrl: Control, controls_sig: RwSignal<Vec<Control>>) -> impl IntoView {
-    let ctrl_id  = ctrl.id.clone();
-    let cid_ref  = ctrl.id.clone();
-    let cid_obj  = ctrl.id.clone();
+    let ctrl_id = ctrl.id.clone();
+    let cid_ref = ctrl.id.clone();
+    let cid_obj = ctrl.id.clone();
     let cid_desc = ctrl.id.clone();
     let cid_test = ctrl.id.clone();
     let cid_risk = ctrl.id.clone();
 
-    let ref_sig:  RwSignal<String> = RwSignal::new(ctrl.control_ref.clone());
-    let obj_sig:  RwSignal<String> = RwSignal::new(ctrl.control_objective.clone());
+    let ref_sig: RwSignal<String> = RwSignal::new(ctrl.control_ref.clone());
+    let obj_sig: RwSignal<String> = RwSignal::new(ctrl.control_objective.clone());
     let desc_sig: RwSignal<String> = RwSignal::new(ctrl.control_description.clone());
     let test_sig: RwSignal<String> = RwSignal::new(ctrl.test_procedure.clone());
     let risk_sig: RwSignal<String> = RwSignal::new(ctrl.risk_level.clone());
 
-    let save_ref  = Callback::new(move |v: String| { let id = cid_ref.clone();  spawn_local(async move { let _ = tauri_invoke_args::<()>("update_control_field", serde_json::json!({"controlId":id,"field":"control_ref","value":v})).await; }); });
-    let save_obj  = Callback::new(move |v: String| { let id = cid_obj.clone();  spawn_local(async move { let _ = tauri_invoke_args::<()>("update_control_field", serde_json::json!({"controlId":id,"field":"control_objective","value":v})).await; }); });
-    let save_desc = Callback::new(move |v: String| { let id = cid_desc.clone(); spawn_local(async move { let _ = tauri_invoke_args::<()>("update_control_field", serde_json::json!({"controlId":id,"field":"control_description","value":v})).await; }); });
-    let save_test = Callback::new(move |v: String| { let id = cid_test.clone(); spawn_local(async move { let _ = tauri_invoke_args::<()>("update_control_field", serde_json::json!({"controlId":id,"field":"test_procedure","value":v})).await; }); });
+    let save_ref = Callback::new(move |v: String| {
+        let id = cid_ref.clone();
+        spawn_local(async move {
+            let _ = tauri_invoke_args::<()>(
+                "update_control_field",
+                serde_json::json!({"controlId":id,"field":"control_ref","value":v}),
+            )
+            .await;
+        });
+    });
+    let save_obj = Callback::new(move |v: String| {
+        let id = cid_obj.clone();
+        spawn_local(async move {
+            let _ = tauri_invoke_args::<()>(
+                "update_control_field",
+                serde_json::json!({"controlId":id,"field":"control_objective","value":v}),
+            )
+            .await;
+        });
+    });
+    let save_desc = Callback::new(move |v: String| {
+        let id = cid_desc.clone();
+        spawn_local(async move {
+            let _ = tauri_invoke_args::<()>(
+                "update_control_field",
+                serde_json::json!({"controlId":id,"field":"control_description","value":v}),
+            )
+            .await;
+        });
+    });
+    let save_test = Callback::new(move |v: String| {
+        let id = cid_test.clone();
+        spawn_local(async move {
+            let _ = tauri_invoke_args::<()>(
+                "update_control_field",
+                serde_json::json!({"controlId":id,"field":"test_procedure","value":v}),
+            )
+            .await;
+        });
+    });
 
     view! {
         <tr>

@@ -2,85 +2,118 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
 
+use crate::components::{Banner, GhostButton, PrimaryButton, Spinner, StatCard};
 use crate::file_analysis::{analyze_bytes, read_file_bytes};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
 use crate::types::{AuditProcessWithControls, PbcGroup, ProjectFile};
-use crate::components::{Banner, GhostButton, PrimaryButton, Spinner, StatCard};
 
 // ── Local types ───────────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
 struct DataFile {
-    file:     ProjectFile,
-    columns:  Vec<String>,
+    file: ProjectFile,
+    columns: Vec<String>,
     mappings: Vec<(String, String)>, // (source_col, pbc_field) — empty = unmapped
 }
 
 // ── Upload helper (free fn so it can be called from multiple event handlers) ──
 
 fn start_file_upload(
-    file:        web_sys::File,
-    uploading:   RwSignal<bool>,
-    status:      RwSignal<String>,
-    data_files:  RwSignal<Vec<DataFile>>,
-    pbc_groups:  RwSignal<Vec<PbcGroup>>,
+    file: web_sys::File,
+    uploading: RwSignal<bool>,
+    status: RwSignal<String>,
+    data_files: RwSignal<Vec<DataFile>>,
+    pbc_groups: RwSignal<Vec<PbcGroup>>,
     selected_id: RwSignal<Option<String>>,
 ) {
     let name = file.name();
-    let ext  = name.rsplit('.').next().unwrap_or("").to_lowercase();
+    let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
     if !matches!(ext.as_str(), "csv" | "xlsx" | "xls") {
-        status.set(format!("Unsupported file type (.{ext}) — drop a CSV or Excel file"));
+        status.set(format!(
+            "Unsupported file type (.{ext}) — drop a CSV or Excel file"
+        ));
         return;
     }
-    if uploading.get_untracked() { return; }
+    if uploading.get_untracked() {
+        return;
+    }
     uploading.set(true);
 
     spawn_local(async move {
         // Read raw bytes from the browser File object
         let bytes = match read_file_bytes(&file).await {
-            Ok(b)  => b,
-            Err(e) => { status.set(format!("Could not read file: {e:?}")); uploading.set(false); return; }
+            Ok(b) => b,
+            Err(e) => {
+                status.set(format!("Could not read file: {e:?}"));
+                uploading.set(false);
+                return;
+            }
         };
 
         // Parse column names in WASM (reuses the existing analysis infrastructure)
         let columns = match analyze_bytes(bytes.clone(), &name).await {
-            Ok(r)  => r.tables.into_iter()
-                          .flat_map(|t| t.columns.into_iter().map(|c| c.name))
-                          .collect::<Vec<_>>(),
-            Err(e) => { status.set(format!("Could not parse headers: {e}")); uploading.set(false); return; }
+            Ok(r) => r
+                .tables
+                .into_iter()
+                .flat_map(|t| t.columns.into_iter().map(|c| c.name))
+                .collect::<Vec<_>>(),
+            Err(e) => {
+                status.set(format!("Could not parse headers: {e}"));
+                uploading.set(false);
+                return;
+            }
         };
 
         // Save the file into the project's files/ directory via Tauri
         let pf: ProjectFile = match tauri_invoke_args(
             "add_data_file",
             serde_json::json!({ "name": name, "bytes": bytes }),
-        ).await {
-            Ok(f)  => f,
-            Err(e) => { status.set(format!("Save error: {e}")); uploading.set(false); return; }
+        )
+        .await
+        {
+            Ok(f) => f,
+            Err(e) => {
+                status.set(format!("Save error: {e}"));
+                uploading.set(false);
+                return;
+            }
         };
 
         // Auto-map columns to PBC fields by normalised name matching
-        let all_fields: Vec<String> = pbc_groups.get_untracked()
+        let all_fields: Vec<String> = pbc_groups
+            .get_untracked()
             .iter()
             .flat_map(|g| g.items.iter())
             .flat_map(|i| i.fields.iter().cloned())
             .collect();
         let norm = |s: &str| s.to_lowercase().replace(['_', ' ', '-'], "");
-        let mappings: Vec<(String, String)> = columns.iter().map(|col| {
-            let target = all_fields.iter()
-                .find(|f| norm(f) == norm(col))
-                .cloned()
-                .unwrap_or_default();
-            (col.clone(), target)
-        }).collect();
+        let mappings: Vec<(String, String)> = columns
+            .iter()
+            .map(|col| {
+                let target = all_fields
+                    .iter()
+                    .find(|f| norm(f) == norm(col))
+                    .cloned()
+                    .unwrap_or_default();
+                (col.clone(), target)
+            })
+            .collect();
 
         let id = pf.id.clone();
         data_files.update(|v| {
             // Replace if same filename was already uploaded
             if let Some(existing) = v.iter_mut().find(|d| d.file.name == pf.name) {
-                *existing = DataFile { file: pf, columns, mappings };
+                *existing = DataFile {
+                    file: pf,
+                    columns,
+                    mappings,
+                };
             } else {
-                v.push(DataFile { file: pf, columns, mappings });
+                v.push(DataFile {
+                    file: pf,
+                    columns,
+                    mappings,
+                });
             }
         });
         selected_id.set(Some(id));
@@ -92,17 +125,17 @@ fn start_file_upload(
 
 #[component]
 pub fn Step4View(
-    audit_plan:    RwSignal<Vec<AuditProcessWithControls>>,
+    audit_plan: RwSignal<Vec<AuditProcessWithControls>>,
     audit_ui_step: RwSignal<u8>,
-    status:        RwSignal<String>,
+    status: RwSignal<String>,
 ) -> impl IntoView {
-    let active_tab:   RwSignal<&'static str>      = RwSignal::new("csv");
-    let pbc_groups:   RwSignal<Vec<PbcGroup>>     = RwSignal::new(vec![]);
-    let data_files:   RwSignal<Vec<DataFile>>     = RwSignal::new(vec![]);
-    let selected_id:  RwSignal<Option<String>>    = RwSignal::new(None);
-    let uploading:    RwSignal<bool>              = RwSignal::new(false);
-    let csv_over:     RwSignal<bool>              = RwSignal::new(false);
-    let xlsx_over:    RwSignal<bool>              = RwSignal::new(false);
+    let active_tab: RwSignal<&'static str> = RwSignal::new("csv");
+    let pbc_groups: RwSignal<Vec<PbcGroup>> = RwSignal::new(vec![]);
+    let data_files: RwSignal<Vec<DataFile>> = RwSignal::new(vec![]);
+    let selected_id: RwSignal<Option<String>> = RwSignal::new(None);
+    let uploading: RwSignal<bool> = RwSignal::new(false);
+    let csv_over: RwSignal<bool> = RwSignal::new(false);
+    let xlsx_over: RwSignal<bool> = RwSignal::new(false);
 
     // ── Load PBC groups + pre-existing data files on mount ────────────────────
     spawn_local(async move {
@@ -111,29 +144,41 @@ pub fn Step4View(
         }
         if let Ok(files) = tauri_invoke::<Vec<ProjectFile>>("list_project_files").await {
             let mut loaded: Vec<DataFile> = vec![];
-            for f in files.into_iter()
+            for f in files
+                .into_iter()
                 .filter(|f| matches!(f.file_type.as_str(), "csv" | "xlsx" | "xls"))
             {
                 let cols: Vec<String> = tauri_invoke_args(
                     "get_data_file_headers",
                     serde_json::json!({ "fileId": f.id }),
-                ).await.unwrap_or_default();
+                )
+                .await
+                .unwrap_or_default();
 
-                let all_fields: Vec<String> = pbc_groups.get_untracked()
+                let all_fields: Vec<String> = pbc_groups
+                    .get_untracked()
                     .iter()
                     .flat_map(|g| g.items.iter())
                     .flat_map(|i| i.fields.iter().cloned())
                     .collect();
                 let norm = |s: &str| s.to_lowercase().replace(['_', ' ', '-'], "");
-                let mappings = cols.iter().map(|col| {
-                    let target = all_fields.iter()
-                        .find(|f| norm(f) == norm(col))
-                        .cloned()
-                        .unwrap_or_default();
-                    (col.clone(), target)
-                }).collect();
+                let mappings = cols
+                    .iter()
+                    .map(|col| {
+                        let target = all_fields
+                            .iter()
+                            .find(|f| norm(f) == norm(col))
+                            .cloned()
+                            .unwrap_or_default();
+                        (col.clone(), target)
+                    })
+                    .collect();
 
-                loaded.push(DataFile { file: f, columns: cols, mappings });
+                loaded.push(DataFile {
+                    file: f,
+                    columns: cols,
+                    mappings,
+                });
             }
             if !loaded.is_empty() {
                 let first_id = loaded[0].file.id.clone();
@@ -145,11 +190,13 @@ pub fn Step4View(
 
     // Factory for file-input change handlers — called twice in the view (CSV and
     // Excel zones) without ownership issues because all captures are Copy signals.
-    let make_file_handler = move || move |ev: web_sys::Event| {
-        let input: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
-        if let Some(files) = input.files() {
-            if let Some(f) = files.get(0) {
-                start_file_upload(f, uploading, status, data_files, pbc_groups, selected_id);
+    let make_file_handler = move || {
+        move |ev: web_sys::Event| {
+            let input: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
+            if let Some(files) = input.files() {
+                if let Some(f) = files.get(0) {
+                    start_file_upload(f, uploading, status, data_files, pbc_groups, selected_id);
+                }
             }
         }
     };
@@ -157,7 +204,8 @@ pub fn Step4View(
     // Clear upload error when a new file is successfully added
     let upload_err_sig = Signal::derive(move || {
         let s = status.get();
-        if s.starts_with("Unsupported") || s.starts_with("Could not") || s.starts_with("Save error") {
+        if s.starts_with("Unsupported") || s.starts_with("Could not") || s.starts_with("Save error")
+        {
             Some(s)
         } else {
             None

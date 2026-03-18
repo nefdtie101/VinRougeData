@@ -2,13 +2,14 @@ use leptos::prelude::*;
 
 /// SVG ring showing approved/total progress with a percentage label.
 #[component]
-pub fn ProgressRing(
-    approved: Signal<usize>,
-    total:    Signal<usize>,
-) -> impl IntoView {
+pub fn ProgressRing(approved: Signal<usize>, total: Signal<usize>) -> impl IntoView {
     let pct = move || {
         let t = total.get();
-        if t == 0 { 0.0f64 } else { approved.get() as f64 / t as f64 * 100.0 }
+        if t == 0 {
+            0.0f64
+        } else {
+            approved.get() as f64 / t as f64 * 100.0
+        }
     };
     view! {
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">

@@ -108,12 +108,19 @@ pub fn generate_pdf(
             lines_at!(&format!("Client: {}", d.client), L, 11.0_f32, &font);
         }
         if !d.engagement_ref.is_empty() {
-            lines_at!(&format!("Engagement ref: {}", d.engagement_ref), L, 11.0_f32, &font);
+            lines_at!(
+                &format!("Engagement ref: {}", d.engagement_ref),
+                L,
+                11.0_f32,
+                &font
+            );
         }
         if !d.period_start.is_empty() {
             lines_at!(
                 &format!("Audit period: {} \u{2013} {}", d.period_start, d.period_end),
-                L, 11.0_f32, &font
+                L,
+                11.0_f32,
+                &font
             );
         }
     }
@@ -127,11 +134,15 @@ pub fn generate_pdf(
 
     lines_at!(
         &format!("Total requests: {}   Approved: {}", total, approved),
-        L, 10.0_f32, &font
+        L,
+        10.0_f32,
+        &font
     );
     lines_at!(
         &format!("Generated: {}", chrono::Local::now().format("%d %B %Y")),
-        L, 9.0_f32, &font
+        L,
+        9.0_f32,
+        &font
     );
     y -= 6.0;
 
@@ -152,7 +163,11 @@ pub fn generate_pdf(
         for item in &group.items {
             check!(20.0);
 
-            let approved_str = if item.approved { "[Approved]" } else { "[Pending]" };
+            let approved_str = if item.approved {
+                "[Approved]"
+            } else {
+                "[Pending]"
+            };
             let header = format!("{}  [{}]  {}", approved_str, item.item_type, item.name);
             for ln in wrap(&header, 85) {
                 check!(6.0);
@@ -198,19 +213,17 @@ pub fn generate_docx(
     let mut doc = Docx::new();
 
     doc = doc.add_paragraph(
-        Paragraph::new().add_run(
-            Run::new()
-                .add_text("PBC Data Request List")
-                .bold()
-                .size(44),
-        ),
+        Paragraph::new().add_run(Run::new().add_text("PBC Data Request List").bold().size(44)),
     );
 
     if let Some(d) = details {
         if !d.client.is_empty() {
             doc = doc.add_paragraph(
-                Paragraph::new()
-                    .add_run(Run::new().add_text(format!("Client: {}", d.client)).size(24)),
+                Paragraph::new().add_run(
+                    Run::new()
+                        .add_text(format!("Client: {}", d.client))
+                        .size(24),
+                ),
             );
         }
         if !d.engagement_ref.is_empty() {
@@ -283,9 +296,8 @@ pub fn generate_docx(
         );
 
         let header_row = TableRow::new(vec![
-            TableCell::new().add_paragraph(
-                Paragraph::new().add_run(Run::new().add_text("#").bold().size(18)),
-            ),
+            TableCell::new()
+                .add_paragraph(Paragraph::new().add_run(Run::new().add_text("#").bold().size(18))),
             TableCell::new().add_paragraph(
                 Paragraph::new().add_run(Run::new().add_text("Type").bold().size(18)),
             ),
@@ -293,8 +305,7 @@ pub fn generate_docx(
                 Paragraph::new().add_run(Run::new().add_text("Request name").bold().size(18)),
             ),
             TableCell::new().add_paragraph(
-                Paragraph::new()
-                    .add_run(Run::new().add_text("Table / Source").bold().size(18)),
+                Paragraph::new().add_run(Run::new().add_text("Table / Source").bold().size(18)),
             ),
             TableCell::new().add_paragraph(
                 Paragraph::new().add_run(Run::new().add_text("Fields").bold().size(18)),
@@ -316,12 +327,10 @@ pub fn generate_docx(
             let table_str = item.table_name.as_deref().unwrap_or("\u{2014}").to_string();
             rows.push(TableRow::new(vec![
                 TableCell::new().add_paragraph(
-                    Paragraph::new()
-                        .add_run(Run::new().add_text(format!("{}", i + 1)).size(18)),
+                    Paragraph::new().add_run(Run::new().add_text(format!("{}", i + 1)).size(18)),
                 ),
                 TableCell::new().add_paragraph(
-                    Paragraph::new()
-                        .add_run(Run::new().add_text(item.item_type.clone()).size(18)),
+                    Paragraph::new().add_run(Run::new().add_text(item.item_type.clone()).size(18)),
                 ),
                 TableCell::new().add_paragraph(
                     Paragraph::new().add_run(Run::new().add_text(item.name.clone()).size(18)),
@@ -333,8 +342,7 @@ pub fn generate_docx(
                     Paragraph::new().add_run(Run::new().add_text(fields_str).size(18)),
                 ),
                 TableCell::new().add_paragraph(
-                    Paragraph::new()
-                        .add_run(Run::new().add_text(item.purpose.clone()).size(18)),
+                    Paragraph::new().add_run(Run::new().add_text(item.purpose.clone()).size(18)),
                 ),
                 TableCell::new().add_paragraph(
                     Paragraph::new()

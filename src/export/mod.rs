@@ -1,9 +1,9 @@
+pub mod audit_plan;
 mod console;
 mod excel;
 mod grouped_excel;
 mod json;
 mod markdown;
-pub mod audit_plan;
 pub mod pbc_list;
 
 pub use console::ConsoleExporter;

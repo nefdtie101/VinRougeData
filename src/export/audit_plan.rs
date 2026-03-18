@@ -108,12 +108,19 @@ pub fn generate_pdf(
             lines_at!(&format!("Client: {}", d.client), L, 11.0_f32, &font);
         }
         if !d.engagement_ref.is_empty() {
-            lines_at!(&format!("Engagement ref: {}", d.engagement_ref), L, 11.0_f32, &font);
+            lines_at!(
+                &format!("Engagement ref: {}", d.engagement_ref),
+                L,
+                11.0_f32,
+                &font
+            );
         }
         if !d.period_start.is_empty() {
             lines_at!(
                 &format!("Audit period: {} \u{2013} {}", d.period_start, d.period_end),
-                L, 11.0_f32, &font
+                L,
+                11.0_f32,
+                &font
             );
         }
         if !d.audit_type.is_empty() {
@@ -122,7 +129,9 @@ pub fn generate_pdf(
     }
     lines_at!(
         &format!("Generated: {}", chrono::Local::now().format("%d %B %Y")),
-        L, 9.0_f32, &font
+        L,
+        9.0_f32,
+        &font
     );
     y -= 6.0;
 
@@ -179,15 +188,17 @@ pub fn generate_docx(
 
     let mut doc = Docx::new();
 
-    doc = doc.add_paragraph(
-        Paragraph::new().add_run(Run::new().add_text("Audit Plan").bold().size(44)),
-    );
+    doc = doc
+        .add_paragraph(Paragraph::new().add_run(Run::new().add_text("Audit Plan").bold().size(44)));
 
     if let Some(d) = details {
         if !d.client.is_empty() {
             doc = doc.add_paragraph(
-                Paragraph::new()
-                    .add_run(Run::new().add_text(format!("Client: {}", d.client)).size(24)),
+                Paragraph::new().add_run(
+                    Run::new()
+                        .add_text(format!("Client: {}", d.client))
+                        .size(24),
+                ),
             );
         }
         if !d.engagement_ref.is_empty() {
@@ -213,8 +224,11 @@ pub fn generate_docx(
         }
         if !d.audit_type.is_empty() {
             doc = doc.add_paragraph(
-                Paragraph::new()
-                    .add_run(Run::new().add_text(format!("Type: {}", d.audit_type)).size(24)),
+                Paragraph::new().add_run(
+                    Run::new()
+                        .add_text(format!("Type: {}", d.audit_type))
+                        .size(24),
+                ),
             );
         }
     }
@@ -233,13 +247,16 @@ pub fn generate_docx(
 
     for proc in processes {
         doc = doc.add_paragraph(
-            Paragraph::new()
-                .add_run(Run::new().add_text(proc.process_name.clone()).bold().size(28)),
+            Paragraph::new().add_run(
+                Run::new()
+                    .add_text(proc.process_name.clone())
+                    .bold()
+                    .size(28),
+            ),
         );
         if !proc.description.is_empty() {
             doc = doc.add_paragraph(
-                Paragraph::new()
-                    .add_run(Run::new().add_text(proc.description.clone()).size(22)),
+                Paragraph::new().add_run(Run::new().add_text(proc.description.clone()).size(22)),
             );
         }
 
@@ -258,8 +275,7 @@ pub fn generate_docx(
                     Paragraph::new().add_run(Run::new().add_text("Description").bold().size(18)),
                 ),
                 TableCell::new().add_paragraph(
-                    Paragraph::new()
-                        .add_run(Run::new().add_text("Test Procedure").bold().size(18)),
+                    Paragraph::new().add_run(Run::new().add_text("Test Procedure").bold().size(18)),
                 ),
             ]);
 
@@ -275,9 +291,8 @@ pub fn generate_docx(
                             .add_run(Run::new().add_text(ctrl.risk_level.clone()).size(18)),
                     ),
                     TableCell::new().add_paragraph(
-                        Paragraph::new().add_run(
-                            Run::new().add_text(ctrl.control_objective.clone()).size(18),
-                        ),
+                        Paragraph::new()
+                            .add_run(Run::new().add_text(ctrl.control_objective.clone()).size(18)),
                     ),
                     TableCell::new().add_paragraph(
                         Paragraph::new().add_run(

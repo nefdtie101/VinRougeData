@@ -1,92 +1,102 @@
-use leptos::prelude::*;
-use wasm_bindgen_futures::spawn_local;
-use crate::types::{AiMessage, AuditProcessWithControls, Project, ProjectFile};
-use crate::storage::{AuditSetupState, ls_get, ls_set};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, ask_ollama_json, ask_ollama_wasm};
+use crate::ollama::{ask_ollama_json, ask_ollama_wasm, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::step1;
 use crate::step2;
 use crate::step3;
 use crate::step4;
+use crate::storage::{ls_get, ls_set, AuditSetupState};
+use crate::types::{AiMessage, AuditProcessWithControls, Project, ProjectFile};
+use leptos::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 
 // ── Projects enums ────────────────────────────────────────────────────────────
 
 #[derive(Clone, PartialEq)]
-enum RightPanel { Empty, CreateWizard, ActiveProject, CreateSuccess }
+enum RightPanel {
+    Empty,
+    CreateWizard,
+    ActiveProject,
+    CreateSuccess,
+}
 
 // ── ProjectsView ──────────────────────────────────────────────────────────────
 
 #[component]
 pub fn ProjectsView() -> impl IntoView {
     // ── Core state ────────────────────────────────────────────────────────────
-    let projects: RwSignal<Vec<Project>>          = RwSignal::new(vec![]);
+    let projects: RwSignal<Vec<Project>> = RwSignal::new(vec![]);
     let active_project: RwSignal<Option<Project>> = RwSignal::new(None);
     let project_files: RwSignal<Vec<ProjectFile>> = RwSignal::new(vec![]);
-    let ai_messages: RwSignal<Vec<AiMessage>>     = RwSignal::new(vec![]);
-    let right_panel: RwSignal<RightPanel>         = RwSignal::new(RightPanel::Empty);
-    let status: RwSignal<String>                  = RwSignal::new(String::new());
-    let last_created: RwSignal<Option<Project>>   = RwSignal::new(None);
-    let search: RwSignal<String>                  = RwSignal::new(String::new());
+    let ai_messages: RwSignal<Vec<AiMessage>> = RwSignal::new(vec![]);
+    let right_panel: RwSignal<RightPanel> = RwSignal::new(RightPanel::Empty);
+    let status: RwSignal<String> = RwSignal::new(String::new());
+    let last_created: RwSignal<Option<Project>> = RwSignal::new(None);
+    let search: RwSignal<String> = RwSignal::new(String::new());
 
     // ── Wizard state (3 steps) ────────────────────────────────────────────────
-    let wiz_step: RwSignal<u8>                    = RwSignal::new(1);
+    let wiz_step: RwSignal<u8> = RwSignal::new(1);
     // Step 1
-    let wiz_name: RwSignal<String>                = RwSignal::new(String::new());
-    let wiz_client: RwSignal<String>              = RwSignal::new(String::new());
-    let wiz_ref_: RwSignal<String>                = RwSignal::new(String::new());
-    let wiz_start: RwSignal<String>               = RwSignal::new(String::new());
-    let wiz_end: RwSignal<String>                 = RwSignal::new(String::new());
-    let wiz_due: RwSignal<String>                 = RwSignal::new(String::new());
-    let wiz_type: RwSignal<String>                = RwSignal::new("Compliance".to_string());
-    let wiz_notes: RwSignal<String>               = RwSignal::new(String::new());
-    let wiz_save_dir: RwSignal<Option<String>>    = RwSignal::new(None);
+    let wiz_name: RwSignal<String> = RwSignal::new(String::new());
+    let wiz_client: RwSignal<String> = RwSignal::new(String::new());
+    let wiz_ref_: RwSignal<String> = RwSignal::new(String::new());
+    let wiz_start: RwSignal<String> = RwSignal::new(String::new());
+    let wiz_end: RwSignal<String> = RwSignal::new(String::new());
+    let wiz_due: RwSignal<String> = RwSignal::new(String::new());
+    let wiz_type: RwSignal<String> = RwSignal::new("Compliance".to_string());
+    let wiz_notes: RwSignal<String> = RwSignal::new(String::new());
+    let wiz_save_dir: RwSignal<Option<String>> = RwSignal::new(None);
     // Step 2
-    let wiz_standards: RwSignal<Vec<String>>      = RwSignal::new(vec![]);
-    let wiz_scope: RwSignal<String>               = RwSignal::new(String::new());
-    let wiz_materiality: RwSignal<String>         = RwSignal::new(String::new());
-    let wiz_risk_fw: RwSignal<String>             = RwSignal::new("High / Medium / Low".to_string());
+    let wiz_standards: RwSignal<Vec<String>> = RwSignal::new(vec![]);
+    let wiz_scope: RwSignal<String> = RwSignal::new(String::new());
+    let wiz_materiality: RwSignal<String> = RwSignal::new(String::new());
+    let wiz_risk_fw: RwSignal<String> = RwSignal::new("High / Medium / Low".to_string());
 
     // ── Audit plan state ──────────────────────────────────────────────────────
     let audit_plan: RwSignal<Vec<AuditProcessWithControls>> = RwSignal::new(vec![]);
-    let sop_analyzing: RwSignal<Option<String>>             = RwSignal::new(None); // file_id
+    let sop_analyzing: RwSignal<Option<String>> = RwSignal::new(None); // file_id
 
     // ── Sidebar resize ────────────────────────────────────────────────────────
     let sidebar_width: RwSignal<f64> = RwSignal::new(260.0);
-    let is_dragging:   RwSignal<bool> = RwSignal::new(false);
+    let is_dragging: RwSignal<bool> = RwSignal::new(false);
 
     // ── Chat state ────────────────────────────────────────────────────────────
-    let chat_input: RwSignal<String>  = RwSignal::new(String::new());
-    let chat_loading: RwSignal<bool>  = RwSignal::new(false);
+    let chat_input: RwSignal<String> = RwSignal::new(String::new());
+    let chat_loading: RwSignal<bool> = RwSignal::new(false);
 
     // ── Audit setup state (step 1) ────────────────────────────────────────────
     let setup_standards: RwSignal<Vec<(String, bool)>> = RwSignal::new(vec![
         ("ISO 27001".to_string(), true),
-        ("SOC 2".to_string(),     true),
-        ("GDPR".to_string(),      false),
-        ("GAAP".to_string(),      false),
-        ("IFRS".to_string(),      false),
-        ("PCI-DSS".to_string(),   false),
+        ("SOC 2".to_string(), true),
+        ("GDPR".to_string(), false),
+        ("GAAP".to_string(), false),
+        ("IFRS".to_string(), false),
+        ("PCI-DSS".to_string(), false),
     ]);
-    let setup_scope: RwSignal<Vec<String>>         = RwSignal::new(vec![]);
-    let setup_approved: RwSignal<bool>             = RwSignal::new(false);
-    let setup_new_std: RwSignal<String>            = RwSignal::new(String::new());
-    let setup_new_scope: RwSignal<String>          = RwSignal::new(String::new());
-    let ai_setup_prompt: RwSignal<String>          = RwSignal::new(String::new());
-    let ai_setup_loading: RwSignal<bool>           = RwSignal::new(false);
+    let setup_scope: RwSignal<Vec<String>> = RwSignal::new(vec![]);
+    let setup_approved: RwSignal<bool> = RwSignal::new(false);
+    let setup_new_std: RwSignal<String> = RwSignal::new(String::new());
+    let setup_new_scope: RwSignal<String> = RwSignal::new(String::new());
+    let ai_setup_prompt: RwSignal<String> = RwSignal::new(String::new());
+    let ai_setup_loading: RwSignal<bool> = RwSignal::new(false);
     let ai_setup_summary: RwSignal<Option<String>> = RwSignal::new(None);
-    let ai_setup_err: RwSignal<bool>               = RwSignal::new(false);
-    let audit_ui_step: RwSignal<u8>                = RwSignal::new(1);
-    let plan_needs_regen: RwSignal<bool>           = RwSignal::new(false);
-    let sop_extracting: RwSignal<bool>             = RwSignal::new(false);
+    let ai_setup_err: RwSignal<bool> = RwSignal::new(false);
+    let audit_ui_step: RwSignal<u8> = RwSignal::new(1);
+    let plan_needs_regen: RwSignal<bool> = RwSignal::new(false);
+    let sop_extracting: RwSignal<bool> = RwSignal::new(false);
 
     // Persist audit setup to localStorage whenever any part changes
     Effect::new(move || {
-        let stds     = setup_standards.get();
-        let scope    = setup_scope.get();
+        let stds = setup_standards.get();
+        let scope = setup_scope.get();
         let approved = setup_approved.get();
-        let step     = audit_ui_step.get();
+        let step = audit_ui_step.get();
         if let Some(p) = active_project.get() {
-            let state = AuditSetupState { step, standards: stds, scope, approved };
+            let state = AuditSetupState {
+                step,
+                standards: stds,
+                scope,
+                approved,
+            };
             if let Ok(json) = serde_json::to_string(&state) {
                 ls_set(&format!("audit_setup_v1_{}", p.id), &json);
             }
@@ -97,15 +107,21 @@ pub fn ProjectsView() -> impl IntoView {
     spawn_local(async move {
         match tauri_invoke::<Vec<Project>>("list_projects").await {
             Ok(list) => projects.set(list),
-            Err(e)   => status.set(format!("Failed to load projects: {e}")),
+            Err(e) => status.set(format!("Failed to load projects: {e}")),
         }
     });
 
     let refresh_project_data = move || {
         spawn_local(async move {
-            if let Ok(f) = tauri_invoke::<Vec<ProjectFile>>("list_project_files").await { project_files.set(f); }
-            if let Ok(m) = tauri_invoke::<Vec<AiMessage>>("list_ai_messages").await      { ai_messages.set(m); }
-            if let Ok(p) = tauri_invoke::<Vec<AuditProcessWithControls>>("list_audit_plan").await { audit_plan.set(p); }
+            if let Ok(f) = tauri_invoke::<Vec<ProjectFile>>("list_project_files").await {
+                project_files.set(f);
+            }
+            if let Ok(m) = tauri_invoke::<Vec<AiMessage>>("list_ai_messages").await {
+                ai_messages.set(m);
+            }
+            if let Ok(p) = tauri_invoke::<Vec<AuditProcessWithControls>>("list_audit_plan").await {
+                audit_plan.set(p);
+            }
         });
     };
 
@@ -131,10 +147,9 @@ pub fn ProjectsView() -> impl IntoView {
     // ── Open a project ────────────────────────────────────────────────────────
     let open_project = move |path: String| {
         spawn_local(async move {
-            match tauri_invoke_args::<Project>(
-                "open_project",
-                serde_json::json!({ "path": path }),
-            ).await {
+            match tauri_invoke_args::<Project>("open_project", serde_json::json!({ "path": path }))
+                .await
+            {
                 Ok(p) => {
                     // Restore persisted audit setup for this project
                     if let Some(json) = ls_get(&format!("audit_setup_v1_{}", p.id)) {
@@ -148,11 +163,11 @@ pub fn ProjectsView() -> impl IntoView {
                         // Fresh project — reset to defaults
                         setup_standards.set(vec![
                             ("ISO 27001".to_string(), true),
-                            ("SOC 2".to_string(),     true),
-                            ("GDPR".to_string(),      false),
-                            ("GAAP".to_string(),      false),
-                            ("IFRS".to_string(),      false),
-                            ("PCI-DSS".to_string(),   false),
+                            ("SOC 2".to_string(), true),
+                            ("GDPR".to_string(), false),
+                            ("GAAP".to_string(), false),
+                            ("IFRS".to_string(), false),
+                            ("PCI-DSS".to_string(), false),
                         ]);
                         setup_scope.set(vec![]);
                         setup_approved.set(false);
@@ -173,8 +188,8 @@ pub fn ProjectsView() -> impl IntoView {
         spawn_local(async move {
             match tauri_invoke::<Option<String>>("pick_project_folder").await {
                 Ok(Some(p)) => wiz_save_dir.set(Some(p)),
-                Ok(None)    => {}
-                Err(e)      => status.set(format!("Error: {e}")),
+                Ok(None) => {}
+                Err(e) => status.set(format!("Error: {e}")),
             }
         });
     };
@@ -182,7 +197,9 @@ pub fn ProjectsView() -> impl IntoView {
     // ── Create project (step 3 confirm) ──────────────────────────────────────
     let on_create = move |_| {
         let name = wiz_name.get();
-        if name.trim().is_empty() { return; }
+        if name.trim().is_empty() {
+            return;
+        }
         let args = serde_json::json!({
             "name":           name,
             "saveDir":        wiz_save_dir.get(),
@@ -217,8 +234,11 @@ pub fn ProjectsView() -> impl IntoView {
         spawn_local(async move {
             let f = match tauri_invoke::<Option<ProjectFile>>("pick_and_add_file").await {
                 Ok(Some(f)) => f,
-                Ok(None)    => return,
-                Err(e)      => { status.set(format!("Error: {e}")); return; }
+                Ok(None) => return,
+                Err(e) => {
+                    status.set(format!("Error: {e}"));
+                    return;
+                }
             };
 
             let is_sop = f.file_type == "txt" || f.file_type == "pdf";
@@ -230,7 +250,7 @@ pub fn ProjectsView() -> impl IntoView {
             }
 
             // Read SOP text
-            let file_id   = f.id.clone();
+            let file_id = f.id.clone();
             let file_name = f.name.clone();
             sop_extracting.set(true);
             status.set(format!("Reading \"{}\"...", file_name));
@@ -238,7 +258,9 @@ pub fn ProjectsView() -> impl IntoView {
             let text = match tauri_invoke_args::<String>(
                 "read_project_file",
                 serde_json::json!({ "fileId": file_id.clone() }),
-            ).await {
+            )
+            .await
+            {
                 Ok(t) => t,
                 Err(e) => {
                     status.set(format!("Could not read file: {e}"));
@@ -259,9 +281,15 @@ pub fn ProjectsView() -> impl IntoView {
                                 for n in arr {
                                     if let Some(s) = n.as_str() {
                                         let s = s.to_string();
-                                        if !current.iter().any(|(x, _)| x.to_lowercase() == s.to_lowercase()) {
+                                        if !current
+                                            .iter()
+                                            .any(|(x, _)| x.to_lowercase() == s.to_lowercase())
+                                        {
                                             current.push((s, true));
-                                        } else if let Some(e) = current.iter_mut().find(|(x, _)| x.to_lowercase() == s.to_lowercase()) {
+                                        } else if let Some(e) = current
+                                            .iter_mut()
+                                            .find(|(x, _)| x.to_lowercase() == s.to_lowercase())
+                                        {
                                             e.1 = true; // select it if suggested
                                         }
                                     }
@@ -270,7 +298,8 @@ pub fn ProjectsView() -> impl IntoView {
                         }
                         // Replace scope with extracted processes
                         if let Some(arr) = v["scope"].as_array() {
-                            let new_scope: Vec<String> = arr.iter()
+                            let new_scope: Vec<String> = arr
+                                .iter()
                                 .filter_map(|x| x.as_str().map(|s| s.to_string()))
                                 .collect();
                             if !new_scope.is_empty() {
@@ -288,28 +317,36 @@ pub fn ProjectsView() -> impl IntoView {
             }
 
             sop_extracting.set(false);
-            status.set(format!("\"{}\" loaded — review setup then generate plan", file_name));
+            status.set(format!(
+                "\"{}\" loaded — review setup then generate plan",
+                file_name
+            ));
         });
     };
 
     // ── Chat send ─────────────────────────────────────────────────────────────
     let on_chat_send = move |_: web_sys::MouseEvent| {
         let q = chat_input.get();
-        if q.trim().is_empty() || chat_loading.get() { return; }
+        if q.trim().is_empty() || chat_loading.get() {
+            return;
+        }
         chat_loading.set(true);
         spawn_local(async move {
             let _ = tauri_invoke_args::<AiMessage>(
                 "save_ai_message",
                 serde_json::json!({ "role": "user", "content": q.clone() }),
-            ).await;
-            let reply = match ask_ollama_wasm(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, "", &q).await {
-                Ok(r)  => r,
-                Err(e) => format!("Error: {e}"),
-            };
+            )
+            .await;
+            let reply =
+                match ask_ollama_wasm(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, "", &q).await {
+                    Ok(r) => r,
+                    Err(e) => format!("Error: {e}"),
+                };
             let _ = tauri_invoke_args::<AiMessage>(
                 "save_ai_message",
                 serde_json::json!({ "role": "assistant", "content": reply }),
-            ).await;
+            )
+            .await;
             chat_input.set(String::new());
             if let Ok(msgs) = tauri_invoke::<Vec<AiMessage>>("list_ai_messages").await {
                 ai_messages.set(msgs);

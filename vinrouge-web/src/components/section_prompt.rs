@@ -1,16 +1,15 @@
-use leptos::prelude::*;
 use crate::components::buttons::SendButton;
+use leptos::prelude::*;
 
 /// The compact AI instruction block shown at the bottom of collapsible cards.
 /// Pass `on_blur_save` if the prompt text should also be persisted to the backend
 /// when the textarea loses focus (step 2 uses this; step 3 does not).
 #[component]
 pub fn SectionPrompt(
-    prompt:      RwSignal<String>,
-    loading:     RwSignal<bool>,
-    status:      RwSignal<Option<String>>,
-    #[prop(default = "Instruct the AI to update this section…")]
-    placeholder: &'static str,
+    prompt: RwSignal<String>,
+    loading: RwSignal<bool>,
+    status: RwSignal<Option<String>>,
+    #[prop(default = "Instruct the AI to update this section…")] placeholder: &'static str,
     #[prop(optional)] on_blur_save: Option<Callback<String>>,
     #[prop(into)] on_send: Callback<()>,
 ) -> impl IntoView {

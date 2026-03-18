@@ -4,7 +4,7 @@ use leptos::prelude::*;
 /// The `on_save` callback receives the current value string.
 #[component]
 pub fn InlineInput(
-    value:       RwSignal<String>,
+    value: RwSignal<String>,
     #[prop(default = "")] placeholder: &'static str,
     #[prop(default = "")] class: &'static str,
     #[prop(default = "")] style: &'static str,
@@ -25,7 +25,7 @@ pub fn InlineInput(
 /// Transparent multi-line textarea that saves to the backend on blur.
 #[component]
 pub fn InlineTextarea(
-    value:       RwSignal<String>,
+    value: RwSignal<String>,
     #[prop(default = "")] placeholder: &'static str,
     #[prop(default = "")] class: &'static str,
     #[prop(into)] on_save: Callback<String>,

@@ -1,9 +1,7 @@
 /// Ollama helpers — re-exported from the main vinrouge library.
 pub use vinrouge::ollama::{
-    DEFAULT_MODEL as OLLAMA_DEFAULT_MODEL,
+    ask_ollama_json, ask_ollama_wasm, DEFAULT_MODEL as OLLAMA_DEFAULT_MODEL,
     DEFAULT_URL as OLLAMA_DEFAULT_URL,
-    ask_ollama_json,
-    ask_ollama_wasm,
 };
 
 use crate::types::AnalysisResult;
@@ -27,7 +25,10 @@ pub fn build_web_summary(result: &AnalysisResult) -> String {
     }
 
     if !result.relationships.is_empty() {
-        s.push_str(&format!("\nRelationships ({}):\n", result.relationships.len()));
+        s.push_str(&format!(
+            "\nRelationships ({}):\n",
+            result.relationships.len()
+        ));
         for r in &result.relationships {
             s.push_str(&format!(
                 "  - {}.{} -> {}.{}\n",

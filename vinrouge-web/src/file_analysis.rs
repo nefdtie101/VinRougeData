@@ -1,10 +1,10 @@
+use crate::types::AnalysisResult;
 use js_sys::Uint8Array;
-use wasm_bindgen::JsValue;
-use wasm_bindgen_futures::JsFuture;
 use vinrouge::analysis::{RelationshipDetector, Workflow, WorkflowDetector};
 use vinrouge::schema::{Relationship, Table};
 use vinrouge::sources::{CsvSource, DataSource, ExcelSource};
-use crate::types::AnalysisResult;
+use wasm_bindgen::JsValue;
+use wasm_bindgen_futures::JsFuture;
 
 // ── Browser file analysis (WASM) ──────────────────────────────────────────────
 

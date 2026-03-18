@@ -1,7 +1,7 @@
-use wasm_bindgen::JsValue;
-use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::JsFuture;
 use crate::types::AnalysisResult;
+use wasm_bindgen::JsCast;
+use wasm_bindgen::JsValue;
+use wasm_bindgen_futures::JsFuture;
 
 // ── Tauri detection & IPC ─────────────────────────────────────────────────────
 

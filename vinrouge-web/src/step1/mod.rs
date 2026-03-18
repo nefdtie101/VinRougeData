@@ -4,27 +4,27 @@ use leptos::callback::{Callable, UnsyncCallback};
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
+use crate::ipc::{tauri_invoke, tauri_invoke_args};
+use crate::ollama::{ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::types::{AuditProcessWithControls, ProjectFile};
-use crate::ollama::{OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, ask_ollama_json};
-use crate::ipc::{tauri_invoke_args, tauri_invoke};
 
 #[component]
 pub fn AuditSetupView(
-    setup_standards:   RwSignal<Vec<(String, bool)>>,
-    setup_scope:       RwSignal<Vec<String>>,
-    setup_new_std:     RwSignal<String>,
-    setup_new_scope:   RwSignal<String>,
-    ai_setup_prompt:   RwSignal<String>,
-    ai_setup_loading:  RwSignal<bool>,
-    ai_setup_summary:  RwSignal<Option<String>>,
-    ai_setup_err:      RwSignal<bool>,
-    sop_extracting:    RwSignal<bool>,
-    sop_analyzing:     RwSignal<Option<String>>,
-    project_files:     RwSignal<Vec<ProjectFile>>,
-    audit_plan:        RwSignal<Vec<AuditProcessWithControls>>,
-    plan_needs_regen:  RwSignal<bool>,
-    audit_ui_step:     RwSignal<u8>,
-    status:            RwSignal<String>,
+    setup_standards: RwSignal<Vec<(String, bool)>>,
+    setup_scope: RwSignal<Vec<String>>,
+    setup_new_std: RwSignal<String>,
+    setup_new_scope: RwSignal<String>,
+    ai_setup_prompt: RwSignal<String>,
+    ai_setup_loading: RwSignal<bool>,
+    ai_setup_summary: RwSignal<Option<String>>,
+    ai_setup_err: RwSignal<bool>,
+    sop_extracting: RwSignal<bool>,
+    sop_analyzing: RwSignal<Option<String>>,
+    project_files: RwSignal<Vec<ProjectFile>>,
+    audit_plan: RwSignal<Vec<AuditProcessWithControls>>,
+    plan_needs_regen: RwSignal<bool>,
+    audit_ui_step: RwSignal<u8>,
+    status: RwSignal<String>,
     #[prop(into)] on_add_file: UnsyncCallback<(web_sys::MouseEvent,)>,
 ) -> impl IntoView {
     view! {

@@ -4,19 +4,16 @@ use leptos::prelude::*;
 #[component]
 pub fn RiskBadge(level: Signal<String>) -> impl IntoView {
     let cls = move || match level.get().as_str() {
-        "High"  => "risk-badge high",
-        "Low"   => "risk-badge low",
-        _       => "risk-badge medium",
+        "High" => "risk-badge high",
+        "Low" => "risk-badge low",
+        _ => "risk-badge medium",
     };
     view! { <span class=cls>{move || level.get()}</span> }
 }
 
 /// `"{approved}/{total}"` pill that turns green when all items are approved.
 #[component]
-pub fn CountBadge(
-    approved: Signal<usize>,
-    total:    Signal<usize>,
-) -> impl IntoView {
+pub fn CountBadge(approved: Signal<usize>, total: Signal<usize>) -> impl IntoView {
     view! {
         <span style=move || {
             let done = total.get() > 0 && approved.get() == total.get();

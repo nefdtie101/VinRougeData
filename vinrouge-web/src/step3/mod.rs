@@ -1,10 +1,10 @@
+use crate::components::{DashedAddButton, ProgressRing, SectionPrompt, Spinner, StatCard};
+use crate::ipc::{tauri_invoke, tauri_invoke_args};
+use crate::ollama::{ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::step1::prompts::REFINE_PBC_LIST;
+use crate::types::{AuditProcessWithControls, PbcGroup, PbcItem};
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-use crate::types::{AuditProcessWithControls, PbcGroup, PbcItem};
-use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, ask_ollama_json};
-use crate::components::{DashedAddButton, SectionPrompt, Spinner, StatCard, ProgressRing};
-use crate::step1::prompts::REFINE_PBC_LIST;
 
 // ── Step3View ─────────────────────────────────────────────────────────────────
 
@@ -14,28 +14,31 @@ pub fn Step3View(
     audit_ui_step: RwSignal<u8>,
     status: RwSignal<String>,
 ) -> impl IntoView {
-    let groups: RwSignal<Vec<PbcGroup>>         = RwSignal::new(vec![]);
+    let groups: RwSignal<Vec<PbcGroup>> = RwSignal::new(vec![]);
     // Separate signal for approval state so toggling doesn't re-render group cards
-    let approved_ids: RwSignal<Vec<String>>     = RwSignal::new(vec![]);
-    let list_approved: RwSignal<bool>           = RwSignal::new(false);
-    let generating: RwSignal<bool>              = RwSignal::new(false);
-    let gen_error: RwSignal<Option<String>>     = RwSignal::new(None);
-    let gen_phase: RwSignal<String>             = RwSignal::new(String::new());
-    let ai_prompt: RwSignal<String>             = RwSignal::new(String::new());
-    let ai_loading: RwSignal<bool>              = RwSignal::new(false);
-    let ai_status: RwSignal<Option<String>>     = RwSignal::new(None);
-    let export_open: RwSignal<bool>             = RwSignal::new(false);
-    let sync_loading: RwSignal<bool>            = RwSignal::new(false);
-    let sync_status: RwSignal<Option<String>>   = RwSignal::new(None);
+    let approved_ids: RwSignal<Vec<String>> = RwSignal::new(vec![]);
+    let list_approved: RwSignal<bool> = RwSignal::new(false);
+    let generating: RwSignal<bool> = RwSignal::new(false);
+    let gen_error: RwSignal<Option<String>> = RwSignal::new(None);
+    let gen_phase: RwSignal<String> = RwSignal::new(String::new());
+    let ai_prompt: RwSignal<String> = RwSignal::new(String::new());
+    let ai_loading: RwSignal<bool> = RwSignal::new(false);
+    let ai_status: RwSignal<Option<String>> = RwSignal::new(None);
+    let export_open: RwSignal<bool> = RwSignal::new(false);
+    let sync_loading: RwSignal<bool> = RwSignal::new(false);
+    let sync_status: RwSignal<Option<String>> = RwSignal::new(None);
 
     // ── Initial load ──────────────────────────────────────────────────────────
     spawn_local(async move {
-        if let Ok(v) = tauri_invoke_args::<bool>("get_pbc_list_approved", serde_json::json!({})).await {
+        if let Ok(v) =
+            tauri_invoke_args::<bool>("get_pbc_list_approved", serde_json::json!({})).await
+        {
             list_approved.set(v);
         }
         match tauri_invoke_args::<Vec<PbcGroup>>("list_pbc_groups", serde_json::json!({})).await {
             Ok(g) if g.iter().any(|grp| !grp.items.is_empty()) => {
-                let ids: Vec<String> = g.iter()
+                let ids: Vec<String> = g
+                    .iter()
                     .flat_map(|grp| grp.items.iter())
                     .filter(|i| i.approved)
                     .map(|i| i.id.clone())
@@ -46,16 +49,38 @@ pub fn Step3View(
             _ => {
                 generating.set(true);
                 gen_error.set(None);
-                do_generate(audit_plan, groups, approved_ids, gen_phase, gen_error, generating).await;
+                do_generate(
+                    audit_plan,
+                    groups,
+                    approved_ids,
+                    gen_phase,
+                    gen_error,
+                    generating,
+                )
+                .await;
             }
         }
     });
 
     // ── Derived stats ─────────────────────────────────────────────────────────
-    let total_items    = move || groups.get().iter().flat_map(|g| g.items.iter()).count();
+    let total_items = move || groups.get().iter().flat_map(|g| g.items.iter()).count();
     let approved_count = move || approved_ids.get().len();
-    let sql_count      = move || groups.get().iter().flat_map(|g| g.items.iter()).filter(|i| i.item_type == "SQL").count();
-    let csv_count      = move || groups.get().iter().flat_map(|g| g.items.iter()).filter(|i| i.item_type == "CSV").count();
+    let sql_count = move || {
+        groups
+            .get()
+            .iter()
+            .flat_map(|g| g.items.iter())
+            .filter(|i| i.item_type == "SQL")
+            .count()
+    };
+    let csv_count = move || {
+        groups
+            .get()
+            .iter()
+            .flat_map(|g| g.items.iter())
+            .filter(|i| i.item_type == "CSV")
+            .count()
+    };
 
     view! {
         <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
@@ -511,12 +536,12 @@ pub fn Step3View(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async fn do_generate(
-    audit_plan:   RwSignal<Vec<AuditProcessWithControls>>,
-    groups:       RwSignal<Vec<PbcGroup>>,
+    audit_plan: RwSignal<Vec<AuditProcessWithControls>>,
+    groups: RwSignal<Vec<PbcGroup>>,
     approved_ids: RwSignal<Vec<String>>,
-    gen_phase:    RwSignal<String>,
-    gen_error:    RwSignal<Option<String>>,
-    generating:   RwSignal<bool>,
+    gen_phase: RwSignal<String>,
+    gen_error: RwSignal<Option<String>>,
+    generating: RwSignal<bool>,
 ) {
     let plan = audit_plan.get_untracked();
 
@@ -533,8 +558,14 @@ async fn do_generate(
         plan_text.push_str(&format!("Process: {}\n", process.process_name));
         plan_text.push_str(&format!("Description: {}\n", process.description));
         for ctrl in &process.controls {
-            plan_text.push_str(&format!("  Control {}: {}\n", ctrl.control_ref, ctrl.control_objective));
-            plan_text.push_str(&format!("    How it operates: {}\n", ctrl.control_description));
+            plan_text.push_str(&format!(
+                "  Control {}: {}\n",
+                ctrl.control_ref, ctrl.control_objective
+            ));
+            plan_text.push_str(&format!(
+                "    How it operates: {}\n",
+                ctrl.control_description
+            ));
             plan_text.push_str(&format!("    Test procedure: {}\n", ctrl.test_procedure));
             plan_text.push_str(&format!("    Risk: {}\n", ctrl.risk_level));
         }
@@ -554,27 +585,37 @@ async fn do_generate(
                 if let Some(arr) = v["items"].as_array() {
                     for item_json in arr {
                         // Accept both snake_case and camelCase keys from models
-                        let cref = item_json["control_ref"].as_str()
+                        let cref = item_json["control_ref"]
+                            .as_str()
                             .or_else(|| item_json["controlRef"].as_str())
                             .unwrap_or("");
-                        let ctrl = plan.iter()
+                        let ctrl = plan
+                            .iter()
                             .flat_map(|p| p.controls.iter())
                             .find(|c| c.control_ref == cref);
                         if let Some(ctrl) = ctrl {
                             let fields: Vec<String> = item_json["fields"]
                                 .as_array()
-                                .map(|a| a.iter().filter_map(|f| f.as_str().map(|s| s.to_string())).collect())
+                                .map(|a| {
+                                    a.iter()
+                                        .filter_map(|f| f.as_str().map(|s| s.to_string()))
+                                        .collect()
+                                })
                                 .unwrap_or_default();
-                            let item_type = item_json["item_type"].as_str()
+                            let item_type = item_json["item_type"]
+                                .as_str()
                                 .or_else(|| item_json["itemType"].as_str())
                                 .or_else(|| item_json["type"].as_str())
                                 .unwrap_or("SQL");
-                            let table_name = item_json["table_name"].as_str()
+                            let table_name = item_json["table_name"]
+                                .as_str()
                                 .or_else(|| item_json["tableName"].as_str());
-                            let scope_format = item_json["scope_format"].as_str()
+                            let scope_format = item_json["scope_format"]
+                                .as_str()
                                 .or_else(|| item_json["scopeFormat"].as_str())
                                 .unwrap_or("Audit period");
-                            let _ = tauri_invoke_args::<PbcItem>("save_pbc_item",
+                            let _ = tauri_invoke_args::<PbcItem>(
+                                "save_pbc_item",
                                 serde_json::json!({
                                     "controlId":   ctrl.id,
                                     "controlRef":  cref,
@@ -585,7 +626,8 @@ async fn do_generate(
                                     "purpose":     item_json["purpose"].as_str().unwrap_or(""),
                                     "scopeFormat": scope_format,
                                 }),
-                            ).await;
+                            )
+                            .await;
                         }
                     }
                 }
@@ -599,8 +641,11 @@ async fn do_generate(
 }
 
 async fn reload_groups(groups: RwSignal<Vec<PbcGroup>>, approved_ids: RwSignal<Vec<String>>) {
-    if let Ok(g) = tauri_invoke_args::<Vec<PbcGroup>>("list_pbc_groups", serde_json::json!({})).await {
-        let ids: Vec<String> = g.iter()
+    if let Ok(g) =
+        tauri_invoke_args::<Vec<PbcGroup>>("list_pbc_groups", serde_json::json!({})).await
+    {
+        let ids: Vec<String> = g
+            .iter()
             .flat_map(|grp| grp.items.iter())
             .filter(|i| i.approved)
             .map(|i| i.id.clone())
@@ -621,16 +666,16 @@ fn PbcGroupCard(
     approved_ids_reload: RwSignal<Vec<String>>,
 ) -> impl IntoView {
     let open: RwSignal<bool> = RwSignal::new(true);
-    let control_id           = group.control_id.clone();
-    let control_ref          = group.control_ref.clone();
-    let title                = group.title.clone();
-    let process_name         = group.process_name.clone();
-    let item_count           = RwSignal::new(group.items.len());
-    let items                = RwSignal::new(group.items.clone());
+    let control_id = group.control_id.clone();
+    let control_ref = group.control_ref.clone();
+    let title = group.title.clone();
+    let process_name = group.process_name.clone();
+    let item_count = RwSignal::new(group.items.len());
+    let items = RwSignal::new(group.items.clone());
 
-    let ai_prompt:  RwSignal<String>         = RwSignal::new(String::new());
-    let ai_loading: RwSignal<bool>           = RwSignal::new(false);
-    let ai_status:  RwSignal<Option<String>> = RwSignal::new(None);
+    let ai_prompt: RwSignal<String> = RwSignal::new(String::new());
+    let ai_loading: RwSignal<bool> = RwSignal::new(false);
+    let ai_status: RwSignal<Option<String>> = RwSignal::new(None);
 
     let group_item_ids: Vec<String> = group.items.iter().map(|i| i.id.clone()).collect();
     let approved_in_group = {
@@ -644,10 +689,10 @@ fn PbcGroupCard(
     // Extra clones for closures inside the reactive `then(|| view! {...})` block.
     // The header view consumes control_ref / title / process_name as static text,
     // so we must clone them beforehand for use in on:click handlers.
-    let add_ctrl_id  = control_id.clone();
+    let add_ctrl_id = control_id.clone();
     let add_ctrl_ref = control_ref.clone();
-    let ai_ctrl_id   = control_id.clone();
-    let ai_ctrl_ref  = control_ref.clone();
+    let ai_ctrl_id = control_id.clone();
+    let ai_ctrl_ref = control_ref.clone();
     let ai_title_str = title.clone();
 
     view! {

@@ -37,7 +37,10 @@ fn models_dir() -> Result<PathBuf, String> {
 
 /// Download `url` to `dest`, streaming directly to disk.
 fn download_to(url: &str, dest: &Path) -> Result<(), String> {
-    eprintln!("[ocr] downloading {} …", dest.file_name().unwrap_or_default().to_string_lossy());
+    eprintln!(
+        "[ocr] downloading {} …",
+        dest.file_name().unwrap_or_default().to_string_lossy()
+    );
     let resp = ureq::get(url)
         .call()
         .map_err(|e| format!("Download failed for {url}: {e}"))?;
@@ -59,8 +62,12 @@ fn ensure_models() -> Result<(PathBuf, PathBuf), String> {
     let det = dir.join("text-detection.rten");
     let rec = dir.join("text-recognition.rten");
 
-    if !det.exists() { download_to(DET_URL, &det)?; }
-    if !rec.exists() { download_to(REC_URL, &rec)?; }
+    if !det.exists() {
+        download_to(DET_URL, &det)?;
+    }
+    if !rec.exists() {
+        download_to(REC_URL, &rec)?;
+    }
 
     Ok((det, rec))
 }
@@ -91,10 +98,12 @@ fn bind_pdfium() -> Result<pdfium_render::prelude::Pdfium, String> {
     // 3. Fall back to any system-installed PDFium
     Pdfium::bind_to_system_library()
         .map(Pdfium::new)
-        .map_err(|e| format!(
-            "PDFium library not found. Bundle libpdfium with the app — see \
+        .map_err(|e| {
+            format!(
+                "PDFium library not found. Bundle libpdfium with the app — see \
              src/projects/ocr.rs for instructions. Error: {e}"
-        ))
+            )
+        })
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -110,10 +119,10 @@ pub fn ocr_pdf(pdf_path: &str) -> Result<String, String> {
     // 1. Load (or download) OCR models
     let (det_path, rec_path) = ensure_models()?;
 
-    let det = Model::load_file(&det_path)
-        .map_err(|e| format!("Cannot load detection model: {e}"))?;
-    let rec = Model::load_file(&rec_path)
-        .map_err(|e| format!("Cannot load recognition model: {e}"))?;
+    let det =
+        Model::load_file(&det_path).map_err(|e| format!("Cannot load detection model: {e}"))?;
+    let rec =
+        Model::load_file(&rec_path).map_err(|e| format!("Cannot load recognition model: {e}"))?;
 
     let engine = OcrEngine::new(OcrEngineParams {
         detection_model: Some(det),
@@ -169,8 +178,11 @@ pub fn ocr_pdf(pdf_path: &str) -> Result<String, String> {
     }
 
     if all_text.trim().is_empty() {
-        Err("OCR produced no text. The PDF may use an unusual font encoding \
-             or the image quality may be too low.".to_string())
+        Err(
+            "OCR produced no text. The PDF may use an unusual font encoding \
+             or the image quality may be too low."
+                .to_string(),
+        )
     } else {
         Ok(all_text)
     }

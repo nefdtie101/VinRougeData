@@ -1,9 +1,9 @@
+use crate::ollama::{ask_ollama_wasm, build_web_summary, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::types::AnalysisResult;
 use leptos::prelude::*;
-use wasm_bindgen_futures::spawn_local;
 use vinrouge::analysis::Workflow;
 use vinrouge::schema::{Relationship, RelationshipType, Table};
-use crate::types::AnalysisResult;
-use crate::ollama::{OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, ask_ollama_wasm, build_web_summary};
+use wasm_bindgen_futures::spawn_local;
 
 // ── Results component ─────────────────────────────────────────────────────────
 

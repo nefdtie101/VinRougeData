@@ -7,9 +7,9 @@ mod projects;
 mod step1;
 mod step2;
 mod step3;
+mod step4;
 mod storage;
 mod types;
-mod step4;
 
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
@@ -81,8 +81,7 @@ fn App() -> impl IntoView {
     };
 
     let on_file_input = move |ev: web_sys::Event| {
-        let input: web_sys::HtmlInputElement =
-            ev.target().unwrap().unchecked_into();
+        let input: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
         if let Some(files) = input.files() {
             if let Some(file) = files.get(0) {
                 process_file(file);

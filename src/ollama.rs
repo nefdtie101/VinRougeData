@@ -324,10 +324,12 @@ pub async fn ask_ollama_wasm(
         .map_err(|e| format!("Failed to build request: {e}"))?
         .send()
         .await
-        .map_err(|e| format!(
-            "Could not reach Ollama at {url}. \
+        .map_err(|e| {
+            format!(
+                "Could not reach Ollama at {url}. \
              Is it running? Did you set OLLAMA_ORIGINS=*? Error: {e}"
-        ))?;
+            )
+        })?;
 
     if !resp.ok() {
         let status = resp.status();
@@ -348,7 +350,11 @@ pub async fn ask_ollama_wasm(
 
 /// Sends `prompt` to Ollama with `"format":"json"` and returns the raw JSON string.
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn ask_ollama_json(_base_url: &str, _model: &str, _prompt: &str) -> Result<String, String> {
+pub async fn ask_ollama_json(
+    _base_url: &str,
+    _model: &str,
+    _prompt: &str,
+) -> Result<String, String> {
     Err("ask_ollama_json is only available on wasm32".to_string())
 }
 
