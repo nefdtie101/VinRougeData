@@ -249,6 +249,57 @@ pub fn add_file_to_project(project_dir: &Path, src_path: &Path) -> Result<Projec
     Ok(file)
 }
 
+/// Save raw file bytes (from a drag-and-drop WASM upload) into the project's
+/// `files/` directory and register the file in the project database.
+pub fn add_file_bytes_to_project(
+    project_dir: &Path,
+    name: &str,
+    bytes: &[u8],
+) -> Result<ProjectFile, String> {
+    let ext = Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    let files_dir = project_dir.join("files");
+    std::fs::create_dir_all(&files_dir).map_err(|e| e.to_string())?;
+
+    let dest = files_dir.join(name);
+    std::fs::write(&dest, bytes).map_err(|e| format!("Failed to write file: {e}"))?;
+
+    let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
+
+    let file = ProjectFile {
+        id: Uuid::new_v4().to_string(),
+        name: name.to_string(),
+        path: dest.to_string_lossy().to_string(),
+        file_type: ext,
+        uploaded_at: Utc::now().to_rfc3339(),
+    };
+
+    conn.execute(
+        "INSERT INTO files (id, name, path, type, uploaded_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![file.id, file.name, file.path, file.file_type, file.uploaded_at],
+    )
+    .map_err(|e| format!("DB insert failed: {e}"))?;
+
+    Ok(file)
+}
+
+/// Return the absolute path of a project file by its database ID.
+pub fn get_file_path(project_dir: &Path, file_id: &str) -> Result<PathBuf, String> {
+    let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
+    let path_str: String = conn
+        .query_row(
+            "SELECT path FROM files WHERE id = ?1",
+            [file_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("File not found: {e}"))?;
+    Ok(PathBuf::from(path_str))
+}
+
 pub fn list_project_files(project_dir: &Path) -> Result<Vec<ProjectFile>, String> {
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
     let mut stmt = conn
@@ -601,22 +652,23 @@ pub fn delete_control(project_dir: &Path, control_id: &str) -> Result<(), String
 pub fn list_pbc_groups(project_dir: &Path) -> Result<Vec<PbcGroup>, String> {
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
 
-    // Load all controls with their process names
+    // Load all controls with their process names and objectives
     let mut cstmt = conn
         .prepare(
-            "SELECT c.id, c.control_ref, c.process_id, p.process_name \
+            "SELECT c.id, c.control_ref, c.process_id, p.process_name, c.control_objective \
              FROM controls c JOIN audit_processes p ON p.id = c.process_id \
              ORDER BY p.sort_order ASC, c.sort_order ASC",
         )
         .map_err(|e| e.to_string())?;
 
-    struct CtrlMeta { id: String, control_ref: String, process_name: String }
+    struct CtrlMeta { id: String, control_ref: String, process_name: String, control_objective: String }
     let ctrl_meta: Vec<CtrlMeta> = cstmt
         .query_map([], |row| {
             Ok(CtrlMeta {
                 id: row.get(0)?,
                 control_ref: row.get(1)?,
                 process_name: row.get(3)?,
+                control_objective: row.get(4)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -658,9 +710,11 @@ pub fn list_pbc_groups(project_dir: &Path) -> Result<Vec<PbcGroup>, String> {
             })
             .collect();
 
-        // Derive a short title from the first item name or use control_ref
+        // Title: first item name (most descriptive for a PBC group), then objective, then ref
         let title = items.first()
+            .filter(|i| !i.name.is_empty())
             .map(|i| i.name.clone())
+            .or_else(|| if !cm.control_objective.is_empty() { Some(cm.control_objective.clone()) } else { None })
             .unwrap_or_else(|| cm.control_ref.clone());
 
         groups.push(PbcGroup {
@@ -727,6 +781,25 @@ pub fn clear_pbc_items(project_dir: &Path) -> Result<(), String> {
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM pbc_items", [])
         .map_err(|e| format!("DB clear pbc_items: {e}"))?;
+    Ok(())
+}
+
+pub fn update_pbc_item(
+    project_dir: &Path,
+    id: &str,
+    name: &str,
+    item_type: &str,
+    table_name: Option<&str>,
+    fields: &[String],
+    purpose: &str,
+    scope_format: &str,
+) -> Result<(), String> {
+    let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
+    let fields_json = serde_json::to_string(fields).unwrap_or_else(|_| "[]".to_string());
+    conn.execute(
+        "UPDATE pbc_items SET name=?1, item_type=?2, table_name=?3, fields=?4, purpose=?5, scope_format=?6 WHERE id=?7",
+        rusqlite::params![name, item_type, table_name, fields_json, purpose, scope_format, id],
+    ).map_err(|e| format!("DB update pbc_item: {e}"))?;
     Ok(())
 }
 

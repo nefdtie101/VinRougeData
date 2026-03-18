@@ -1,3 +1,4 @@
+pub mod components;
 mod data_view;
 mod file_analysis;
 mod ipc;
@@ -8,6 +9,7 @@ mod step2;
 mod step3;
 mod storage;
 mod types;
+mod step4;
 
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;

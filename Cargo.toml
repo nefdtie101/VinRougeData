@@ -73,6 +73,10 @@ toml = "0.8"
 # Logging subscriber
 tracing-subscriber = "0.3"
 
+# Document export (Audit Plan + PBC List)
+printpdf = "0.6"
+docx-rs  = "0.4"
+
 # TUI
 ratatui = "0.29"
 crossterm = "0.28"

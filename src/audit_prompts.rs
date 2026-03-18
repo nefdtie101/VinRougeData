@@ -56,31 +56,97 @@ pub const DATA_QUALITY: &str =
      inconsistencies, outliers, and any fields that appear unreliable.";
 
 pub const GENERATE_PBC: &str =
-    "You are an audit data analyst. Given the audit plan below, generate a Provided-By-Client (PBC) \
-     data request list. For each control, produce one or more data requests specifying the exact \
-     database table and column-level fields the auditor needs to test that control.\n\n\
+    "You are a senior audit data analyst. Read the audit plan below and generate a comprehensive \
+     Provided-By-Client (PBC) data request list.\n\n\
+     For EVERY control you must produce at least one data request. Use the control's test procedure \
+     and control description to determine exactly which table and fields the auditor needs. \
+     If a test procedure references two distinct data sources (e.g. compare invoices against \
+     payments), create a separate request for each source.\n\n\
      Return ONLY a valid JSON object — no markdown, no explanation:\n\
      {\n\
        \"items\": [\n\
          {\n\
            \"control_ref\": \"C-01\",\n\
-           \"name\": \"Short descriptive name for this request\",\n\
+           \"name\": \"Descriptive name that identifies the specific data set\",\n\
            \"item_type\": \"SQL\",\n\
-           \"table_name\": \"exact_table_name_or_null\",\n\
-           \"fields\": [\"field1\", \"field2\"],\n\
-           \"purpose\": \"One sentence: what this data proves\",\n\
-           \"scope_format\": \"e.g. All records in audit period\"\n\
+           \"table_name\": \"exact_table_name\",\n\
+           \"fields\": [\"field1\", \"field2\", \"field3\"],\n\
+           \"purpose\": \"One sentence stating exactly what auditor will verify with this data\",\n\
+           \"scope_format\": \"e.g. All records in the audit period, pre-rental inspections only\"\n\
          }\n\
        ]\n\
      }\n\n\
      Rules:\n\
+     - Every control in the plan MUST appear at least once — do not skip any\n\
      - item_type must be exactly SQL or CSV\n\
-     - Use SQL when data comes from a database table; CSV when it is a manual register or file upload\n\
+     - Use SQL for database tables; CSV for manual registers, certificates, scanned logs\n\
      - table_name must be null for CSV items\n\
-     - fields must be specific column names likely to exist in the real system\n\
-     - Generate 1-3 requests per control depending on complexity\n\
-     - Return ONLY the JSON object\n\n\
-     AUDIT PLAN (JSON):";
+     - fields must be real column names inferred from the system described — be specific and complete\n\
+     - Include all fields the auditor needs to perform the test procedure, not just a few\n\
+     - scope_format must reflect any filter described in the test procedure (date range, record type)\n\
+     - Return ONLY the JSON object, no other text\n\n\
+     AUDIT PLAN:";
+
+pub const SYNC_PBC_TO_PLAN: &str =
+    "You are a senior auditor reviewing a PBC (Provided-By-Client) data request list alongside \
+     the audit plan that produced it. Based on the actual data being requested you may now refine \
+     the audit plan — tighten test procedures to reference the exact tables/fields being collected, \
+     adjust risk levels if the data scope reveals higher or lower risk, or clarify control descriptions.\n\n\
+     Return ONLY a valid JSON object — no markdown, no explanation:\n\
+     {\n\
+       \"summary\": \"One sentence describing what was updated and why\",\n\
+       \"updates\": [\n\
+         {\n\
+           \"control_ref\": \"C-01\",\n\
+           \"field\": \"test_procedure\",\n\
+           \"value\": \"Updated value\"\n\
+         }\n\
+       ]\n\
+     }\n\n\
+     Rules:\n\
+     - field must be one of: control_objective, control_description, test_procedure, risk_level\n\
+     - risk_level must be exactly one of: High, Medium, Low\n\
+     - Only include updates where the PBC data genuinely warrants a change\n\
+     - If nothing needs to change, return an empty updates array\n\
+     - Return ONLY the JSON object, nothing else\n\n";
+
+pub const UPDATE_PBC_GROUP: &str =
+    "You are an audit data analyst. Update the PBC (Provided-By-Client) data requests \
+     for the specified control based on the user's instruction.\\n\\n\
+     Return ONLY a valid JSON object — no markdown, no explanation:\\n\
+     {\\n\
+       \\\"summary\\\": \\\"one sentence describing what was changed\\\",\\n\
+       \\\"add_items\\\": [\\n\
+         {\\n\
+           \\\"name\\\": \\\"Descriptive request name\\\",\\n\
+           \\\"itemType\\\": \\\"SQL\\\",\\n\
+           \\\"tableName\\\": \\\"exact_table_name_or_null\\\",\\n\
+           \\\"fields\\\": [\\\"field1\\\", \\\"field2\\\"],\\n\
+           \\\"purpose\\\": \\\"What the auditor will verify with this data\\\",\\n\
+           \\\"scopeFormat\\\": \\\"e.g. All records in the audit period\\\"\\n\
+         }\\n\
+       ],\\n\
+       \\\"remove_item_ids\\\": [\\\"id-of-item-to-delete\\\"]\\n\
+     }\\n\\n\
+     Rules:\\n\
+     - Only include add_items if you need to add new requests\\n\
+     - Only include remove_item_ids if you need to remove existing requests\\n\
+     - itemType must be exactly SQL or CSV\\n\
+     - tableName must be null for CSV items\\n\
+     - Return ONLY the JSON object, nothing else\\n\\n";
+
+/// Global PBC list refinement — AI adjusts add_items / add_fields / remove_fields.
+/// Append the serialised current list and the user instruction before sending.
+pub const REFINE_PBC_LIST: &str =
+    "You are an audit data analyst. Update a PBC list based on the user instruction.\n\
+     Return ONLY JSON, no markdown:\n\
+     {\"summary\":\"one sentence\",\
+     \"add_items\":[{\"controlRef\":\"C-01\",\"name\":\"\",\"itemType\":\"SQL\",\"tableName\":null,\
+     \"fields\":[],\"purpose\":\"\",\"scopeFormat\":\"\"}],\
+     \"add_fields\":[{\"itemId\":\"...\",\"fields\":[\"f1\"]}],\
+     \"remove_fields\":[{\"itemId\":\"...\",\"fields\":[\"f1\"]}]}\n\
+     Only include keys where changes are needed.\n\
+     Current PBC list: ";
 
 pub const ANALYZE_SOP: &str =
     "You are an audit planning assistant. Read the Standard Operating Procedure (SOP) below \

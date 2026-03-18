@@ -68,14 +68,16 @@ jobs:
       - name: Download Ollama binary (Unix)
         if: matrix.os != 'windows-latest'
         run: |
+          mkdir -p vinrouge-desktop/binaries
           curl -L "${{ matrix.ollama_url }}" -o vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
           chmod +x vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
 
       - name: Download Ollama binary (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          Invoke-WebRequest -Uri "${{ matrix.ollama_url }}" -OutFile "vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}.exe"
-        shell: pwsh
+          if not exist "vinrouge-desktop\binaries" mkdir "vinrouge-desktop\binaries"
+          curl.exe -L "${{ matrix.ollama_url }}" -o "vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}.exe"
+        shell: cmd
 
       - name: Build Leptos frontend
         working-directory: vinrouge-web

@@ -386,6 +386,68 @@ async fn pick_analyze_and_save(
     Ok(Some(analysis))
 }
 
+// ── Step 4 — Data collection commands ────────────────────────────────────────
+
+/// Save bytes uploaded via drag-and-drop from the WASM frontend into the
+/// project's `files/` directory (same location as SOP and other project files).
+#[tauri::command]
+fn add_data_file(
+    name: String,
+    bytes: Vec<u8>,
+    state: tauri::State<ProjectsState>,
+) -> Result<projects::ProjectFile, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::add_file_bytes_to_project(&project_dir, &name, &bytes)
+}
+
+/// Return the column headers for a CSV or Excel project file.
+/// Used by the frontend to populate the column-mapping UI for pre-existing files.
+#[tauri::command]
+async fn get_data_file_headers(
+    file_id: String,
+    state: tauri::State<'_, ProjectsState>,
+) -> Result<Vec<String>, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let path = projects::get_file_path(&project_dir, &file_id)?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::spawn(move || {
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| e.to_string())
+            .and_then(|rt| {
+                rt.block_on(async {
+                    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+                    let name = path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
+                    let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
+                    let tables: Vec<Table> = if ext == "csv" {
+                        CsvSource::from_bytes(bytes, name)
+                            .extract_schema()
+                            .await
+                            .map_err(|e| e.to_string())?
+                    } else {
+                        ExcelSource::from_bytes(bytes, name)
+                            .extract_schema()
+                            .await
+                            .map_err(|e| e.to_string())?
+                    };
+                    let headers = tables
+                        .into_iter()
+                        .flat_map(|t| t.columns.into_iter().map(|c| c.name))
+                        .collect::<Vec<_>>();
+                    Ok(headers)
+                })
+            });
+        let _ = tx.send(result);
+    });
+    rx.await.map_err(|e| e.to_string())?
+}
+
 // ── SOP / Audit-plan commands ─────────────────────────────────────────────────
 
 /// Read the text content of a project file so the frontend can send it to Ollama.
@@ -552,6 +614,22 @@ fn clear_pbc_items(
 }
 
 #[tauri::command]
+fn update_pbc_item(
+    item_id: String,
+    name: String,
+    item_type: String,
+    table_name: Option<String>,
+    fields: Vec<String>,
+    purpose: String,
+    scope_format: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<(), String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::update_pbc_item(&project_dir, &item_id, &name, &item_type,
+        table_name.as_deref(), &fields, &purpose, &scope_format)
+}
+
+#[tauri::command]
 fn update_pbc_item_fields(
     item_id: String,
     fields: Vec<String>,
@@ -585,6 +663,129 @@ fn set_pbc_list_approved(
 ) -> Result<(), String> {
     let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
     projects::set_pbc_list_approved(&project_dir, approved)
+}
+
+// ── Export commands ───────────────────────────────────────────────────────────
+
+/// Export the current audit plan to PDF. Opens a save-file dialog.
+/// Returns `true` when the file was saved, `false` when the user cancelled.
+#[tauri::command]
+async fn export_audit_plan_pdf(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ProjectsState>,
+) -> Result<bool, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let processes = projects::list_audit_plan(&project_dir)?;
+    let details = projects::load_project_details(&project_dir)?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<FilePath>>();
+    app.dialog()
+        .file()
+        .add_filter("PDF", &["pdf"])
+        .set_file_name("audit-plan.pdf")
+        .save_file(move |fp| { let _ = tx.send(fp); });
+
+    let Some(fp) = rx.await.map_err(|e| e.to_string())? else {
+        return Ok(false);
+    };
+    let path = match fp {
+        FilePath::Path(p) => p,
+        FilePath::Url(u)  => std::path::PathBuf::from(u.to_string()),
+    };
+
+    vinrouge::export::audit_plan::generate_pdf(&processes, details.as_ref(), &path)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Export the current audit plan to Word (.docx). Opens a save-file dialog.
+#[tauri::command]
+async fn export_audit_plan_docx(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ProjectsState>,
+) -> Result<bool, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let processes = projects::list_audit_plan(&project_dir)?;
+    let details = projects::load_project_details(&project_dir)?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<FilePath>>();
+    app.dialog()
+        .file()
+        .add_filter("Word document", &["docx"])
+        .set_file_name("audit-plan.docx")
+        .save_file(move |fp| { let _ = tx.send(fp); });
+
+    let Some(fp) = rx.await.map_err(|e| e.to_string())? else {
+        return Ok(false);
+    };
+    let path = match fp {
+        FilePath::Path(p) => p,
+        FilePath::Url(u)  => std::path::PathBuf::from(u.to_string()),
+    };
+
+    vinrouge::export::audit_plan::generate_docx(&processes, details.as_ref(), &path)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Export the PBC data request list to PDF. Opens a save-file dialog.
+#[tauri::command]
+async fn export_pbc_pdf(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ProjectsState>,
+) -> Result<bool, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let groups   = projects::list_pbc_groups(&project_dir)?;
+    let details  = projects::load_project_details(&project_dir)?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<FilePath>>();
+    app.dialog()
+        .file()
+        .add_filter("PDF", &["pdf"])
+        .set_file_name("pbc-list.pdf")
+        .save_file(move |fp| { let _ = tx.send(fp); });
+
+    let Some(fp) = rx.await.map_err(|e| e.to_string())? else {
+        return Ok(false);
+    };
+    let path = match fp {
+        FilePath::Path(p) => p,
+        FilePath::Url(u)  => std::path::PathBuf::from(u.to_string()),
+    };
+
+    vinrouge::export::pbc_list::generate_pdf(&groups, details.as_ref(), &path)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Export the PBC data request list to Word (.docx). Opens a save-file dialog.
+#[tauri::command]
+async fn export_pbc_docx(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ProjectsState>,
+) -> Result<bool, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let groups   = projects::list_pbc_groups(&project_dir)?;
+    let details  = projects::load_project_details(&project_dir)?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<FilePath>>();
+    app.dialog()
+        .file()
+        .add_filter("Word document", &["docx"])
+        .set_file_name("pbc-list.docx")
+        .save_file(move |fp| { let _ = tx.send(fp); });
+
+    let Some(fp) = rx.await.map_err(|e| e.to_string())? else {
+        return Ok(false);
+    };
+    let path = match fp {
+        FilePath::Path(p) => p,
+        FilePath::Url(u)  => std::path::PathBuf::from(u.to_string()),
+    };
+
+    vinrouge::export::pbc_list::generate_docx(&groups, details.as_ref(), &path)
+        .map_err(|e| e.to_string())?;
+    Ok(true)
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -622,10 +823,17 @@ fn main() {
             save_pbc_item,
             delete_pbc_item,
             clear_pbc_items,
+            update_pbc_item,
             update_pbc_item_fields,
             toggle_pbc_item_approved,
             get_pbc_list_approved,
             set_pbc_list_approved,
+            export_audit_plan_pdf,
+            export_audit_plan_docx,
+            export_pbc_pdf,
+            export_pbc_docx,
+            add_data_file,
+            get_data_file_headers,
         ])
         .setup(|app| {
             // Auto-start Ollama when the desktop app launches

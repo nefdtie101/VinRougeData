@@ -7,6 +7,7 @@ use crate::ollama::{OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, ask_ollama_json, a
 use crate::step1;
 use crate::step2;
 use crate::step3;
+use crate::step4;
 
 // ── Projects enums ────────────────────────────────────────────────────────────
 
@@ -943,7 +944,9 @@ pub fn ProjectsView() -> impl IntoView {
                                         <span class=move || { let s = audit_ui_step.get(); if s == 3 || s == 4 || s == 5 { "audit-step-label active" } else { "audit-step-label muted" } }>"Data requests"</span>
                                     </div>
                                     <span class="audit-step-sep">"›"</span>
-                                    <div class="audit-step-crumb">
+                                    <div class="audit-step-crumb"
+                                        style=move || if audit_ui_step.get() == 5 { "cursor:pointer" } else { "" }
+                                        on:click=move |_| { if audit_ui_step.get() == 5 { audit_ui_step.set(4); } }>
                                         <div class=move || { let s = audit_ui_step.get(); if s == 5 { "audit-step-num done" } else if s == 4 { "audit-step-num active" } else { "audit-step-num pending" } }>"4"</div>
                                         <span class=move || { if audit_ui_step.get() == 4 || audit_ui_step.get() == 5 { "audit-step-label active" } else { "audit-step-label muted" } }>"Data collection"</span>
                                     </div>
@@ -968,9 +971,18 @@ pub fn ProjectsView() -> impl IntoView {
                                 />
                             })}
 
-                            // ── Step 3: Data requests ──────────────────────────────
+                            // ── Step 3: Data requests ─────────────────────────
                             {move || (audit_ui_step.get() == 3).then(|| view! {
                                 <step3::Step3View
+                                    audit_plan=audit_plan
+                                    audit_ui_step=audit_ui_step
+                                    status=status
+                                />
+                            })}
+
+                            // ── Step 4: Data collection ────────────────────────
+                            {move || (audit_ui_step.get() == 4).then(|| view! {
+                                <step4::Step4View
                                     audit_plan=audit_plan
                                     audit_ui_step=audit_ui_step
                                     status=status
