@@ -25,15 +25,15 @@ jobs:
           - platform: linux-x86_64
             os: ubuntu-22.04
             tauri_triple: x86_64-unknown-linux-gnu
-            ollama_url: https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64
+            ollama_url: https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tar.zst
           - platform: macos-aarch64
             os: macos-latest
             tauri_triple: aarch64-apple-darwin
-            ollama_url: https://github.com/ollama/ollama/releases/latest/download/ollama-darwin
+            ollama_url: https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz
           - platform: windows-x86_64
             os: windows-latest
             tauri_triple: x86_64-pc-windows-msvc
-            ollama_url: https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.exe
+            ollama_url: https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip
 
     steps:
       - uses: actions/checkout@v4
@@ -65,19 +65,35 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
 
-      - name: Download Ollama binary (Unix)
-        if: matrix.os != 'windows-latest'
+      - name: Download and extract Ollama binary (Linux)
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           mkdir -p vinrouge-desktop/binaries
-          curl -L "${{ matrix.ollama_url }}" -o vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
+          curl -L --fail "${{ matrix.ollama_url }}" -o ollama.tar.zst
+          tar --zstd -xf ollama.tar.zst
+          find . -path ./vinrouge-desktop -prune -o -name "ollama" -type f -print | head -1 \
+            | xargs -I{} cp {} vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
           chmod +x vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
 
-      - name: Download Ollama binary (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Download and extract Ollama binary (macOS)
+        if: matrix.os == 'macos-latest'
         run: |
-          if not exist "vinrouge-desktop\binaries" mkdir "vinrouge-desktop\binaries"
-          curl.exe -L "${{ matrix.ollama_url }}" -o "vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}.exe"
-        shell: cmd
+          mkdir -p vinrouge-desktop/binaries
+          curl -L --fail "${{ matrix.ollama_url }}" -o ollama.tgz
+          tar -xzf ollama.tgz
+          find . -path ./vinrouge-desktop -prune -o -name "ollama" -type f -print | head -1 \
+            | xargs -I{} cp {} vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
+          chmod +x vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
+
+      - name: Download and extract Ollama binary (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "vinrouge-desktop\binaries"
+          curl.exe -L --fail "${{ matrix.ollama_url }}" -o ollama.zip
+          Expand-Archive -Path ollama.zip -DestinationPath tmp_ollama -Force
+          $bin = Get-ChildItem -Path tmp_ollama -Filter "ollama.exe" -Recurse | Select-Object -First 1
+          Copy-Item $bin.FullName "vinrouge-desktop\binaries\ollama-${{ matrix.tauri_triple }}.exe"
 
       - name: Build Leptos frontend
         working-directory: vinrouge-web
