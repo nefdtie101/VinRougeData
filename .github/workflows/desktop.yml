@@ -142,6 +142,14 @@ jobs:
       contents: write
 
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep '^version' vinrouge-desktop/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -151,7 +159,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
-          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest Build' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('Latest Build (v{0})', steps.version.outputs.value) }}
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           files: artifacts/**/*
           generate_release_notes: ${{ startsWith(github.ref, 'refs/tags/') }}
