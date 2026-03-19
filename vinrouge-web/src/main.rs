@@ -15,9 +15,9 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
 
+use components::Spinner;
 use data_view::{OllamaSection, Results};
 use file_analysis::{analyze_bytes, read_file_bytes};
-use components::Spinner;
 use ipc::{is_tauri, tauri_check_model, tauri_pick_and_analyze, tauri_pull_model};
 use ollama::build_web_summary;
 use projects::ProjectsView;
@@ -47,11 +47,15 @@ fn App() -> impl IntoView {
     let tauri = is_tauri();
 
     // ── Model availability check (Tauri only) ─────────────────────────────────
-    let model_state: RwSignal<ModelState> = RwSignal::new(
-        if tauri { ModelState::Checking } else { ModelState::Ready },
-    );
+    let model_state: RwSignal<ModelState> = RwSignal::new(if tauri {
+        ModelState::Checking
+    } else {
+        ModelState::Ready
+    });
     Effect::new(move |_: Option<()>| {
-        if !tauri { return; }
+        if !tauri {
+            return;
+        }
         spawn_local(async move {
             match tauri_check_model().await {
                 Ok(true) => model_state.set(ModelState::Ready),
