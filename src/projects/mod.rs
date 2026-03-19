@@ -983,4 +983,3 @@ pub fn read_project_file_text(project_dir: &Path, file_id: &str) -> Result<Strin
         _ => std::fs::read_to_string(&path).map_err(|e| format!("Could not read file {path}: {e}")),
     }
 }
-
