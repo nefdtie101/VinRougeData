@@ -150,15 +150,30 @@ impl OllamaClient {
 /// A leading `~/` is expanded to the current user's home directory.
 pub fn resolve_models_dir(override_dir: Option<&str>) -> Option<String> {
     let raw = override_dir.or(DEFAULT_MODELS_DIR)?;
-    Some(expand_home(raw))
+    let expanded = expand_home(raw);
+    // If the path still starts with '~' the expansion failed (no HOME/USERPROFILE).
+    // Return None so the caller does NOT set OLLAMA_MODELS and Ollama uses its
+    // own platform default instead of crashing on a literal '~' path.
+    if expanded.starts_with('~') {
+        return None;
+    }
+    Some(expanded)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn expand_home(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("~/") {
-        if let Ok(home) = std::env::var("HOME") {
-            return format!("{home}/{rest}");
+        // HOME on Unix/macOS, USERPROFILE on Windows
+        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok();
+        if let Some(home) = home {
+            return std::path::PathBuf::from(home)
+                .join(rest)
+                .to_string_lossy()
+                .into_owned();
         }
+        // Can't expand — return None-equivalent by returning the raw path so
+        // the caller can decide not to set OLLAMA_MODELS at all.
+        return path.to_string();
     }
     path.to_string()
 }
