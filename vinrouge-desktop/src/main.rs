@@ -14,6 +14,22 @@ use vinrouge::projects;
 use vinrouge::schema::{Relationship, Table};
 use vinrouge::sources::{CsvSource, DataSource, ExcelSource};
 
+// ── Windows: suppress the console window for child processes ─────────────────
+
+#[cfg(target_os = "windows")]
+trait NoConsole {
+    fn no_console(&mut self) -> &mut Self;
+}
+
+#[cfg(target_os = "windows")]
+impl NoConsole for std::process::Command {
+    fn no_console(&mut self) -> &mut Self {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        self.creation_flags(CREATE_NO_WINDOW)
+    }
+}
+
 // ── Ollama process state ──────────────────────────────────────────────────────
 
 struct OllamaState(Mutex<Option<std::process::Child>>);
@@ -121,6 +137,8 @@ fn start_ollama(state: tauri::State<OllamaState>) -> Result<String, String> {
 
     let mut cmd = std::process::Command::new(&binary);
     cmd.arg("serve");
+    #[cfg(target_os = "windows")]
+    cmd.no_console();
 
     // Read user override from shared settings file, fall back to DEFAULT_MODELS_DIR
     let saved_dir: Option<String> = (|| {
@@ -165,6 +183,71 @@ fn ollama_running(state: tauri::State<OllamaState>) -> bool {
         Some(child) => matches!(child.try_wait(), Ok(None)),
         None => false,
     }
+}
+
+/// Check whether the `mistral` model is already available in the local Ollama
+/// instance.  Waits up to 10 s for the server to become reachable before
+/// checking, so it is safe to call right after `start_ollama`.
+#[tauri::command]
+async fn check_model() -> Result<bool, String> {
+    let client = reqwest::Client::new();
+
+    // Poll until the server is up (max 10 s)
+    for _ in 0..10 {
+        if client
+            .get("http://localhost:11434/api/tags")
+            .send()
+            .await
+            .is_ok()
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
+
+    let resp = client
+        .get("http://localhost:11434/api/tags")
+        .send()
+        .await
+        .map_err(|e| format!("Ollama not reachable: {e}"))?;
+
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+
+    let has_mistral = body["models"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .any(|m| m["name"].as_str().unwrap_or("").starts_with(ollama::DEFAULT_MODEL))
+        })
+        .unwrap_or(false);
+
+    Ok(has_mistral)
+}
+
+/// Pull the `mistral` model from the Ollama registry if it is not already
+/// present.  Blocks until the download is complete (no streaming), so the
+/// frontend can simply await the command and then update its UI.
+#[tauri::command]
+async fn pull_model() -> Result<(), String> {
+    let client = reqwest::ClientBuilder::new()
+        .timeout(std::time::Duration::from_secs(1800)) // 30-minute ceiling
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .post("http://localhost:11434/api/pull")
+        .json(&serde_json::json!({"name": ollama::DEFAULT_MODEL, "stream": false}))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach Ollama: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Pull failed ({status}): {body}"));
+    }
+
+    Ok(())
 }
 
 // ── Project commands ──────────────────────────────────────────────────────────
@@ -863,6 +946,8 @@ fn main() {
             start_ollama,
             stop_ollama,
             ollama_running,
+            check_model,
+            pull_model,
             create_project,
             pick_project_folder,
             list_projects,
@@ -911,6 +996,8 @@ fn main() {
                     eprintln!("[ollama] found binary: {}", binary.display());
                     let mut cmd = std::process::Command::new(binary);
                     cmd.arg("serve");
+                    #[cfg(target_os = "windows")]
+                    cmd.no_console();
                     if let Some(dir) = ollama::resolve_models_dir(None) {
                         eprintln!("[ollama] OLLAMA_MODELS={dir}");
                         cmd.env("OLLAMA_MODELS", dir);

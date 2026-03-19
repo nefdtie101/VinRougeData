@@ -17,10 +17,19 @@ use wasm_bindgen_futures::spawn_local;
 
 use data_view::{OllamaSection, Results};
 use file_analysis::{analyze_bytes, read_file_bytes};
-use ipc::{is_tauri, tauri_pick_and_analyze};
+use components::Spinner;
+use ipc::{is_tauri, tauri_check_model, tauri_pick_and_analyze, tauri_pull_model};
 use ollama::build_web_summary;
 use projects::ProjectsView;
 use types::AnalysisResult;
+
+#[derive(Clone, PartialEq)]
+enum ModelState {
+    Checking,
+    Pulling,
+    Ready,
+    Error(String),
+}
 
 fn main() {
     console_error_panic_hook::set_once();
@@ -36,6 +45,27 @@ fn App() -> impl IntoView {
     let loading: RwSignal<bool> = RwSignal::new(false);
     let active_tab: RwSignal<&'static str> = RwSignal::new("chat");
     let tauri = is_tauri();
+
+    // ── Model availability check (Tauri only) ─────────────────────────────────
+    let model_state: RwSignal<ModelState> = RwSignal::new(
+        if tauri { ModelState::Checking } else { ModelState::Ready },
+    );
+    Effect::new(move |_: Option<()>| {
+        if !tauri { return; }
+        spawn_local(async move {
+            match tauri_check_model().await {
+                Ok(true) => model_state.set(ModelState::Ready),
+                Ok(false) => {
+                    model_state.set(ModelState::Pulling);
+                    match tauri_pull_model().await {
+                        Ok(()) => model_state.set(ModelState::Ready),
+                        Err(e) => model_state.set(ModelState::Error(e)),
+                    }
+                }
+                Err(e) => model_state.set(ModelState::Error(e)),
+            }
+        });
+    });
 
     // ── Tauri: native "Open File" button ──────────────────────────────────────
 
@@ -129,6 +159,28 @@ fn App() -> impl IntoView {
             </nav>
             <p>{subtitle}</p>
         </header>
+
+        // ── Model pull banner ─────────────────────────────────────────────────
+        {move || match model_state.get() {
+            ModelState::Ready => None,
+            ModelState::Checking => Some(view! {
+                <div class="model-pull-banner">
+                    <Spinner size=14 />
+                    "Checking AI model\u{2026}"
+                </div>
+            }.into_any()),
+            ModelState::Pulling => Some(view! {
+                <div class="model-pull-banner">
+                    <Spinner size=14 />
+                    "Downloading Mistral model \u{2014} this may take a few minutes\u{2026}"
+                </div>
+            }.into_any()),
+            ModelState::Error(e) => Some(view! {
+                <div class="model-pull-banner model-pull-banner--error">
+                    "AI model error: " {e}
+                </div>
+            }.into_any()),
+        }}
 
         <main class=move || if active_tab.get() == "projects" { "projects-active" } else { "" }>
             // ── Chat tab ──────────────────────────────────────────────────────

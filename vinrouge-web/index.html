@@ -1611,6 +1611,21 @@
       }
       @keyframes spin { to { transform: rotate(360deg); } }
 
+      /* ── Model pull banner ───────────────────────────────────────────── */
+      .model-pull-banner {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 2rem;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        font-size: 0.8125rem;
+        color: var(--blue);
+      }
+      .model-pull-banner--error {
+        color: var(--accent);
+      }
+
       /* ── Audit setup step 1 ─────────────────────────────────────────── */
       @keyframes blink { 0%,80%,100% { opacity: 0.2; } 40% { opacity: 1; } }
 
