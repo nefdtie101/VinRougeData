@@ -1,4 +1,5 @@
 use crate::types::AnalysisResult;
+use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
@@ -78,6 +79,53 @@ pub async fn tauri_invoke<T: for<'de> serde::Deserialize<'de>>(cmd: &str) -> Res
         .ok_or("stringify returned non-string")?;
 
     serde_json::from_str::<T>(&json).map_err(|e| format!("deserialize: {e}"))
+}
+
+/// Register a callback that receives `(percent, status, done)` for every
+/// `model-pull-progress` event emitted by the backend.  The listener lives
+/// for the lifetime of the page, so no unlisten handle is needed.
+pub fn tauri_listen_pull_progress(
+    on_progress: impl Fn(u8, String, bool) + 'static,
+) -> Result<(), String> {
+    let window = web_sys::window().ok_or("no window")?;
+    let tauri = js_sys::Reflect::get(&window, &JsValue::from_str("__TAURI__"))
+        .map_err(|_| "no __TAURI__")?;
+    let event_obj = js_sys::Reflect::get(&tauri, &JsValue::from_str("event"))
+        .map_err(|_| "no __TAURI__.event")?;
+    let listen_fn: js_sys::Function =
+        js_sys::Reflect::get(&event_obj, &JsValue::from_str("listen"))
+            .map_err(|_| "no listen")?
+            .dyn_into()
+            .map_err(|_| "listen not a function")?;
+
+    let cb = Closure::wrap(Box::new(move |event: JsValue| {
+        let payload =
+            js_sys::Reflect::get(&event, &JsValue::from_str("payload")).unwrap_or(JsValue::NULL);
+        let percent = js_sys::Reflect::get(&payload, &JsValue::from_str("percent"))
+            .ok()
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as u8;
+        let status = js_sys::Reflect::get(&payload, &JsValue::from_str("status"))
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_default();
+        let done = js_sys::Reflect::get(&payload, &JsValue::from_str("done"))
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        on_progress(percent, status, done);
+    }) as Box<dyn Fn(JsValue)>);
+
+    listen_fn
+        .call2(
+            &JsValue::UNDEFINED,
+            &JsValue::from_str("model-pull-progress"),
+            cb.as_ref().unchecked_ref(),
+        )
+        .map_err(|e| format!("listen call failed: {e:?}"))?;
+
+    cb.forget(); // listener lives for the app's lifetime
+    Ok(())
 }
 
 /// Returns `true` when the `mistral` model is already available locally.

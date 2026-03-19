@@ -1616,14 +1616,36 @@
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 10px 2rem;
+        padding: 8px 2rem;
         background: var(--surface);
         border-bottom: 1px solid var(--border);
         font-size: 0.8125rem;
         color: var(--blue);
       }
-      .model-pull-banner--error {
-        color: var(--accent);
+      .model-pull-banner--error { color: var(--accent); }
+      .model-pull-label { white-space: nowrap; flex-shrink: 0; }
+      .model-pull-track {
+        flex: 1;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--border);
+        overflow: hidden;
+        min-width: 80px;
+        max-width: 260px;
+      }
+      .model-pull-fill {
+        height: 100%;
+        background: var(--blue);
+        border-radius: 2px;
+        transition: width 0.4s ease;
+      }
+      .model-pull-pct {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        white-space: nowrap;
+        flex-shrink: 0;
+        min-width: 3ch;
+        text-align: right;
       }
 
       /* ── Audit setup step 1 ─────────────────────────────────────────── */

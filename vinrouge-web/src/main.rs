@@ -18,7 +18,10 @@ use wasm_bindgen_futures::spawn_local;
 use components::Spinner;
 use data_view::{OllamaSection, Results};
 use file_analysis::{analyze_bytes, read_file_bytes};
-use ipc::{is_tauri, tauri_check_model, tauri_pick_and_analyze, tauri_pull_model};
+use ipc::{
+    is_tauri, tauri_check_model, tauri_listen_pull_progress, tauri_pick_and_analyze,
+    tauri_pull_model,
+};
 use ollama::build_web_summary;
 use projects::ProjectsView;
 use types::AnalysisResult;
@@ -26,7 +29,7 @@ use types::AnalysisResult;
 #[derive(Clone, PartialEq)]
 enum ModelState {
     Checking,
-    Pulling,
+    Pulling(u8, String), // percent 0-100, status message
     Ready,
     Error(String),
 }
@@ -60,10 +63,20 @@ fn App() -> impl IntoView {
             match tauri_check_model().await {
                 Ok(true) => model_state.set(ModelState::Ready),
                 Ok(false) => {
-                    model_state.set(ModelState::Pulling);
-                    match tauri_pull_model().await {
-                        Ok(()) => model_state.set(ModelState::Ready),
-                        Err(e) => model_state.set(ModelState::Error(e)),
+                    model_state.set(ModelState::Pulling(0, "Starting\u{2026}".into()));
+
+                    // Stream progress events into the signal
+                    let _ = tauri_listen_pull_progress(move |percent, status, done| {
+                        if done {
+                            model_state.set(ModelState::Ready);
+                        } else {
+                            model_state.set(ModelState::Pulling(percent, status));
+                        }
+                    });
+
+                    // Also await the command so errors surface correctly
+                    if let Err(e) = tauri_pull_model().await {
+                        model_state.set(ModelState::Error(e));
                     }
                 }
                 Err(e) => model_state.set(ModelState::Error(e)),
@@ -173,10 +186,20 @@ fn App() -> impl IntoView {
                     "Checking AI model\u{2026}"
                 </div>
             }.into_any()),
-            ModelState::Pulling => Some(view! {
+            ModelState::Pulling(percent, status) => Some(view! {
                 <div class="model-pull-banner">
                     <Spinner size=14 />
-                    "Downloading Mistral model \u{2014} this may take a few minutes\u{2026}"
+                    <span class="model-pull-label">
+                        "Downloading Mistral \u{2014} "
+                        {status}
+                    </span>
+                    <div class="model-pull-track">
+                        <div
+                            class="model-pull-fill"
+                            style=format!("width:{percent}%")
+                        />
+                    </div>
+                    <span class="model-pull-pct">{percent} "%"</span>
                 </div>
             }.into_any()),
             ModelState::Error(e) => Some(view! {

@@ -4,6 +4,7 @@
 mod session_db;
 
 use serde::Serialize;
+use tauri::Emitter;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -224,19 +225,27 @@ async fn check_model() -> Result<bool, String> {
     Ok(has_mistral)
 }
 
-/// Pull the `mistral` model from the Ollama registry if it is not already
-/// present.  Blocks until the download is complete (no streaming), so the
-/// frontend can simply await the command and then update its UI.
+/// Progress payload emitted to the frontend during a model pull.
+#[derive(Serialize, Clone)]
+struct PullProgress {
+    percent: u8,
+    status: String,
+    done: bool,
+}
+
+/// Pull the default model from the Ollama registry.  Streams the response
+/// line-by-line and emits `model-pull-progress` events so the frontend can
+/// show a live percentage bar.  Returns once the pull is complete.
 #[tauri::command]
-async fn pull_model() -> Result<(), String> {
+async fn pull_model(app: tauri::AppHandle) -> Result<(), String> {
     let client = reqwest::ClientBuilder::new()
-        .timeout(std::time::Duration::from_secs(1800)) // 30-minute ceiling
+        .timeout(std::time::Duration::from_secs(1800))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp = client
+    let mut resp = client
         .post("http://localhost:11434/api/pull")
-        .json(&serde_json::json!({"name": ollama::DEFAULT_MODEL, "stream": false}))
+        .json(&serde_json::json!({"name": ollama::DEFAULT_MODEL, "stream": true}))
         .send()
         .await
         .map_err(|e| format!("Failed to reach Ollama: {e}"))?;
@@ -245,6 +254,67 @@ async fn pull_model() -> Result<(), String> {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
         return Err(format!("Pull failed ({status}): {body}"));
+    }
+
+    let mut buf = String::new();
+
+    loop {
+        match resp.chunk().await.map_err(|e| e.to_string())? {
+            None => break,
+            Some(bytes) => {
+                buf.push_str(&String::from_utf8_lossy(&bytes));
+
+                while let Some(pos) = buf.find('\n') {
+                    let line = buf[..pos].to_string();
+                    buf.drain(..=pos);
+
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
+                        // Ollama surfaces errors inside the stream
+                        if let Some(err) = val["error"].as_str() {
+                            let _ = app.emit(
+                                "model-pull-progress",
+                                PullProgress {
+                                    percent: 0,
+                                    status: format!("Error: {err}"),
+                                    done: true,
+                                },
+                            );
+                            return Err(format!("Model pull error: {err}"));
+                        }
+
+                        let status = val["status"].as_str().unwrap_or("").to_string();
+                        let done = status == "success";
+
+                        let percent = if done {
+                            100
+                        } else if let (Some(total), Some(completed)) =
+                            (val["total"].as_u64(), val["completed"].as_u64())
+                        {
+                            if total > 0 {
+                                ((completed * 99) / total) as u8 // cap at 99 until done
+                            } else {
+                                0
+                            }
+                        } else {
+                            0
+                        };
+
+                        let _ = app.emit(
+                            "model-pull-progress",
+                            PullProgress { percent, status, done },
+                        );
+
+                        if done {
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Ok(())
