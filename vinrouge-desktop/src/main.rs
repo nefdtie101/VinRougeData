@@ -166,6 +166,9 @@ fn start_ollama(state: tauri::State<OllamaState>) -> Result<String, String> {
     if let Some(dir) = ollama::resolve_models_dir(saved_dir.as_deref()) {
         cmd.env("OLLAMA_MODELS", dir);
     }
+    // Allow the Tauri WebView origin (tauri://localhost / http://tauri.localhost)
+    // to call Ollama's HTTP API without CORS rejections.
+    cmd.env("OLLAMA_ORIGINS", "*");
 
     let child = cmd.spawn().map_err(|e| format!("Failed to start Ollama: {e}"))?;
     *guard = Some(child);
@@ -1083,6 +1086,7 @@ fn main() {
                             eprintln!("[ollama] OLLAMA_MODELS={dir}");
                             cmd.env("OLLAMA_MODELS", dir);
                         }
+                        cmd.env("OLLAMA_ORIGINS", "*");
                         match cmd.spawn() {
                             Ok(child) => {
                                 eprintln!("[ollama] started (pid {})", child.id());
