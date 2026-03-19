@@ -134,7 +134,8 @@ impl App {
     // ── Settings persistence ──────────────────────────────────────────────────
 
     fn settings_path() -> std::path::PathBuf {
-        if let Ok(home) = std::env::var("HOME") {
+        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok();
+        if let Some(home) = home {
             std::path::PathBuf::from(home)
                 .join(".config")
                 .join("vinrouge")

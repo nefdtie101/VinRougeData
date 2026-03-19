@@ -114,7 +114,9 @@ pub struct PbcGroup {
 // ── Home directory ────────────────────────────────────────────────────────────
 
 pub fn vinrouge_home() -> Result<PathBuf, String> {
-    let home = std::env::var("HOME").map_err(|_| "HOME env var not set".to_string())?;
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|_| "Could not determine home directory (HOME / USERPROFILE not set)".to_string())?;
     Ok(PathBuf::from(home).join("VinRouge"))
 }
 
