@@ -258,9 +258,10 @@ pub fn find_binary() -> std::io::Result<std::path::PathBuf> {
     };
     if let Ok(out) = std::process::Command::new(which_cmd).arg("ollama").output() {
         if out.status.success() {
-            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Ok(std::path::PathBuf::from(path));
+            // `where` on Windows can return multiple lines; take only the first.
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if let Some(path) = stdout.lines().find(|l| !l.trim().is_empty()) {
+                return Ok(std::path::PathBuf::from(path.trim()));
             }
         }
     }

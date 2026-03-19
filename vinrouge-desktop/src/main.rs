@@ -126,11 +126,16 @@ async fn pick_and_analyze(app: tauri::AppHandle) -> Result<Option<AnalysisOutput
 fn start_ollama(state: tauri::State<OllamaState>) -> Result<String, String> {
     let mut guard = state.0.lock().unwrap();
 
-    // Already running?
+    // Already running (process we spawned)?
     if let Some(child) = guard.as_mut() {
         if matches!(child.try_wait(), Ok(None)) {
             return Ok("already running".to_string());
         }
+    }
+
+    // Already running externally (e.g. Windows service or user-started instance)?
+    if ollama::port_in_use(11434) {
+        return Ok("already running".to_string());
     }
 
     let binary = ollama::find_binary().map_err(|e| e.to_string())?;
@@ -143,7 +148,9 @@ fn start_ollama(state: tauri::State<OllamaState>) -> Result<String, String> {
 
     // Read user override from shared settings file, fall back to DEFAULT_MODELS_DIR
     let saved_dir: Option<String> = (|| {
-        let home = std::env::var("HOME").ok()?;
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .ok()?;
         let path = std::path::PathBuf::from(home)
             .join(".config").join("vinrouge").join("tui.toml");
         let content = std::fs::read_to_string(path).ok()?;
@@ -1058,26 +1065,31 @@ fn main() {
             delete_session_import,
         ])
         .setup(|app| {
-            // Auto-start Ollama when the desktop app launches
+            // Auto-start Ollama when the desktop app launches.
+            // Skip if already running externally (e.g. Windows service).
             let state = app.state::<OllamaState>();
-            match ollama::find_binary() {
-                Err(e) => eprintln!("[ollama] binary not found: {e}"),
-                Ok(binary) => {
-                    eprintln!("[ollama] found binary: {}", binary.display());
-                    let mut cmd = std::process::Command::new(binary);
-                    cmd.arg("serve");
-                    #[cfg(target_os = "windows")]
-                    cmd.no_console();
-                    if let Some(dir) = ollama::resolve_models_dir(None) {
-                        eprintln!("[ollama] OLLAMA_MODELS={dir}");
-                        cmd.env("OLLAMA_MODELS", dir);
-                    }
-                    match cmd.spawn() {
-                        Ok(child) => {
-                            eprintln!("[ollama] started (pid {})", child.id());
-                            *state.0.lock().unwrap() = Some(child);
+            if ollama::port_in_use(11434) {
+                eprintln!("[ollama] already running on port 11434, skipping spawn");
+            } else {
+                match ollama::find_binary() {
+                    Err(e) => eprintln!("[ollama] binary not found: {e}"),
+                    Ok(binary) => {
+                        eprintln!("[ollama] found binary: {}", binary.display());
+                        let mut cmd = std::process::Command::new(binary);
+                        cmd.arg("serve");
+                        #[cfg(target_os = "windows")]
+                        cmd.no_console();
+                        if let Some(dir) = ollama::resolve_models_dir(None) {
+                            eprintln!("[ollama] OLLAMA_MODELS={dir}");
+                            cmd.env("OLLAMA_MODELS", dir);
                         }
-                        Err(e) => eprintln!("[ollama] failed to spawn: {e}"),
+                        match cmd.spawn() {
+                            Ok(child) => {
+                                eprintln!("[ollama] started (pid {})", child.id());
+                                *state.0.lock().unwrap() = Some(child);
+                            }
+                            Err(e) => eprintln!("[ollama] failed to spawn: {e}"),
+                        }
                     }
                 }
             }
