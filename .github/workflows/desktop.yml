@@ -150,6 +150,12 @@ jobs:
           VERSION=$(grep '^version' vinrouge-desktop/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Force-update 'latest' tag to current commit
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        run: |
+          git tag -f latest
+          git push origin -f latest
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:

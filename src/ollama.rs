@@ -164,7 +164,9 @@ pub fn resolve_models_dir(override_dir: Option<&str>) -> Option<String> {
 fn expand_home(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("~/") {
         // HOME on Unix/macOS, USERPROFILE on Windows
-        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).ok();
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .ok();
         if let Some(home) = home {
             return std::path::PathBuf::from(home)
                 .join(rest)
