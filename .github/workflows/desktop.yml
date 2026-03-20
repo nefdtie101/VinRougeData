@@ -103,6 +103,8 @@ jobs:
       - name: Download and bundle llama.cpp CUDA build (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Resolve latest llama.cpp release asset for CUDA 12, Windows x64
           $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN" }
