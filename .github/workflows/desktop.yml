@@ -107,7 +107,7 @@ jobs:
           # Resolve latest llama.cpp release asset for CUDA 12, Windows x64
           $release = Invoke-RestMethod "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest"
           $asset = $release.assets |
-            Where-Object { $_.name -match "bin-win-cuda-cu12.*-x64\.zip" } |
+            Where-Object { $_.name -match "bin-win-cuda-12\.\d+-x64\.zip" } |
             Select-Object -First 1
           if (-not $asset) {
             Write-Error "Could not find llama.cpp CUDA 12 Windows x64 asset in latest release"
