@@ -1,5 +1,6 @@
 {
   "bundle": {
+    "targets": ["nsis"],
     "externalBin": ["binaries/ollama", "binaries/llama-server"],
     "resources": {
       "binaries/lib/**/*": "lib/",
