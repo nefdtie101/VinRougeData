@@ -3,7 +3,6 @@
     "targets": ["nsis"],
     "externalBin": ["binaries/ollama", "binaries/llama-server"],
     "resources": {
-      "binaries/lib/**/*": "lib/",
       "binaries/llama-cuda-dlls/*": "llama-cuda-dlls/"
     }
   }
