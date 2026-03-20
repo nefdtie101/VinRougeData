@@ -94,6 +94,11 @@ jobs:
           Expand-Archive -Path ollama.zip -DestinationPath tmp_ollama -Force
           $bin = Get-ChildItem -Path tmp_ollama -Filter "ollama.exe" -Recurse | Select-Object -First 1
           Copy-Item $bin.FullName "vinrouge-desktop\binaries\ollama-${{ matrix.tauri_triple }}.exe"
+          # Copy CUDA/ROCm/AVX libs that Ollama needs for GPU inference
+          $libDir = Join-Path $bin.DirectoryName "lib"
+          if (Test-Path $libDir) {
+            Copy-Item -Recurse -Force $libDir "vinrouge-desktop\binaries\lib"
+          }
 
       - name: Build Leptos frontend
         working-directory: vinrouge-web
