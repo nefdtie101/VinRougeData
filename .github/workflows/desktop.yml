@@ -105,7 +105,8 @@ jobs:
         shell: pwsh
         run: |
           # Resolve latest llama.cpp release asset for CUDA 12, Windows x64
-          $release = Invoke-RestMethod "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest"
+          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN" }
+          $release = Invoke-RestMethod "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest" -Headers $headers
           $asset = $release.assets |
             Where-Object { $_.name -match "^llama-b\d+-bin-win-cuda-12\.\d+-x64\.zip$" } |
             Select-Object -First 1
