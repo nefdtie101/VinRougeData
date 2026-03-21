@@ -184,16 +184,15 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          choco install nsis -y --no-progress | Out-Null
-          $env:PATH = "C:\Program Files (x86)\NSIS;" + $env:PATH
+          $iscc     = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           $version  = (Select-String '^version' vinrouge-desktop\Cargo.toml |
                        Select-Object -First 1).Line -replace '.*"(.*)".*','$1'
           $repo     = "${{ github.server_url }}/${{ github.repository }}"
           $url      = "$repo/releases/latest/download/VinRouge-windows-x64.zip"
-          Write-Host "makensis: $(Get-Command makensis | Select-Object -ExpandProperty Source)"
-          Write-Host "DOWNLOAD_URL: $url"
-          Write-Host "APP_VERSION:  $version"
-          makensis "/DDOWNLOAD_URL=$url" "/DAPP_VERSION=$version" "vinrouge-desktop\installer\stub.nsi"
+          Write-Host "ISCC: $iscc"
+          Write-Host "DownloadUrl: $url"
+          Write-Host "AppVersion:  $version"
+          & $iscc "/DDownloadUrl=$url" "/DAppVersion=$version" "vinrouge-desktop\installer\stub.iss"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload macOS bundle
