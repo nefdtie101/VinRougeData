@@ -23,7 +23,7 @@ pub const UPDATE_SECTION: &str =
        \"description\": \"One-sentence description\",\n\
        \"controls\": [\n\
          {\n\
-           \"control_ref\": \"C-01\",\n\
+           \"control_ref\": \"C-1\",\n\
            \"control_objective\": \"What this control achieves\",\n\
            \"control_description\": \"How the control operates\",\n\
            \"test_procedure\": \"Step-by-step test procedure\",\n\
@@ -66,7 +66,7 @@ pub const GENERATE_PBC: &str =
      {\n\
        \"items\": [\n\
          {\n\
-           \"control_ref\": \"C-01\",\n\
+           \"control_ref\": \"C-1\",\n\
            \"name\": \"Descriptive name that identifies the specific data set\",\n\
            \"item_type\": \"SQL\",\n\
            \"table_name\": \"exact_table_name\",\n\
@@ -169,7 +169,7 @@ pub const ANALYZE_SOP: &str =
            \"description\": \"What this process does, using SOP-specific details\",\n\
            \"controls\": [\n\
              {\n\
-               \"control_ref\": \"C-01\",\n\
+               \"control_ref\": \"C-1\",\n\
                \"control_objective\": \"Risk or failure mode this control prevents, as described in the SOP\",\n\
                \"control_description\": \"How the control operates, naming SOP roles/systems/documents\",\n\
                \"test_procedure\": \"Step-by-step audit test referencing SOP artefacts and roles\",\n\
@@ -181,9 +181,82 @@ pub const ANALYZE_SOP: &str =
      }\n\n\
      Rules:\n\
      - risk_level must be exactly one of: High, Medium, Low\n\
-     - control_ref must be sequential and unique across all processes (C-01, C-02, …)\n\
+     - control_ref must be sequential and unique across all processes using the format C-1, C-2, C-3 (no zero padding)\n\
      - Each distinct business process should be a separate entry\n\
      - Each process should have between 2 and 6 controls\n\
      - Do NOT use generic filler language — every sentence must reflect a specific fact from the SOP\n\
      - Return ONLY the JSON object, nothing else\n\n\
      SOP TEXT:";
+
+/// JSON Schema for the PBC list generation output.
+pub fn pbc_list_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "control_ref":   { "type": "string" },
+                        "name":          { "type": "string" },
+                        "item_type":     { "type": "string", "enum": ["SQL", "CSV"] },
+                        "table_name":    { "type": "string" },
+                        "fields":        { "type": "array", "items": { "type": "string" } },
+                        "purpose":       { "type": "string" },
+                        "scope_format":  { "type": "string" }
+                    },
+                    "required": [
+                        "control_ref", "name", "item_type",
+                        "fields", "purpose", "scope_format"
+                    ]
+                }
+            }
+        },
+        "required": ["items"]
+    })
+}
+
+/// JSON Schema for the audit plan output.
+/// Pass this as the `format` field to Ollama's structured-output API so the
+/// model is constrained by token sampling to produce exactly this shape,
+/// regardless of its instruction-following ability.
+pub fn audit_plan_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "processes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "process_name": { "type": "string" },
+                        "description":  { "type": "string" },
+                        "controls": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "control_ref":         { "type": "string" },
+                                    "control_objective":   { "type": "string" },
+                                    "control_description": { "type": "string" },
+                                    "test_procedure":      { "type": "string" },
+                                    "risk_level": {
+                                        "type": "string",
+                                        "enum": ["High", "Medium", "Low"]
+                                    }
+                                },
+                                "required": [
+                                    "control_ref", "control_objective",
+                                    "control_description", "test_procedure", "risk_level"
+                                ]
+                            }
+                        }
+                    },
+                    "required": ["process_name", "description", "controls"]
+                }
+            }
+        },
+        "required": ["processes"]
+    })
+}

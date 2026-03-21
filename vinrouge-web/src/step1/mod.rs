@@ -5,7 +5,7 @@ use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::ollama::{ask_ollama_json, ask_ollama_structured, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::types::{AuditProcessWithControls, ProjectFile};
 
 #[component]
@@ -345,7 +345,7 @@ pub fn AuditSetupView(
                                                 Err(e) => { status.set(format!("Read error: {e}")); sop_analyzing.set(None); return; }
                                             };
                                             let prompt = format!("{}\n\n{}", prompts::ANALYZE_SOP, text);
-                                            let json_str = match ask_ollama_json(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &prompt).await {
+                                            let json_str = match ask_ollama_structured(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &prompt, prompts::audit_plan_schema()).await {
                                                 Ok(s) => s,
                                                 Err(e) => { status.set(format!("Ollama error: {e}")); sop_analyzing.set(None); return; }
                                             };

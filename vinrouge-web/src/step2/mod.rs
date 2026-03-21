@@ -3,7 +3,7 @@ use crate::components::{
     Spinner,
 };
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::ollama::{ask_ollama_json, ask_ollama_structured, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::types::{AuditProcessWithControls, Control, ProjectFile};
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
@@ -66,7 +66,7 @@ pub fn Step2View(
                     };
                     let prompt = build_regen_prompt(&scope, &text);
                     let json_str =
-                        match ask_ollama_json(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &prompt)
+                        match ask_ollama_structured(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &prompt, crate::step1::prompts::audit_plan_schema())
                             .await
                         {
                             Ok(s) => s,
@@ -529,7 +529,7 @@ fn AuditProcessCard(proc: AuditProcessWithControls) -> impl IntoView {
                     <div style="padding:6px 0 2px">
                         <DashedAddButton label=" Add control" on_click=move || {
                             let pid      = proc_id.get_untracked();
-                            let next_ref = format!("C-{:02}", controls_sig.get().len() + 1);
+                            let next_ref = format!("C-{}", controls_sig.get().len() + 1);
                             spawn_local(async move {
                                 match tauri_invoke_args::<Control>("add_control", serde_json::json!({
                                     "processId":          pid,

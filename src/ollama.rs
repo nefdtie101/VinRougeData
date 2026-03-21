@@ -376,16 +376,43 @@ pub async fn ask_ollama_json(
     Err("ask_ollama_json is only available on wasm32".to_string())
 }
 
+/// Sends `prompt` to Ollama using structured output (JSON Schema as the format).
+/// The model is constrained via token sampling to match the schema exactly.
+/// Non-wasm stub — not used on native.
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn ask_ollama_structured(
+    _base_url: &str,
+    _model: &str,
+    _prompt: &str,
+    _schema: serde_json::Value,
+) -> Result<String, String> {
+    Err("ask_ollama_structured is only available on wasm32".to_string())
+}
+
+/// Structured output — wasm32 implementation.
 #[cfg(target_arch = "wasm32")]
-pub async fn ask_ollama_json(base_url: &str, model: &str, prompt: &str) -> Result<String, String> {
+pub async fn ask_ollama_structured(
+    base_url: &str,
+    model: &str,
+    prompt: &str,
+    schema: serde_json::Value,
+) -> Result<String, String> {
     use gloo_net::http::Request;
     use serde_json::json;
 
     let body = json!({
         "model": model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a JSON generation assistant. \
+                            Respond with a valid JSON object that matches the provided schema. \
+                            Do not add explanations, markdown, or code fences — output only the JSON object."
+            },
+            {"role": "user", "content": prompt}
+        ],
         "stream": false,
-        "format": "json"
+        "format": schema
     });
 
     let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
@@ -412,4 +439,142 @@ pub async fn ask_ollama_json(base_url: &str, model: &str, prompt: &str) -> Resul
         .as_str()
         .map(|s| s.to_string())
         .ok_or_else(|| format!("Unexpected response shape: {val}"))
+}
+
+/// Extract the first JSON object or array from a free-text response.
+/// Handles ```json ... ``` fences, plain ``` ... ``` fences, and bare { / [ .
+#[cfg(target_arch = "wasm32")]
+fn extract_json_from_text(text: &str) -> Option<String> {
+    // 1. ```json ... ```
+    if let Some(start) = text.find("```json") {
+        let rest = &text[start + 7..];
+        if let Some(end) = rest.find("```") {
+            let candidate = rest[..end].trim();
+            if serde_json::from_str::<serde_json::Value>(candidate).is_ok() {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+    // 2. ``` ... ``` (no language tag)
+    if let Some(start) = text.find("```") {
+        let rest = &text[start + 3..];
+        if let Some(end) = rest.find("```") {
+            let candidate = rest[..end].trim();
+            if candidate.starts_with('{') || candidate.starts_with('[') {
+                if serde_json::from_str::<serde_json::Value>(candidate).is_ok() {
+                    return Some(candidate.to_string());
+                }
+            }
+        }
+    }
+    // 3. Bare { ... } — find the first '{' and the matching '}'
+    if let Some(obj_start) = text.find('{') {
+        let slice = &text[obj_start..];
+        let mut depth: i32 = 0;
+        let mut in_string = false;
+        let mut escape = false;
+        let mut end_idx = None;
+        for (i, c) in slice.char_indices() {
+            if escape { escape = false; continue; }
+            if c == '\\' && in_string { escape = true; continue; }
+            if c == '"' { in_string = !in_string; continue; }
+            if in_string { continue; }
+            match c {
+                '{' => depth += 1,
+                '}' => { depth -= 1; if depth == 0 { end_idx = Some(i); break; } }
+                _ => {}
+            }
+        }
+        if let Some(end) = end_idx {
+            let candidate = &slice[..=end];
+            if serde_json::from_str::<serde_json::Value>(candidate).is_ok() {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+    // 4. Bare [ ... ]
+    if let Some(arr_start) = text.find('[') {
+        let slice = &text[arr_start..];
+        let mut depth: i32 = 0;
+        let mut in_string = false;
+        let mut escape = false;
+        let mut end_idx = None;
+        for (i, c) in slice.char_indices() {
+            if escape { escape = false; continue; }
+            if c == '\\' && in_string { escape = true; continue; }
+            if c == '"' { in_string = !in_string; continue; }
+            if in_string { continue; }
+            match c {
+                '[' => depth += 1,
+                ']' => { depth -= 1; if depth == 0 { end_idx = Some(i); break; } }
+                _ => {}
+            }
+        }
+        if let Some(end) = end_idx {
+            let candidate = &slice[..=end];
+            if serde_json::from_str::<serde_json::Value>(candidate).is_ok() {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn ask_ollama_json(base_url: &str, model: &str, prompt: &str) -> Result<String, String> {
+    use gloo_net::http::Request;
+    use serde_json::json;
+
+    // Do NOT use "format":"json" — it forces valid JSON but small models like
+    // mistral then choose their own schema. Instead, ask the model to wrap its
+    // JSON in a ```json fence and extract it from the free-text reply.
+    let body = json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a JSON generation assistant. \
+                            When asked to produce JSON, output it inside a ```json code fence \
+                            and nothing else. Do not add explanations before or after the fence."
+            },
+            {"role": "user", "content": prompt}
+        ],
+        "stream": false
+    });
+
+    let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
+
+    let resp = Request::post(&url)
+        .json(&body)
+        .map_err(|e| format!("Failed to build request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach Ollama at {url}: {e}"))?;
+
+    if !resp.ok() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Ollama returned HTTP {status}: {text}"));
+    }
+
+    let val: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+    let content = val["message"]["content"]
+        .as_str()
+        .ok_or_else(|| format!("Unexpected response shape: {val}"))?;
+
+    // If the model output is already valid JSON (some models still do this),
+    // return it directly; otherwise extract from the code fence / bare braces.
+    if serde_json::from_str::<serde_json::Value>(content).is_ok() {
+        return Ok(content.to_string());
+    }
+
+    extract_json_from_text(content)
+        .ok_or_else(|| {
+            let preview: String = content.chars().take(300).collect();
+            format!("Could not find JSON in model response. Preview: {preview}")
+        })
 }

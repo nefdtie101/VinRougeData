@@ -699,30 +699,95 @@ fn save_audit_plan(
 
     #[derive(serde::Deserialize)]
     struct ControlDto {
+        #[serde(alias = "controlRef",         alias = "ref",   alias = "id")]
         control_ref:         String,
+        #[serde(alias = "controlObjective",   alias = "objective")]
         control_objective:   String,
+        #[serde(alias = "controlDescription", alias = "description", alias = "how_it_operates", alias = "howItOperates")]
         control_description: String,
+        #[serde(alias = "testProcedure",      alias = "test", alias = "procedure")]
         test_procedure:      String,
+        #[serde(alias = "riskLevel",          alias = "risk", alias = "severity")]
         risk_level:          String,
     }
     #[derive(serde::Deserialize)]
     struct ProcessDto {
+        #[serde(alias = "processName", alias = "name", alias = "title")]
         process_name: String,
+        #[serde(alias = "processDescription", alias = "summary", alias = "details")]
         description:  String,
+        #[serde(alias = "controlsList", alias = "control_list", alias = "items")]
         controls:     Vec<ControlDto>,
     }
     #[derive(serde::Deserialize)]
-    struct PlanDto { processes: Vec<ProcessDto> }
+    struct PlanDto {
+        #[serde(alias = "plan", alias = "audit_plan", alias = "auditPlan", alias = "processList", alias = "process_list", alias = "items")]
+        processes: Vec<ProcessDto>,
+    }
 
-    let plan: PlanDto = serde_json::from_str(&processes_json)
-        .map_err(|e| format!("Invalid plan JSON: {e}"))?;
+    // Normalise the JSON: Ollama sometimes returns a bare array or wraps the
+    // list under a key other than "processes" (e.g. "plan", "audit_plan").
+    // Try the expected shape first; fall back to a raw array; then scan all
+    // top-level object keys for the first array value.
+    let plan: PlanDto = {
+        // 1. Expected shape: {"processes": [...]}
+        if let Ok(p) = serde_json::from_str::<PlanDto>(&processes_json) {
+            p
+        // 2. Bare array: [{...}, ...]
+        } else if let Ok(arr) = serde_json::from_str::<Vec<ProcessDto>>(&processes_json) {
+            PlanDto { processes: arr }
+        // 3. Object with any key containing the array (also handles Mistral
+        //    function-call format: {"function":..., "arguments":{...}})
+        } else if let Ok(obj) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&processes_json) {
+            // Helper: try to extract a PlanDto from a JSON value by scanning its
+            // direct keys for an array of ProcessDto, or by recursing one level
+            // into an "arguments" wrapper (Mistral function-call style).
+            fn extract(val: serde_json::Value) -> Option<Vec<ProcessDto>> {
+                if let serde_json::Value::Array(_) = &val {
+                    return serde_json::from_value::<Vec<ProcessDto>>(val).ok();
+                }
+                if let serde_json::Value::Object(map) = val {
+                    // Direct key scan
+                    for (_, v) in &map {
+                        if let Ok(arr) = serde_json::from_value::<Vec<ProcessDto>>(v.clone()) {
+                            return Some(arr);
+                        }
+                    }
+                    // Recurse into "arguments" (Mistral function-call wrapper)
+                    if let Some(args) = map.get("arguments") {
+                        return extract(args.clone());
+                    }
+                }
+                None
+            }
+            match extract(serde_json::Value::Object(obj)) {
+                Some(arr) => PlanDto { processes: arr },
+                None => {
+                    let preview: String = processes_json.chars().take(500).collect();
+                    return Err(format!("Invalid plan JSON: could not find a valid processes array. Raw output (first 500 chars): {preview}"));
+                }
+            }
+        } else {
+            return Err(format!(
+                "Invalid plan JSON: {}",
+                serde_json::from_str::<serde_json::Value>(&processes_json)
+                    .err()
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| "unrecognised structure".into())
+            ));
+        }
+    };
 
+    // Normalise control_ref values to C-1, C-2, ... across all processes.
+    let mut ctrl_counter = 1usize;
     let batch: Vec<(String, String, Vec<(String, String, String, String, String)>)> = plan
         .processes
         .into_iter()
         .map(|p| {
             let controls = p.controls.into_iter().map(|c| {
-                (c.control_ref, c.control_objective, c.control_description, c.test_procedure, c.risk_level)
+                let normalised_ref = format!("C-{}", ctrl_counter);
+                ctrl_counter += 1;
+                (normalised_ref, c.control_objective, c.control_description, c.test_procedure, c.risk_level)
             }).collect();
             (p.process_name, p.description, controls)
         })

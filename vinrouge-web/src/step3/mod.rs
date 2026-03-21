@@ -1,6 +1,6 @@
 use crate::components::{DashedAddButton, ProgressRing, SectionPrompt, Spinner, StatCard};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::ollama::{ask_ollama_json, ask_ollama_structured, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::step1::prompts::REFINE_PBC_LIST;
 use crate::types::{AuditProcessWithControls, PbcGroup, PbcItem};
 use leptos::prelude::*;
@@ -543,7 +543,15 @@ async fn do_generate(
     gen_error: RwSignal<Option<String>>,
     generating: RwSignal<bool>,
 ) {
-    let plan = audit_plan.get_untracked();
+    // Always reload from DB so inline edits made in Step 2 are reflected.
+    let plan = match crate::ipc::tauri_invoke::<Vec<AuditProcessWithControls>>("list_audit_plan").await {
+        Ok(p) => { audit_plan.set(p.clone()); p }
+        Err(e) => {
+            gen_error.set(Some(format!("Failed to load audit plan: {e}")));
+            generating.set(false);
+            return;
+        }
+    };
 
     if plan.is_empty() {
         gen_error.set(Some("No audit plan found — complete Step 2 first.".into()));
@@ -575,62 +583,104 @@ async fn do_generate(
     let prompt = format!("{}\n\n{}", vinrouge::audit_prompts::GENERATE_PBC, plan_text);
 
     gen_phase.set("Asking Ollama to generate data requests (may take a minute)...".into());
-    match ask_ollama_json(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &prompt).await {
+    match ask_ollama_structured(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &prompt, crate::step1::prompts::pbc_list_schema()).await {
         Err(e) => {
             gen_error.set(Some(format!("{e}")));
             gen_phase.set(String::new());
         }
         Ok(raw) => {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
-                if let Some(arr) = v["items"].as_array() {
-                    for item_json in arr {
-                        // Accept both snake_case and camelCase keys from models
-                        let cref = item_json["control_ref"]
+            let parsed = serde_json::from_str::<serde_json::Value>(&raw);
+            let v = match parsed {
+                Ok(v) => v,
+                Err(e) => {
+                    let preview: String = raw.chars().take(300).collect();
+                    gen_error.set(Some(format!("JSON parse error: {e}\nResponse preview: {preview}")));
+                    gen_phase.set(String::new());
+                    generating.set(false);
+                    return;
+                }
+            };
+            let arr = match v["items"].as_array() {
+                Some(a) => a.clone(),
+                None => {
+                    let preview: String = raw.chars().take(300).collect();
+                    gen_error.set(Some(format!("Response missing 'items' array.\nResponse preview: {preview}")));
+                    gen_phase.set(String::new());
+                    generating.set(false);
+                    return;
+                }
+            };
+            let mut saved = 0usize;
+            let mut unmatched: Vec<String> = Vec::new();
+            for item_json in &arr {
+                // Accept both snake_case and camelCase keys from models
+                let cref = item_json["control_ref"]
+                    .as_str()
+                    .or_else(|| item_json["controlRef"].as_str())
+                    .unwrap_or("");
+                let ctrl = plan
+                    .iter()
+                    .flat_map(|p| p.controls.iter())
+                    .find(|c| c.control_ref == cref);
+                match ctrl {
+                    None => { unmatched.push(cref.to_string()); }
+                    Some(ctrl) => {
+                        let fields: Vec<String> = item_json["fields"]
+                            .as_array()
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|f| f.as_str().map(|s| s.to_string()))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let item_type = item_json["item_type"]
                             .as_str()
-                            .or_else(|| item_json["controlRef"].as_str())
-                            .unwrap_or("");
-                        let ctrl = plan
-                            .iter()
-                            .flat_map(|p| p.controls.iter())
-                            .find(|c| c.control_ref == cref);
-                        if let Some(ctrl) = ctrl {
-                            let fields: Vec<String> = item_json["fields"]
-                                .as_array()
-                                .map(|a| {
-                                    a.iter()
-                                        .filter_map(|f| f.as_str().map(|s| s.to_string()))
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-                            let item_type = item_json["item_type"]
-                                .as_str()
-                                .or_else(|| item_json["itemType"].as_str())
-                                .or_else(|| item_json["type"].as_str())
-                                .unwrap_or("SQL");
-                            let table_name = item_json["table_name"]
-                                .as_str()
-                                .or_else(|| item_json["tableName"].as_str());
-                            let scope_format = item_json["scope_format"]
-                                .as_str()
-                                .or_else(|| item_json["scopeFormat"].as_str())
-                                .unwrap_or("Audit period");
-                            let _ = tauri_invoke_args::<PbcItem>(
-                                "save_pbc_item",
-                                serde_json::json!({
-                                    "controlId":   ctrl.id,
-                                    "controlRef":  cref,
-                                    "name":        item_json["name"].as_str().unwrap_or(""),
-                                    "itemType":    item_type,
-                                    "tableName":   table_name,
-                                    "fields":      fields,
-                                    "purpose":     item_json["purpose"].as_str().unwrap_or(""),
-                                    "scopeFormat": scope_format,
-                                }),
-                            )
-                            .await;
+                            .or_else(|| item_json["itemType"].as_str())
+                            .or_else(|| item_json["type"].as_str())
+                            .unwrap_or("SQL");
+                        let table_name = item_json["table_name"]
+                            .as_str()
+                            .or_else(|| item_json["tableName"].as_str());
+                        let scope_format = item_json["scope_format"]
+                            .as_str()
+                            .or_else(|| item_json["scopeFormat"].as_str())
+                            .unwrap_or("Audit period");
+                        match tauri_invoke_args::<PbcItem>(
+                            "save_pbc_item",
+                            serde_json::json!({
+                                "controlId":   ctrl.id,
+                                "controlRef":  cref,
+                                "name":        item_json["name"].as_str().unwrap_or(""),
+                                "itemType":    item_type,
+                                "tableName":   table_name,
+                                "fields":      fields,
+                                "purpose":     item_json["purpose"].as_str().unwrap_or(""),
+                                "scopeFormat": scope_format,
+                            }),
+                        )
+                        .await {
+                            Ok(_) => { saved += 1; }
+                            Err(e) => { unmatched.push(format!("{cref} (save error: {e})")); }
                         }
                     }
                 }
+            }
+            if saved == 0 {
+                let detail = if unmatched.is_empty() {
+                    "No items in response.".to_string()
+                } else {
+                    format!("Unmatched/failed control refs: {}", unmatched.join(", "))
+                };
+                gen_error.set(Some(format!("Nothing saved. {detail}")));
+                gen_phase.set(String::new());
+                generating.set(false);
+                return;
+            }
+            if !unmatched.is_empty() {
+                gen_error.set(Some(format!(
+                    "Saved {saved} items. Could not match: {}",
+                    unmatched.join(", ")
+                )));
             }
             gen_phase.set("Loading results...".into());
             reload_groups(groups, approved_ids).await;

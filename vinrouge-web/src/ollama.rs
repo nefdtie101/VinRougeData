@@ -1,7 +1,7 @@
 /// Ollama helpers — re-exported from the main vinrouge library.
 pub use vinrouge::ollama::{
-    ask_ollama_json, ask_ollama_wasm, DEFAULT_MODEL as OLLAMA_DEFAULT_MODEL,
-    DEFAULT_URL as OLLAMA_DEFAULT_URL,
+    ask_ollama_json, ask_ollama_structured, ask_ollama_wasm,
+    DEFAULT_MODEL as OLLAMA_DEFAULT_MODEL, DEFAULT_URL as OLLAMA_DEFAULT_URL,
 };
 
 use crate::types::AnalysisResult;
