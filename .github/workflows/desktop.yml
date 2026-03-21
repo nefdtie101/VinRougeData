@@ -151,7 +151,7 @@ jobs:
 
       - name: Build desktop app
         working-directory: vinrouge-desktop
-        run: cargo tauri build ${{ matrix.os == 'windows-latest' && '--bundles wix' || '' }}
+        run: cargo tauri build ${{ matrix.os == 'windows-latest' && '--bundles msi' || '' }}
 
       - name: Upload macOS bundle
         if: matrix.os == 'macos-latest'
