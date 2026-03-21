@@ -94,7 +94,16 @@ jobs:
           Expand-Archive -Path ollama.zip -DestinationPath tmp_ollama -Force
           $bin = Get-ChildItem -Path tmp_ollama -Filter "ollama.exe" -Recurse | Select-Object -First 1
           Copy-Item $bin.FullName "vinrouge-desktop\binaries\ollama-${{ matrix.tauri_triple }}.exe"
-          # Ollama downloads its own GPU runners on first startup — no need to bundle the lib/ directory
+          # Bundle only the CUDA 12 runner — Ollama looks for lib/ollama/cuda_v12/ next to its exe.
+          # Skipping ROCm/AVX/CUDA 11 keeps the installer size manageable.
+          $cudaDir = Join-Path $bin.DirectoryName "lib\ollama\cuda_v12"
+          if (Test-Path $cudaDir) {
+            $dest = "vinrouge-desktop\binaries\lib\ollama\cuda_v12"
+            New-Item -ItemType Directory -Force -Path $dest | Out-Null
+            Copy-Item -Recurse -Force "$cudaDir\*" $dest
+          } else {
+            Write-Warning "cuda_v12 runner directory not found in Ollama archive — GPU inference may fall back to CPU"
+          }
 
       - name: Download and bundle llama.cpp CUDA build (Windows)
         if: matrix.os == 'windows-latest'
