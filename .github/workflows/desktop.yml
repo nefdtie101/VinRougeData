@@ -185,11 +185,12 @@ jobs:
         shell: pwsh
         run: |
           choco install nsis -y --no-progress | Out-Null
-          $version = (Select-String '^version' vinrouge-desktop\Cargo.toml |
-                      Select-Object -First 1).Line -replace '.*"(.*)".*','$1'
-          $repo    = "${{ github.server_url }}/${{ github.repository }}"
-          $url     = "$repo/releases/latest/download/VinRouge-windows-x64.zip"
-          makensis `
+          $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          $version  = (Select-String '^version' vinrouge-desktop\Cargo.toml |
+                       Select-Object -First 1).Line -replace '.*"(.*)".*','$1'
+          $repo     = "${{ github.server_url }}/${{ github.repository }}"
+          $url      = "$repo/releases/latest/download/VinRouge-windows-x64.zip"
+          & $makensis `
             /DDOWNLOAD_URL="$url" `
             /DAPP_VERSION="$version" `
             vinrouge-desktop\installer\stub.nsi
