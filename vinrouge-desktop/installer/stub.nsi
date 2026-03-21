@@ -35,16 +35,18 @@ BrandingText "${APPNAME} ${APP_VERSION}"
 Section "Install" SecMain
   SetOutPath "$INSTDIR"
 
-  DetailPrint "Downloading VinRouge..."
-  Var /GLOBAL ZIP_PATH
-  StrCpy $ZIP_PATH "$TEMP\VinRouge-windows-x64.zip"
+  ; Write a temp PowerShell script — avoids all NSIS quote-escaping issues.
+  ; NSIS expands $TEMP, $INSTDIR, and ${DOWNLOAD_URL} at runtime before writing.
+  DetailPrint "Preparing download..."
+  FileOpen  $0 "$TEMP\vinrouge_install.ps1" w
+  FileWrite $0 "Invoke-WebRequest -Uri '${DOWNLOAD_URL}' -OutFile '$TEMP\VinRouge-windows-x64.zip' -UseBasicParsing$\r$\n"
+  FileWrite $0 "Expand-Archive -Path '$TEMP\VinRouge-windows-x64.zip' -DestinationPath '$INSTDIR' -Force$\r$\n"
+  FileWrite $0 "Remove-Item '$TEMP\VinRouge-windows-x64.zip' -Force$\r$\n"
+  FileClose $0
 
-  ExecWait 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri ''${DOWNLOAD_URL}'' -OutFile ''$ZIP_PATH'' -UseBasicParsing"'
-
-  DetailPrint "Installing..."
-  ExecWait 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Expand-Archive -Path ''$ZIP_PATH'' -DestinationPath ''$INSTDIR'' -Force"'
-
-  Delete "$ZIP_PATH"
+  DetailPrint "Downloading VinRouge (this may take a few minutes)..."
+  ExecWait 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$TEMP\vinrouge_install.ps1"'
+  Delete "$TEMP\vinrouge_install.ps1"
 
   ; Shortcuts
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
