@@ -149,9 +149,50 @@ jobs:
         working-directory: vinrouge-desktop
         run: cargo tauri icon icons/icon.png
 
-      - name: Build desktop app
+      # macOS + Linux: normal Tauri bundle (DMG / deb / AppImage)
+      - name: Build desktop app (macOS / Linux)
+        if: matrix.os != 'windows-latest'
         working-directory: vinrouge-desktop
-        run: cargo tauri build ${{ matrix.os == 'windows-latest' && '--bundles msi' || '' }}
+        run: cargo tauri build
+
+      # Windows: build the exe only, then package + stub installer manually
+      - name: Build desktop app (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: vinrouge-desktop
+        run: cargo build --release
+
+      - name: Package Windows ZIP
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $stage = "vinrouge-stage"
+          New-Item -ItemType Directory -Force -Path $stage
+
+          # App binary
+          Copy-Item "vinrouge-desktop\target\release\vinrouge-desktop.exe" "$stage\"
+
+          # Ollama + CUDA runner
+          Copy-Item "vinrouge-desktop\binaries\ollama-${{ matrix.tauri_triple }}.exe" "$stage\ollama.exe"
+          if (Test-Path "vinrouge-desktop\binaries\lib") {
+            Copy-Item -Recurse "vinrouge-desktop\binaries\lib" "$stage\"
+          }
+
+          Compress-Archive -Path "$stage\*" -DestinationPath "VinRouge-windows-x64.zip" -Force
+          Write-Host "ZIP size: $([math]::Round((Get-Item VinRouge-windows-x64.zip).Length / 1MB, 1)) MB"
+
+      - name: Build stub installer (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress | Out-Null
+          $version = (Select-String '^version' vinrouge-desktop\Cargo.toml |
+                      Select-Object -First 1).Line -replace '.*"(.*)".*','$1'
+          $repo    = "${{ github.server_url }}/${{ github.repository }}"
+          $url     = "$repo/releases/latest/download/VinRouge-windows-x64.zip"
+          makensis `
+            /DDOWNLOAD_URL="$url" `
+            /DAPP_VERSION="$version" `
+            vinrouge-desktop\installer\stub.nsi
 
       - name: Upload macOS bundle
         if: matrix.os == 'macos-latest'
@@ -171,12 +212,14 @@ jobs:
             vinrouge-desktop/target/release/bundle/appimage/*.AppImage
           if-no-files-found: warn
 
-      - name: Upload Windows bundle
+      - name: Upload Windows artifacts
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
           name: VinRouge-${{ matrix.platform }}
-          path: vinrouge-desktop/target/release/bundle/msi/*.msi
+          path: |
+            VinRouge-windows-x64.zip
+            VinRouge-*-Setup.exe
           if-no-files-found: warn
 
   release:
