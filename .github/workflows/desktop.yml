@@ -151,7 +151,7 @@ jobs:
 
       - name: Build desktop app
         working-directory: vinrouge-desktop
-        run: cargo tauri build
+        run: cargo tauri build ${{ matrix.os == 'windows-latest' && '--bundles wix' || '' }}
 
       - name: Upload macOS bundle
         if: matrix.os == 'macos-latest'
@@ -176,7 +176,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: VinRouge-${{ matrix.platform }}
-          path: vinrouge-desktop/target/release/bundle/nsis/*.exe
+          path: vinrouge-desktop/target/release/bundle/msi/*.msi
           if-no-files-found: warn
 
   release:
