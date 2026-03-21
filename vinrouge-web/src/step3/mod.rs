@@ -1,6 +1,8 @@
 use crate::components::{DashedAddButton, ProgressRing, SectionPrompt, Spinner, StatCard};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{ask_ollama_json, ask_ollama_structured, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::ollama::{
+    ask_ollama_json, ask_ollama_structured, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL,
+};
 use crate::step1::prompts::REFINE_PBC_LIST;
 use crate::types::{AuditProcessWithControls, PbcGroup, PbcItem};
 use leptos::prelude::*;
@@ -544,14 +546,18 @@ async fn do_generate(
     generating: RwSignal<bool>,
 ) {
     // Always reload from DB so inline edits made in Step 2 are reflected.
-    let plan = match crate::ipc::tauri_invoke::<Vec<AuditProcessWithControls>>("list_audit_plan").await {
-        Ok(p) => { audit_plan.set(p.clone()); p }
-        Err(e) => {
-            gen_error.set(Some(format!("Failed to load audit plan: {e}")));
-            generating.set(false);
-            return;
-        }
-    };
+    let plan =
+        match crate::ipc::tauri_invoke::<Vec<AuditProcessWithControls>>("list_audit_plan").await {
+            Ok(p) => {
+                audit_plan.set(p.clone());
+                p
+            }
+            Err(e) => {
+                gen_error.set(Some(format!("Failed to load audit plan: {e}")));
+                generating.set(false);
+                return;
+            }
+        };
 
     if plan.is_empty() {
         gen_error.set(Some("No audit plan found — complete Step 2 first.".into()));
@@ -583,7 +589,14 @@ async fn do_generate(
     let prompt = format!("{}\n\n{}", vinrouge::audit_prompts::GENERATE_PBC, plan_text);
 
     gen_phase.set("Asking Ollama to generate data requests (may take a minute)...".into());
-    match ask_ollama_structured(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &prompt, crate::step1::prompts::pbc_list_schema()).await {
+    match ask_ollama_structured(
+        OLLAMA_DEFAULT_URL,
+        OLLAMA_DEFAULT_MODEL,
+        &prompt,
+        crate::step1::prompts::pbc_list_schema(),
+    )
+    .await
+    {
         Err(e) => {
             gen_error.set(Some(format!("{e}")));
             gen_phase.set(String::new());
@@ -594,7 +607,9 @@ async fn do_generate(
                 Ok(v) => v,
                 Err(e) => {
                     let preview: String = raw.chars().take(300).collect();
-                    gen_error.set(Some(format!("JSON parse error: {e}\nResponse preview: {preview}")));
+                    gen_error.set(Some(format!(
+                        "JSON parse error: {e}\nResponse preview: {preview}"
+                    )));
                     gen_phase.set(String::new());
                     generating.set(false);
                     return;
@@ -604,7 +619,9 @@ async fn do_generate(
                 Some(a) => a.clone(),
                 None => {
                     let preview: String = raw.chars().take(300).collect();
-                    gen_error.set(Some(format!("Response missing 'items' array.\nResponse preview: {preview}")));
+                    gen_error.set(Some(format!(
+                        "Response missing 'items' array.\nResponse preview: {preview}"
+                    )));
                     gen_phase.set(String::new());
                     generating.set(false);
                     return;
@@ -623,7 +640,9 @@ async fn do_generate(
                     .flat_map(|p| p.controls.iter())
                     .find(|c| c.control_ref == cref);
                 match ctrl {
-                    None => { unmatched.push(cref.to_string()); }
+                    None => {
+                        unmatched.push(cref.to_string());
+                    }
                     Some(ctrl) => {
                         let fields: Vec<String> = item_json["fields"]
                             .as_array()
@@ -658,9 +677,14 @@ async fn do_generate(
                                 "scopeFormat": scope_format,
                             }),
                         )
-                        .await {
-                            Ok(_) => { saved += 1; }
-                            Err(e) => { unmatched.push(format!("{cref} (save error: {e})")); }
+                        .await
+                        {
+                            Ok(_) => {
+                                saved += 1;
+                            }
+                            Err(e) => {
+                                unmatched.push(format!("{cref} (save error: {e})"));
+                            }
                         }
                     }
                 }

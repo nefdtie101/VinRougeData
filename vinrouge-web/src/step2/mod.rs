@@ -3,7 +3,9 @@ use crate::components::{
     Spinner,
 };
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{ask_ollama_json, ask_ollama_structured, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::ollama::{
+    ask_ollama_json, ask_ollama_structured, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL,
+};
 use crate::types::{AuditProcessWithControls, Control, ProjectFile};
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
@@ -39,66 +41,69 @@ pub fn Step2View(
     // Shared regenerate logic (used by both regen banner and footer button)
     let export_open: RwSignal<bool> = RwSignal::new(false);
 
-    let do_regen =
-        move || {
-            let files = project_files.get();
-            let sop = files
-                .into_iter()
-                .find(|f| f.file_type == "pdf" || f.file_type == "txt");
-            if let Some(f) = sop {
-                let fid = f.id.clone();
-                let fname = f.name.clone();
-                let scope = setup_scope.get_untracked();
-                sop_analyzing.set(Some(fid.clone()));
-                spawn_local(async move {
-                    let text = match tauri_invoke_args::<String>(
-                        "read_project_file",
-                        serde_json::json!({ "fileId": fid.clone() }),
-                    )
-                    .await
-                    {
-                        Ok(t) => t,
-                        Err(e) => {
-                            status.set(format!("Read error: {e}"));
-                            sop_analyzing.set(None);
-                            return;
-                        }
-                    };
-                    let prompt = build_regen_prompt(&scope, &text);
-                    let json_str =
-                        match ask_ollama_structured(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &prompt, crate::step1::prompts::audit_plan_schema())
-                            .await
-                        {
-                            Ok(s) => s,
-                            Err(e) => {
-                                status.set(format!("Ollama error: {e}"));
-                                sop_analyzing.set(None);
-                                return;
-                            }
-                        };
-                    if let Err(e) = tauri_invoke_args::<()>(
-                        "save_audit_plan",
-                        serde_json::json!({ "sopFileId": fid, "processesJson": json_str }),
-                    )
-                    .await
-                    {
-                        status.set(format!("Save error: {e}"));
+    let do_regen = move || {
+        let files = project_files.get();
+        let sop = files
+            .into_iter()
+            .find(|f| f.file_type == "pdf" || f.file_type == "txt");
+        if let Some(f) = sop {
+            let fid = f.id.clone();
+            let fname = f.name.clone();
+            let scope = setup_scope.get_untracked();
+            sop_analyzing.set(Some(fid.clone()));
+            spawn_local(async move {
+                let text = match tauri_invoke_args::<String>(
+                    "read_project_file",
+                    serde_json::json!({ "fileId": fid.clone() }),
+                )
+                .await
+                {
+                    Ok(t) => t,
+                    Err(e) => {
+                        status.set(format!("Read error: {e}"));
                         sop_analyzing.set(None);
                         return;
                     }
-                    if let Ok(p) =
-                        tauri_invoke::<Vec<AuditProcessWithControls>>("list_audit_plan").await
-                    {
-                        audit_plan.set(p);
+                };
+                let prompt = build_regen_prompt(&scope, &text);
+                let json_str = match ask_ollama_structured(
+                    OLLAMA_DEFAULT_URL,
+                    OLLAMA_DEFAULT_MODEL,
+                    &prompt,
+                    crate::step1::prompts::audit_plan_schema(),
+                )
+                .await
+                {
+                    Ok(s) => s,
+                    Err(e) => {
+                        status.set(format!("Ollama error: {e}"));
+                        sop_analyzing.set(None);
+                        return;
                     }
-                    plan_needs_regen.set(false);
+                };
+                if let Err(e) = tauri_invoke_args::<()>(
+                    "save_audit_plan",
+                    serde_json::json!({ "sopFileId": fid, "processesJson": json_str }),
+                )
+                .await
+                {
+                    status.set(format!("Save error: {e}"));
                     sop_analyzing.set(None);
-                    status.set(format!("Audit plan regenerated for \"{}\"", fname));
-                });
-            } else {
-                status.set("No SOP file found — upload a PDF or TXT file in setup first.".into());
-            }
-        };
+                    return;
+                }
+                if let Ok(p) =
+                    tauri_invoke::<Vec<AuditProcessWithControls>>("list_audit_plan").await
+                {
+                    audit_plan.set(p);
+                }
+                plan_needs_regen.set(false);
+                sop_analyzing.set(None);
+                status.set(format!("Audit plan regenerated for \"{}\"", fname));
+            });
+        } else {
+            status.set("No SOP file found — upload a PDF or TXT file in setup first.".into());
+        }
+    };
 
     view! {
         <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">

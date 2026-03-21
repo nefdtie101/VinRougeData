@@ -475,13 +475,30 @@ fn extract_json_from_text(text: &str) -> Option<String> {
         let mut escape = false;
         let mut end_idx = None;
         for (i, c) in slice.char_indices() {
-            if escape { escape = false; continue; }
-            if c == '\\' && in_string { escape = true; continue; }
-            if c == '"' { in_string = !in_string; continue; }
-            if in_string { continue; }
+            if escape {
+                escape = false;
+                continue;
+            }
+            if c == '\\' && in_string {
+                escape = true;
+                continue;
+            }
+            if c == '"' {
+                in_string = !in_string;
+                continue;
+            }
+            if in_string {
+                continue;
+            }
             match c {
                 '{' => depth += 1,
-                '}' => { depth -= 1; if depth == 0 { end_idx = Some(i); break; } }
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end_idx = Some(i);
+                        break;
+                    }
+                }
                 _ => {}
             }
         }
@@ -500,13 +517,30 @@ fn extract_json_from_text(text: &str) -> Option<String> {
         let mut escape = false;
         let mut end_idx = None;
         for (i, c) in slice.char_indices() {
-            if escape { escape = false; continue; }
-            if c == '\\' && in_string { escape = true; continue; }
-            if c == '"' { in_string = !in_string; continue; }
-            if in_string { continue; }
+            if escape {
+                escape = false;
+                continue;
+            }
+            if c == '\\' && in_string {
+                escape = true;
+                continue;
+            }
+            if c == '"' {
+                in_string = !in_string;
+                continue;
+            }
+            if in_string {
+                continue;
+            }
             match c {
                 '[' => depth += 1,
-                ']' => { depth -= 1; if depth == 0 { end_idx = Some(i); break; } }
+                ']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end_idx = Some(i);
+                        break;
+                    }
+                }
                 _ => {}
             }
         }
@@ -572,9 +606,8 @@ pub async fn ask_ollama_json(base_url: &str, model: &str, prompt: &str) -> Resul
         return Ok(content.to_string());
     }
 
-    extract_json_from_text(content)
-        .ok_or_else(|| {
-            let preview: String = content.chars().take(300).collect();
-            format!("Could not find JSON in model response. Preview: {preview}")
-        })
+    extract_json_from_text(content).ok_or_else(|| {
+        let preview: String = content.chars().take(300).collect();
+        format!("Could not find JSON in model response. Preview: {preview}")
+    })
 }
