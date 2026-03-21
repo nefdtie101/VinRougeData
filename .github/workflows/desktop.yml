@@ -185,12 +185,15 @@ jobs:
         shell: pwsh
         run: |
           choco install nsis -y --no-progress | Out-Null
-          $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          $env:PATH = "C:\Program Files (x86)\NSIS;" + $env:PATH
           $version  = (Select-String '^version' vinrouge-desktop\Cargo.toml |
                        Select-Object -First 1).Line -replace '.*"(.*)".*','$1'
           $repo     = "${{ github.server_url }}/${{ github.repository }}"
           $url      = "$repo/releases/latest/download/VinRouge-windows-x64.zip"
-          & $makensis "/DDOWNLOAD_URL=$url" "/DAPP_VERSION=$version" "vinrouge-desktop\installer\stub.nsi"
+          Write-Host "makensis: $(Get-Command makensis | Select-Object -ExpandProperty Source)"
+          Write-Host "DOWNLOAD_URL: $url"
+          Write-Host "APP_VERSION:  $version"
+          makensis "/DDOWNLOAD_URL=$url" "/DAPP_VERSION=$version" "vinrouge-desktop\installer\stub.nsi"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload macOS bundle
@@ -210,6 +213,11 @@ jobs:
             vinrouge-desktop/target/release/bundle/deb/*.deb
             vinrouge-desktop/target/release/bundle/appimage/*.AppImage
           if-no-files-found: warn
+
+      - name: List Windows build outputs
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: Get-ChildItem -Path . -Filter "VinRouge*" | Select-Object Name, Length
 
       - name: Upload Windows artifacts
         if: matrix.os == 'windows-latest'
