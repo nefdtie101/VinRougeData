@@ -39,12 +39,10 @@ Section "Install" SecMain
   Var /GLOBAL ZIP_PATH
   StrCpy $ZIP_PATH "$TEMP\VinRouge-windows-x64.zip"
 
-  ExecWait 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \
-    "Invoke-WebRequest -Uri ''${DOWNLOAD_URL}'' -OutFile ''$ZIP_PATH'' -UseBasicParsing"'
+  ExecWait 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri ''${DOWNLOAD_URL}'' -OutFile ''$ZIP_PATH'' -UseBasicParsing"'
 
   DetailPrint "Installing..."
-  ExecWait 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \
-    "Expand-Archive -Path ''$ZIP_PATH'' -DestinationPath ''$INSTDIR'' -Force"'
+  ExecWait 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Expand-Archive -Path ''$ZIP_PATH'' -DestinationPath ''$INSTDIR'' -Force"'
 
   Delete "$ZIP_PATH"
 
