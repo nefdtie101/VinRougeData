@@ -106,6 +106,35 @@ jobs:
           }
 
 
+      - name: Download llama.cpp CUDA DLLs (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # Fetch the latest llama.cpp release metadata to find the Windows CUDA 12 asset.
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest"
+          $asset = $release.assets |
+            Where-Object { $_.name -match "bin-win-cuda-cu12.*x64\.zip" } |
+            Select-Object -First 1
+          if (-not $asset) {
+            Write-Error "Could not find a Windows CUDA 12 x64 release asset in llama.cpp latest release"
+            exit 1
+          }
+          Write-Host "Downloading $($asset.name) ..."
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile llama-cuda.zip
+          Expand-Archive -Path llama-cuda.zip -DestinationPath tmp_llama -Force
+          $dest = "vinrouge-desktop\binaries\llama-cuda-dlls"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          # Copy only CUDA runtime DLLs (cublas*, cudart*, ggml-cuda*) — skip the llama binaries.
+          Get-ChildItem -Path tmp_llama -Recurse -File |
+            Where-Object { $_.Name -match "^(cublas|cublasLt|cudart|ggml-cuda)" } |
+            ForEach-Object { Copy-Item $_.FullName $dest -Force }
+          $count = (Get-ChildItem $dest).Count
+          Write-Host "Copied $count DLL(s) to $dest"
+          if ($count -eq 0) {
+            Write-Error "No CUDA DLLs were copied — check the llama.cpp archive structure."
+            exit 1
+          }
+
       - name: Build Leptos frontend
         working-directory: vinrouge-web
         run: trunk build --release --public-url ./
@@ -140,6 +169,9 @@ jobs:
           Copy-Item "vinrouge-desktop\binaries\ollama-${{ matrix.tauri_triple }}.exe" "$stage\ollama.exe"
           if (Test-Path "vinrouge-desktop\binaries\lib") {
             Copy-Item -Recurse "vinrouge-desktop\binaries\lib" "$stage\"
+          }
+          if (Test-Path "vinrouge-desktop\binaries\llama-cuda-dlls") {
+            Copy-Item -Recurse "vinrouge-desktop\binaries\llama-cuda-dlls" "$stage\"
           }
 
           Compress-Archive -Path "$stage\*" -DestinationPath "VinRouge-windows-x64.zip" -Force
