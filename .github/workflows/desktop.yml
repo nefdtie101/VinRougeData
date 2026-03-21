@@ -105,41 +105,6 @@ jobs:
             Write-Warning "cuda_v12 runner directory not found in Ollama archive — GPU inference may fall back to CPU"
           }
 
-      - name: Download and bundle llama.cpp CUDA build (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Resolve latest llama.cpp release asset for CUDA 12, Windows x64
-          $headers = @{ Authorization = "Bearer $env:GITHUB_TOKEN" }
-          $release = Invoke-RestMethod "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest" -Headers $headers
-          $asset = $release.assets |
-            Where-Object { $_.name -match "^llama-b\d+-bin-win-cuda-12\.\d+-x64\.zip$" } |
-            Select-Object -First 1
-          if (-not $asset) {
-            Write-Error "Could not find llama.cpp CUDA 12 Windows x64 asset in latest release"
-            exit 1
-          }
-          Write-Host "Downloading $($asset.name)"
-          curl.exe -L --fail $asset.browser_download_url -o llama-cuda.zip
-
-          Expand-Archive -Path llama-cuda.zip -DestinationPath tmp_llama -Force
-
-          # Bundle llama-server as a Tauri sidecar
-          $server = Get-ChildItem -Path tmp_llama -Filter "llama-server.exe" -Recurse |
-            Select-Object -First 1
-          if (-not $server) {
-            Write-Error "llama-server.exe not found in archive"
-            exit 1
-          }
-          Copy-Item $server.FullName "vinrouge-desktop\binaries\llama-server-${{ matrix.tauri_triple }}.exe"
-
-          # Copy CUDA DLLs that ship alongside llama-server into a dedicated folder
-          New-Item -ItemType Directory -Force -Path "vinrouge-desktop\binaries\llama-cuda-dlls"
-          Get-ChildItem -Path $server.DirectoryName -Filter "*.dll" | ForEach-Object {
-            Copy-Item $_.FullName "vinrouge-desktop\binaries\llama-cuda-dlls\"
-          }
 
       - name: Build Leptos frontend
         working-directory: vinrouge-web
