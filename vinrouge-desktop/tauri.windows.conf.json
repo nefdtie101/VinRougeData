@@ -1,10 +1,9 @@
 {
   "bundle": {
-    "targets": ["nsis"],
+    "targets": [],
     "externalBin": ["binaries/ollama"],
     "resources": {
-      "binaries/lib/**/*": "lib/",
-      "binaries/llama-cuda-dlls/*": "llama-cuda-dlls/"
+      "binaries/lib/**/*": "lib/"
     }
   }
 }
