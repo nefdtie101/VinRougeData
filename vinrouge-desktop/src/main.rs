@@ -170,6 +170,18 @@ fn start_ollama(state: tauri::State<OllamaState>) -> Result<String, String> {
     // to call Ollama's HTTP API without CORS rejections.
     cmd.env("OLLAMA_ORIGINS", "*");
 
+    // On Windows, prepend the bundled CUDA runner directory to PATH so that
+    // when ggml-cuda.dll is loaded by Ollama it can find its dependencies
+    // (cublas64_12.dll, cudart64_12.dll, etc.) via the normal DLL search.
+    #[cfg(target_os = "windows")]
+    if let Some(binary_dir) = binary.parent() {
+        let cuda_dir = binary_dir.join("lib").join("ollama").join("cuda_v12");
+        if cuda_dir.exists() {
+            let current_path = std::env::var("PATH").unwrap_or_default();
+            cmd.env("PATH", format!("{};{}", cuda_dir.display(), current_path));
+        }
+    }
+
     let child = cmd.spawn().map_err(|e| format!("Failed to start Ollama: {e}"))?;
     *guard = Some(child);
     Ok(binary_str)
