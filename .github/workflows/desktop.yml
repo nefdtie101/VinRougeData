@@ -157,7 +157,7 @@ jobs:
           Write-Host "ISCC: $iscc"
           Write-Host "DownloadUrl: $url"
           Write-Host "AppVersion:  $version"
-          & $iscc "/DDownloadUrl=$url" "/DAppVersion=$version" "vinrouge-desktop\installer\stub.iss"
+          & $iscc "/DDownloadUrl=$url" "/DAppVersion=$version" "/O." "vinrouge-desktop\installer\stub.iss"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload macOS bundle
