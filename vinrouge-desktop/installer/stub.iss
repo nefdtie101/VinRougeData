@@ -1,5 +1,5 @@
 #ifndef DownloadUrl
-  #define DownloadUrl "https://github.com/nefdtie101/VinRougeData/releases/latest/download/VinRouge-windows-x64.zip"
+  #define DownloadUrl "https://github.com/nefdtie101/VinRougeData/releases/download/latest/VinRouge-windows-x64.zip"
 #endif
 #ifndef AppVersion
   #define AppVersion "0.1.0"

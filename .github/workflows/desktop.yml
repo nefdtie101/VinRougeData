@@ -153,7 +153,7 @@ jobs:
           $version  = (Select-String '^version' vinrouge-desktop\Cargo.toml |
                        Select-Object -First 1).Line -replace '.*"(.*)".*','$1'
           $repo     = "${{ github.server_url }}/${{ github.repository }}"
-          $url      = "$repo/releases/latest/download/VinRouge-windows-x64.zip"
+          $url      = "$repo/releases/download/latest/VinRouge-windows-x64.zip"
           Write-Host "ISCC: $iscc"
           Write-Host "DownloadUrl: $url"
           Write-Host "AppVersion:  $version"
