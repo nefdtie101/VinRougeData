@@ -721,6 +721,8 @@ fn save_audit_plan(
         test_procedure:      String,
         #[serde(alias = "riskLevel",          alias = "risk", alias = "severity")]
         risk_level:          String,
+        #[serde(alias = "sopGap", alias = "gap", default)]
+        sop_gap:             bool,
     }
     #[derive(serde::Deserialize)]
     struct ProcessDto {
@@ -792,14 +794,14 @@ fn save_audit_plan(
 
     // Normalise control_ref values to C-1, C-2, ... across all processes.
     let mut ctrl_counter = 1usize;
-    let batch: Vec<(String, String, Vec<(String, String, String, String, String)>)> = plan
+    let batch: Vec<(String, String, Vec<(String, String, String, String, String, bool)>)> = plan
         .processes
         .into_iter()
         .map(|p| {
             let controls = p.controls.into_iter().map(|c| {
                 let normalised_ref = format!("C-{}", ctrl_counter);
                 ctrl_counter += 1;
-                (normalised_ref, c.control_objective, c.control_description, c.test_procedure, c.risk_level)
+                (normalised_ref, c.control_objective, c.control_description, c.test_procedure, c.risk_level, c.sop_gap)
             }).collect();
             (p.process_name, p.description, controls)
         })

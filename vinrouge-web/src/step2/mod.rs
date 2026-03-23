@@ -4,27 +4,12 @@ use crate::components::{
 };
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
 use crate::ollama::{
-    ask_ollama_json, ask_ollama_structured, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL,
+    ask_audit_plan, ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL,
 };
 use crate::types::{AuditProcessWithControls, Control, ProjectFile};
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
-fn build_regen_prompt(scope: &[String], sop_text: &str) -> String {
-    let base = crate::step1::prompts::ANALYZE_SOP;
-    if scope.is_empty() {
-        return format!("{base}\n\n{sop_text}");
-    }
-    let scope_list = scope
-        .iter()
-        .map(|s| format!("- {s}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!(
-        "{base}\n\nIMPORTANT: You MUST generate exactly one process entry for EACH of the following \
-processes — do not skip, merge, or add extras:\n{scope_list}\n\nSOP TEXT:\n{sop_text}"
-    )
-}
 
 // ── Step2View ─────────────────────────────────────────────────────────────────
 
@@ -49,7 +34,6 @@ pub fn Step2View(
         if let Some(f) = sop {
             let fid = f.id.clone();
             let fname = f.name.clone();
-            let scope = setup_scope.get_untracked();
             sop_analyzing.set(Some(fid.clone()));
             spawn_local(async move {
                 let text = match tauri_invoke_args::<String>(
@@ -65,12 +49,12 @@ pub fn Step2View(
                         return;
                     }
                 };
-                let prompt = build_regen_prompt(&scope, &text);
-                let json_str = match ask_ollama_structured(
+                // Always regenerate from scratch — chunked, no scope constraint.
+                let json_str = match ask_audit_plan(
                     OLLAMA_DEFAULT_URL,
                     OLLAMA_DEFAULT_MODEL,
-                    &prompt,
-                    crate::step1::prompts::audit_plan_schema(),
+                    &text,
+                    |msg| status.set(msg),
                 )
                 .await
                 {
@@ -94,6 +78,10 @@ pub fn Step2View(
                 if let Ok(p) =
                     tauri_invoke::<Vec<AuditProcessWithControls>>("list_audit_plan").await
                 {
+                    // Sync scope to the freshly discovered process names.
+                    let new_scope: Vec<String> =
+                        p.iter().map(|proc| proc.process_name.clone()).collect();
+                    setup_scope.set(new_scope);
                     audit_plan.set(p);
                 }
                 plan_needs_regen.set(false);
@@ -582,6 +570,7 @@ fn ControlRow(ctrl: Control, controls_sig: RwSignal<Vec<Control>>) -> impl IntoV
     let desc_sig: RwSignal<String> = RwSignal::new(ctrl.control_description.clone());
     let test_sig: RwSignal<String> = RwSignal::new(ctrl.test_procedure.clone());
     let risk_sig: RwSignal<String> = RwSignal::new(ctrl.risk_level.clone());
+    let is_gap = ctrl.sop_gap;
 
     let save_ref = Callback::new(move |v: String| {
         let id = cid_ref.clone();
@@ -628,6 +617,9 @@ fn ControlRow(ctrl: Control, controls_sig: RwSignal<Vec<Control>>) -> impl IntoV
         <tr>
             <td class="ctrl-ref">
                 <InlineInput value=ref_sig class="editable-input" style="width:46px" on_save=save_ref />
+                {is_gap.then(|| view! {
+                    <span class="sop-gap-pill" title="Best-practice control — not directly traced to a specific SOP section">"Best Practice"</span>
+                })}
             </td>
             <td class="editable-cell">
                 <InlineTextarea value=obj_sig class="editable-textarea" on_save=save_obj />

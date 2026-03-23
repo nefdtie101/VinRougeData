@@ -105,5 +105,9 @@ pub fn open_project(project_dir: &Path) -> Result<Connection> {
             data_json  TEXT NOT NULL
         );",
     )?;
+    // Additive migrations — errors ignored so existing DBs are upgraded cleanly.
+    let _ = conn.execute_batch(
+        "ALTER TABLE controls ADD COLUMN sop_gap INTEGER NOT NULL DEFAULT 0;",
+    );
     Ok(conn)
 }

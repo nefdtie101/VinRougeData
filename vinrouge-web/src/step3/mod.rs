@@ -1,7 +1,7 @@
 use crate::components::{DashedAddButton, ProgressRing, SectionPrompt, Spinner, StatCard};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
 use crate::ollama::{
-    ask_ollama_json, ask_ollama_structured, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL,
+    ask_ollama_json, ask_pbc_list, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL,
 };
 use crate::step1::prompts::REFINE_PBC_LIST;
 use crate::types::{AuditProcessWithControls, PbcGroup, PbcItem};
@@ -565,69 +565,24 @@ async fn do_generate(
         return;
     }
 
-    // Format the plan as clean readable text — raw JSON wastes tokens on IDs and timestamps
-    gen_phase.set(format!("Preparing {} processes for Ollama...", plan.len()));
-    let mut plan_text = String::new();
-    for process in &plan {
-        plan_text.push_str(&format!("Process: {}\n", process.process_name));
-        plan_text.push_str(&format!("Description: {}\n", process.description));
-        for ctrl in &process.controls {
-            plan_text.push_str(&format!(
-                "  Control {}: {}\n",
-                ctrl.control_ref, ctrl.control_objective
-            ));
-            plan_text.push_str(&format!(
-                "    How it operates: {}\n",
-                ctrl.control_description
-            ));
-            plan_text.push_str(&format!("    Test procedure: {}\n", ctrl.test_procedure));
-            plan_text.push_str(&format!("    Risk: {}\n", ctrl.risk_level));
-        }
-        plan_text.push('\n');
-    }
-
-    let prompt = format!("{}\n\n{}", vinrouge::audit_prompts::GENERATE_PBC, plan_text);
-
-    gen_phase.set("Asking Ollama to generate data requests (may take a minute)...".into());
-    match ask_ollama_structured(
+    gen_phase.set(format!("Preparing {} processes for data request generation…", plan.len()));
+    let arr = match ask_pbc_list(
         OLLAMA_DEFAULT_URL,
         OLLAMA_DEFAULT_MODEL,
-        &prompt,
-        crate::step1::prompts::pbc_list_schema(),
+        &plan,
+        |msg| gen_phase.set(msg),
     )
     .await
     {
+        Ok(items) => items,
         Err(e) => {
-            gen_error.set(Some(format!("{e}")));
+            gen_error.set(Some(e));
             gen_phase.set(String::new());
+            generating.set(false);
+            return;
         }
-        Ok(raw) => {
-            let parsed = serde_json::from_str::<serde_json::Value>(&raw);
-            let v = match parsed {
-                Ok(v) => v,
-                Err(e) => {
-                    let preview: String = raw.chars().take(300).collect();
-                    gen_error.set(Some(format!(
-                        "JSON parse error: {e}\nResponse preview: {preview}"
-                    )));
-                    gen_phase.set(String::new());
-                    generating.set(false);
-                    return;
-                }
-            };
-            let arr = match v["items"].as_array() {
-                Some(a) => a.clone(),
-                None => {
-                    let preview: String = raw.chars().take(300).collect();
-                    gen_error.set(Some(format!(
-                        "Response missing 'items' array.\nResponse preview: {preview}"
-                    )));
-                    gen_phase.set(String::new());
-                    generating.set(false);
-                    return;
-                }
-            };
-            let mut saved = 0usize;
+    };
+    let mut saved = 0usize;
             let mut unmatched: Vec<String> = Vec::new();
             for item_json in &arr {
                 // Accept both snake_case and camelCase keys from models
@@ -709,8 +664,6 @@ async fn do_generate(
             gen_phase.set("Loading results...".into());
             reload_groups(groups, approved_ids).await;
             gen_phase.set(String::new());
-        }
-    }
     generating.set(false);
 }
 

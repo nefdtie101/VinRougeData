@@ -45,6 +45,8 @@ pub struct Control {
     pub control_description: String,
     pub test_procedure: String,
     pub risk_level: String,
+    #[serde(default)]
+    pub sop_gap: bool,
     pub sort_order: i64,
     pub created_at: String,
 }

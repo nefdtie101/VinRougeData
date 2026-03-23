@@ -149,20 +149,59 @@ pub const REFINE_PBC_LIST: &str =
      Current PBC list: ";
 
 pub const ANALYZE_SOP: &str =
-    "You are an audit planning assistant. Read the Standard Operating Procedure (SOP) below \
-     carefully and produce a structured audit plan grounded entirely in the SOP's content.\n\n\
+    "You are an expert audit planning assistant. Before doing anything else, read the SOP \
+     below and identify the industry, domain, and regulatory environment it operates in. \
+     You will act as a domain expert for that specific industry throughout this task — \
+     using the precise terminology, standards, and risk language that an expert practitioner \
+     in that field would use. Do not use generic audit language when industry-specific \
+     language exists.\n\n\
+     STEP 1 — INDUSTRY DETECTION (internal reasoning only, do not output this):\n\
+     Read the SOP and determine:\n\
+     - What industry or sector this SOP belongs to (e.g. short-term insurance, banking, \
+       healthcare, manufacturing, logistics, IT services)\n\
+     - What regulatory framework governs it (e.g. Insurance Act, GDPR, ISO 13485, \
+       Basel III, OSHA)\n\
+     - What the core operational risks are for that industry\n\
+     - What a domain expert in this industry would call the key controls, documents, \
+       and failure modes\n\
+     Use this understanding to inform every field you populate below.\n\n\
+     STEP 2 — AUDIT PLAN GENERATION:\n\
+     Produce a structured audit plan grounded entirely in the SOP content, written from \
+     the perspective of a domain expert in the detected industry.\n\n\
      IMPORTANT — ground every field in the SOP:\n\
      - process_name: use the exact name or heading from the SOP wherever possible\n\
      - description: reference specific activities, actors, or systems named in the SOP\n\
-     - control_objective: state what specific risk or failure mode from the SOP this control addresses\n\
-     - control_description: describe how the control operates using the SOP's own terminology — \
-       name the roles, systems, forms, thresholds, or approval steps mentioned in the SOP\n\
-     - test_procedure: write concrete steps an auditor would follow, referencing the SOP's named \
-       documents, systems, or roles (e.g. \"Obtain the approval log from [system named in SOP] and \
-       verify that each entry bears the authorised signatory defined in section X\")\n\
-     - risk_level: assign based on the consequence of the control failing given what the SOP describes\n\n\
+     - control_objective: state what specific risk or failure mode from the SOP this \
+       control addresses — use the risk language an expert in this industry would use\n\
+     - control_description: describe how the control operates using the SOP's own \
+       terminology — name the roles, systems, forms, thresholds, or approval steps \
+       mentioned in the SOP\n\
+     - test_procedure: write concrete steps an expert auditor in this industry would \
+       follow — reference the SOP's named documents, systems, and roles — each step \
+       must end with a FAIL condition and include a SAMPLING line\n\
+     - risk_level: assign based on the consequence of the control failing, informed by \
+       industry norms for that type of failure\n\n\
+     SAMPLING REQUIREMENT — every control MUST include a sampling section in test_procedure:\n\
+     Format: \"SAMPLING: [method] — [sample size] — [justification]\"\n\
+     Method must be one of: MUS per ISA 530 / judgmental / full population.\n\
+     A test_procedure without a SAMPLING line is invalid.\n\n\
+     NEGATIVE EXAMPLE — do NOT produce tests like this:\n\
+     BAD: \"Ensure that the relevant process complies with applicable standards.\"\n\
+     GOOD: \"Obtain [specific document named in SOP] from [role or system named in SOP]. \
+     Verify that [specific condition from SOP] is met. FAIL: if [measurable threshold] \
+     is not present or is exceeded. SAMPLING: [method] — [sample size] — [justification].\"\n\n\
+     SELF-CHECK — before finalising output verify all of the following are true:\n\
+     1. Every test_procedure contains a SAMPLING line\n\
+     2. Every test_procedure contains a FAIL condition with a measurable threshold\n\
+     3. Every control_description names a specific SOP role, system, document, or threshold\n\
+     4. The language used throughout reflects the terminology of an expert in the \
+        detected industry — not generic audit boilerplate\n\
+     5. control_ref is sequential and unique across all processes (C-1, C-2, C-3 ...)\n\
+     If any check fails, fix it before outputting.\n\n\
      Return ONLY a valid JSON object — no markdown fences, no explanation — with this exact shape:\n\
      {\n\
+       \"industry\": \"Detected industry or sector from SOP\",\n\
+       \"regulatory_framework\": \"Primary regulation or standard governing this SOP\",\n\
        \"processes\": [\n\
          {\n\
            \"process_name\": \"Exact name from SOP\",\n\
@@ -170,10 +209,11 @@ pub const ANALYZE_SOP: &str =
            \"controls\": [\n\
              {\n\
                \"control_ref\": \"C-1\",\n\
-               \"control_objective\": \"Risk or failure mode this control prevents, as described in the SOP\",\n\
+               \"control_objective\": \"Risk or failure mode this control prevents, using industry-expert language\",\n\
                \"control_description\": \"How the control operates, naming SOP roles/systems/documents\",\n\
-               \"test_procedure\": \"Step-by-step audit test referencing SOP artefacts and roles\",\n\
-               \"risk_level\": \"High\"\n\
+               \"test_procedure\": \"Step-by-step audit test referencing SOP artefacts and roles. FAIL: [measurable threshold]. SAMPLING: [method] — [sample size] — [justification].\",\n\
+               \"risk_level\": \"High\",\n\
+               \"sop_gap\": false\n\
              }\n\
            ]\n\
          }\n\
@@ -181,10 +221,14 @@ pub const ANALYZE_SOP: &str =
      }\n\n\
      Rules:\n\
      - risk_level must be exactly one of: High, Medium, Low\n\
-     - control_ref must be sequential and unique across all processes using the format C-1, C-2, C-3 (no zero padding)\n\
+     - sop_gap must be exactly one of: true, false — set true if this control cannot be \
+       fully traced to a specific SOP section\n\
+     - control_ref must be sequential and unique across all processes: C-1, C-2, C-3 \
+       (no zero padding)\n\
      - Each distinct business process should be a separate entry\n\
      - Each process should have between 2 and 6 controls\n\
-     - Do NOT use generic filler language — every sentence must reflect a specific fact from the SOP\n\
+     - Do NOT use generic filler language — every sentence must reflect a specific fact \
+       from the SOP or established expert practice in the detected industry\n\
      - Return ONLY the JSON object, nothing else\n\n\
      SOP TEXT:";
 
@@ -201,7 +245,7 @@ pub fn pbc_list_schema() -> serde_json::Value {
                         "control_ref":   { "type": "string" },
                         "name":          { "type": "string" },
                         "item_type":     { "type": "string", "enum": ["SQL", "CSV"] },
-                        "table_name":    { "type": "string" },
+                        "table_name":    { "type": ["string", "null"] },
                         "fields":        { "type": "array", "items": { "type": "string" } },
                         "purpose":       { "type": "string" },
                         "scope_format":  { "type": "string" }
@@ -225,6 +269,8 @@ pub fn audit_plan_schema() -> serde_json::Value {
     serde_json::json!({
         "type": "object",
         "properties": {
+            "industry":             { "type": "string" },
+            "regulatory_framework": { "type": "string" },
             "processes": {
                 "type": "array",
                 "items": {
@@ -244,11 +290,13 @@ pub fn audit_plan_schema() -> serde_json::Value {
                                     "risk_level": {
                                         "type": "string",
                                         "enum": ["High", "Medium", "Low"]
-                                    }
+                                    },
+                                    "sop_gap": { "type": "boolean" }
                                 },
                                 "required": [
                                     "control_ref", "control_objective",
-                                    "control_description", "test_procedure", "risk_level"
+                                    "control_description", "test_procedure",
+                                    "risk_level", "sop_gap"
                                 ]
                             }
                         }
@@ -257,6 +305,126 @@ pub fn audit_plan_schema() -> serde_json::Value {
                 }
             }
         },
-        "required": ["processes"]
+        "required": ["industry", "regulatory_framework", "processes"]
     })
+}
+
+// ── Post-parse normalization ──────────────────────────────────────────────────
+
+/// Normalise a raw JSON string returned by the LLM for an audit plan.
+///
+/// Handles the most common drift patterns:
+/// - camelCase field names  (controlRef → control_ref, etc.)
+/// - zero-padded control refs  (C-01 → C-1)
+/// - case-insensitive risk levels  ("high" → "High")
+/// - model returning a bare array instead of `{"processes":[…]}`
+pub fn normalize_audit_plan_json(raw: &str) -> Result<String, String> {
+    let mut v: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| format!("JSON parse error: {e}"))?;
+
+    // If the model returned a bare array, wrap it.
+    if v.is_array() {
+        v = serde_json::json!({ "processes": v });
+    }
+
+    // If `processes` is missing, look for common alternative top-level keys.
+    if v.get("processes").is_none() {
+        let alts = ["audit_plan", "plan", "result", "data", "output", "items"];
+        let found_key = alts
+            .iter()
+            .find(|&&k| v.get(k).and_then(|a| a.as_array()).is_some())
+            .copied();
+        if let Some(key) = found_key {
+            let arr = v[key].take();
+            v = serde_json::json!({ "processes": arr });
+        }
+    }
+
+    // Normalise process objects.
+    if let Some(processes) = v["processes"].as_array_mut() {
+        for proc in processes.iter_mut() {
+            if let Some(obj) = proc.as_object_mut() {
+                rename_key(obj, "processName", "process_name");
+
+                if let Some(controls) = obj
+                    .get_mut("controls")
+                    .and_then(|c| c.as_array_mut())
+                {
+                    for ctrl in controls.iter_mut() {
+                        if let Some(co) = ctrl.as_object_mut() {
+                            rename_key(co, "controlRef", "control_ref");
+                            rename_key(co, "control_reference", "control_ref");
+                            rename_key(co, "ref", "control_ref");
+                            rename_key(co, "controlObjective", "control_objective");
+                            rename_key(co, "objective", "control_objective");
+                            rename_key(co, "controlDescription", "control_description");
+                            rename_key(co, "control", "control_description");
+                            rename_key(co, "testProcedure", "test_procedure");
+                            rename_key(co, "procedure", "test_procedure");
+                            rename_key(co, "riskLevel", "risk_level");
+                            rename_key(co, "risk", "risk_level");
+                            rename_key(co, "sopGap", "sop_gap");
+                            rename_key(co, "gap", "sop_gap");
+                            rename_key(co, "best_practice", "sop_gap");
+
+                            // Normalise risk_level capitalisation.
+                            if let Some(rl) = co.get_mut("risk_level") {
+                                if let Some(s) = rl.as_str() {
+                                    let fixed = match s.to_lowercase().as_str() {
+                                        "high" | "h" => "High",
+                                        "medium" | "med" | "m" | "moderate" => "Medium",
+                                        "low" | "l" => "Low",
+                                        _ => s,
+                                    };
+                                    *rl = serde_json::Value::String(fixed.to_string());
+                                }
+                            }
+
+                            // Normalise sop_gap: coerce "true"/"false" strings → bool.
+                            if let Some(sg) = co.get_mut("sop_gap") {
+                                if let Some(s) = sg.as_str() {
+                                    *sg = serde_json::Value::Bool(
+                                        s.eq_ignore_ascii_case("true"),
+                                    );
+                                }
+                            }
+                            // Default sop_gap to false if missing.
+                            co.entry("sop_gap")
+                                .or_insert(serde_json::Value::Bool(false));
+
+                            // Strip zero-padding from control_ref (C-01 → C-1).
+                            if let Some(cr) = co.get_mut("control_ref") {
+                                if let Some(s) = cr.as_str() {
+                                    *cr = serde_json::Value::String(normalize_control_ref(s));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    serde_json::to_string(&v).map_err(|e| format!("Serialisation error: {e}"))
+}
+
+fn rename_key(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    from: &str,
+    to: &str,
+) {
+    if obj.contains_key(from) && !obj.contains_key(to) {
+        if let Some(val) = obj.remove(from) {
+            obj.insert(to.to_string(), val);
+        }
+    }
+}
+
+fn normalize_control_ref(s: &str) -> String {
+    // Extract the trailing digits and reformat as C-N (no zero padding).
+    let digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+    match digits.parse::<u32>() {
+        Ok(n) => format!("C-{n}"),
+        Err(_) => s.to_string(),
+    }
 }

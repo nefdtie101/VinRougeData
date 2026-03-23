@@ -71,6 +71,7 @@ pub struct Control {
     pub control_description: String,
     pub test_procedure: String,
     pub risk_level: String,
+    pub sop_gap: bool,
     pub sort_order: i64,
     pub created_at: String,
 }
@@ -488,7 +489,7 @@ pub fn replace_audit_plan(
     processes: &[(
         String,
         String,
-        Vec<(String, String, String, String, String)>,
+        Vec<(String, String, String, String, String, bool)>,
     )],
     // each process: (process_name, description, Vec<(ref, objective, desc, test, risk)>)
 ) -> Result<(), String> {
@@ -517,13 +518,13 @@ pub fn replace_audit_plan(
             rusqlite::params![pid, sop_file_id, pname, pdesc, sort_p as i64, now],
         ).map_err(|e| format!("DB insert process: {e}"))?;
 
-        for (sort_c, (cref, cobjective, cdesc, ctest, crisk)) in controls.iter().enumerate() {
+        for (sort_c, (cref, cobjective, cdesc, ctest, crisk, cgap)) in controls.iter().enumerate() {
             let cid = Uuid::new_v4().to_string();
             conn.execute(
                 "INSERT INTO controls \
-                 (id, process_id, control_ref, control_objective, control_description, test_procedure, risk_level, sort_order, created_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                rusqlite::params![cid, pid, cref, cobjective, cdesc, ctest, crisk, sort_c as i64, now],
+                 (id, process_id, control_ref, control_objective, control_description, test_procedure, risk_level, sop_gap, sort_order, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                rusqlite::params![cid, pid, cref, cobjective, cdesc, ctest, crisk, *cgap as i64, sort_c as i64, now],
             ).map_err(|e| format!("DB insert control: {e}"))?;
         }
     }
@@ -562,7 +563,7 @@ pub fn list_audit_plan(project_dir: &Path) -> Result<Vec<AuditProcessWithControl
         let mut cstmt = conn
             .prepare(
                 "SELECT id, process_id, control_ref, control_objective, control_description, \
-                      test_procedure, risk_level, sort_order, created_at \
+                      test_procedure, risk_level, sop_gap, sort_order, created_at \
                       FROM controls WHERE process_id = ?1 ORDER BY sort_order ASC",
             )
             .map_err(|e| e.to_string())?;
@@ -577,8 +578,9 @@ pub fn list_audit_plan(project_dir: &Path) -> Result<Vec<AuditProcessWithControl
                     control_description: row.get(4)?,
                     test_procedure: row.get(5)?,
                     risk_level: row.get(6)?,
-                    sort_order: row.get(7)?,
-                    created_at: row.get(8)?,
+                    sop_gap: row.get::<_, i64>(7).unwrap_or(0) != 0,
+                    sort_order: row.get(8)?,
+                    created_at: row.get(9)?,
                 })
             })
             .map_err(|e| e.to_string())?
@@ -653,9 +655,9 @@ pub fn add_control(
 
     conn.execute(
         "INSERT INTO controls \
-         (id, process_id, control_ref, control_objective, control_description, test_procedure, risk_level, sort_order, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        rusqlite::params![id, process_id, control_ref, control_objective, control_description, test_procedure, risk_level, sort_order, now],
+         (id, process_id, control_ref, control_objective, control_description, test_procedure, risk_level, sop_gap, sort_order, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        rusqlite::params![id, process_id, control_ref, control_objective, control_description, test_procedure, risk_level, 0i64, sort_order, now],
     )
     .map_err(|e| format!("DB insert control: {e}"))?;
 
@@ -667,6 +669,7 @@ pub fn add_control(
         control_description: control_description.to_string(),
         test_procedure: test_procedure.to_string(),
         risk_level: risk_level.to_string(),
+        sop_gap: false,
         sort_order,
         created_at: now,
     })

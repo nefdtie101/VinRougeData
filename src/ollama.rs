@@ -25,6 +25,13 @@ pub const DEFAULT_MODELS_DIR: Option<&str> = Some("~/.ollama/models");
 //
 pub const DEFAULT_URL: &str = "http://localhost:11434";
 //
+// DEFAULT_NUM_CTX — context-window size (tokens) sent to Ollama.
+//   16 384 comfortably fits the ANALYZE_SOP prompt + a long SOP + a full
+//   audit-plan response for mistral:7b-instruct-v0.3-q4_K_M (max 32 768).
+//   Raise to 32 768 if you regularly audit very long SOPs.
+//
+pub const DEFAULT_NUM_CTX: u32 = 16_384;
+//
 // =============================================================================
 
 // ── Wire types (native only) ──────────────────────────────────────────────────
@@ -332,7 +339,8 @@ pub async fn ask_ollama_wasm(
     let body = json!({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "stream": false
+        "stream": false,
+        "options": { "num_ctx": DEFAULT_NUM_CTX, "num_predict": -1 }
     });
 
     let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
@@ -412,7 +420,8 @@ pub async fn ask_ollama_structured(
             {"role": "user", "content": prompt}
         ],
         "stream": false,
-        "format": schema
+        "format": schema,
+        "options": { "num_ctx": DEFAULT_NUM_CTX, "num_predict": -1 }
     });
 
     let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
@@ -573,7 +582,8 @@ pub async fn ask_ollama_json(base_url: &str, model: &str, prompt: &str) -> Resul
             },
             {"role": "user", "content": prompt}
         ],
-        "stream": false
+        "stream": false,
+        "options": { "num_ctx": DEFAULT_NUM_CTX, "num_predict": -1 }
     });
 
     let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
