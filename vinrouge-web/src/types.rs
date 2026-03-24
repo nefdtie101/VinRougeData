@@ -88,3 +88,43 @@ pub struct PbcGroup {
     pub process_name: String,
     pub items: Vec<PbcItem>,
 }
+
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct SessionImport {
+    pub id: String,
+    pub file_id: Option<String>,
+    pub source_type: String,
+    pub source_name: String,
+    pub row_count: usize,
+    pub mappings: Vec<(String, String)>,
+    pub imported_at: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct SessionSchema {
+    pub import_id: String,
+    pub table_name: String,
+    pub columns: Vec<String>,
+    pub row_count: usize,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct DslScript {
+    pub id: String,
+    pub control_id: String,
+    pub control_ref: String,
+    pub label: String,
+    pub script_text: String,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct TestResult {
+    pub id: String,
+    pub script_id: String,
+    pub results: Vec<serde_json::Value>,
+    pub passed_count: i64,
+    pub failed_count: i64,
+    pub error_count: i64,
+    pub run_at: String,
+}

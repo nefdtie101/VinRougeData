@@ -3,13 +3,14 @@
 
 mod session_db;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use vinrouge::analysis::{RelationshipDetector, Workflow, WorkflowDetector};
+use vinrouge::dsl::{self, parse_value, InMemoryDataSource, StatementResult};
 use vinrouge::ollama;
 use vinrouge::projects;
 use vinrouge::schema::{Relationship, Table};
@@ -1093,6 +1094,205 @@ async fn export_pbc_docx(
     Ok(true)
 }
 
+// ── Step 4a — DSL test generation and execution ───────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SessionSchema {
+    pub import_id: String,
+    pub table_name: String,
+    pub columns: Vec<String>,
+    pub row_count: usize,
+}
+
+/// Return one SchemaInfo per session import — the table name is the
+/// source filename without extension (normalised to lowercase/underscores).
+#[tauri::command]
+fn get_session_schemas(
+    state: tauri::State<ProjectsState>,
+) -> Result<Vec<SessionSchema>, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+    let imports = session_db::SessionDb::new(&conn).list_imports()?;
+
+    Ok(imports
+        .into_iter()
+        .map(|imp| {
+            let table_name = table_name_from_source(&imp.source_name);
+            let columns: Vec<String> = imp
+                .mappings
+                .into_iter()
+                .filter(|(_, t)| !t.is_empty())
+                .map(|(_, t)| t)
+                .collect();
+            SessionSchema {
+                import_id: imp.id,
+                table_name,
+                columns,
+                row_count: imp.row_count,
+            }
+        })
+        .collect())
+}
+
+/// Derive a DSL table name from a file's source_name (e.g. "Sales Data.xlsx" → "sales_data").
+fn table_name_from_source(source_name: &str) -> String {
+    let stem = std::path::Path::new(source_name)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(source_name);
+    stem.chars()
+        .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .collect::<String>()
+        .split('_')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("_")
+}
+
+/// Save a DSL script generated for a control.
+#[tauri::command]
+fn save_dsl_script(
+    control_id: String,
+    control_ref: String,
+    label: String,
+    script_text: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<projects::DslScript, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::save_dsl_script(&project_dir, &control_id, &control_ref, &label, &script_text)
+}
+
+/// List all DSL scripts for the active project.
+#[tauri::command]
+fn list_dsl_scripts(
+    state: tauri::State<ProjectsState>,
+) -> Result<Vec<projects::DslScript>, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::list_dsl_scripts(&project_dir)
+}
+
+/// Delete all DSL scripts and test results for the active project.
+#[tauri::command]
+fn clear_dsl_scripts(
+    state: tauri::State<ProjectsState>,
+) -> Result<(), String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::clear_dsl_scripts(&project_dir)
+}
+
+/// Execute a saved DSL script against all session rows and save the results.
+/// Returns a JSON array of StatementResult objects.
+#[tauri::command]
+fn run_dsl_script(
+    script_id: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+
+    // Load the script text
+    let script: projects::DslScript = {
+        let scripts = projects::list_dsl_scripts(&project_dir)?;
+        scripts
+            .into_iter()
+            .find(|s| s.id == script_id)
+            .ok_or_else(|| format!("Script {script_id} not found"))?
+    };
+
+    // Load all session imports and build an InMemoryDataSource
+    let db = session_db::SessionDb::new(&conn);
+    let imports = db.list_imports()?;
+    let mut datasource = InMemoryDataSource::new();
+
+    for imp in &imports {
+        let raw_rows = db.get_rows(&imp.id)?;
+        let table_name = table_name_from_source(&imp.source_name);
+        let rows: Vec<vinrouge::dsl::Row> = raw_rows
+            .into_iter()
+            .map(|map| {
+                map.into_iter()
+                    .map(|(k, v)| (k, parse_value(v)))
+                    .collect()
+            })
+            .collect();
+        datasource.insert_table(table_name, rows);
+    }
+
+    // Parse and run the script
+    let statements = dsl::parse(&script.script_text)
+        .map_err(|e| format!("DSL parse error: {}", e.message))?;
+    let raw_results = dsl::run_script(&statements, &datasource);
+
+    // Serialise results to JSON
+    let json_results: Vec<serde_json::Value> = raw_results
+        .iter()
+        .enumerate()
+        .map(|(i, r)| match r {
+            StatementResult::Assert(a) => serde_json::json!({
+                "kind": "assert",
+                "index": i,
+                "label": a.label,
+                "passed": a.passed,
+                "lhs_value": a.lhs_value,
+                "rhs_value": a.rhs_value,
+                "op": a.op,
+            }),
+            StatementResult::Sample(s) => serde_json::json!({
+                "kind": "sample",
+                "index": i,
+                "method": format!("{:?}", s.method),
+                "population_size": s.population_size,
+                "selected_count": s.selected.len(),
+                "selected_indices": s.selected,
+            }),
+            StatementResult::Value(v) => serde_json::json!({
+                "kind": "value",
+                "index": i,
+                "value": v,
+            }),
+            StatementResult::Error(e) => serde_json::json!({
+                "kind": "error",
+                "index": i,
+                "error": e,
+            }),
+        })
+        .collect();
+
+    // Count outcomes
+    let passed = json_results.iter()
+        .filter(|r| r["kind"] == "assert" && r["passed"] == true).count() as i64;
+    let failed = json_results.iter()
+        .filter(|r| r["kind"] == "assert" && r["passed"] == false).count() as i64;
+    let errors = json_results.iter()
+        .filter(|r| r["kind"] == "error").count() as i64;
+
+    let result_json = serde_json::to_string(&json_results)
+        .map_err(|e| format!("Serialise error: {e}"))?;
+    projects::save_test_result(&project_dir, &script_id, &result_json, passed, failed, errors)?;
+
+    Ok(json_results)
+}
+
+/// List all test results for the active project.
+#[tauri::command]
+fn list_test_results(
+    state: tauri::State<ProjectsState>,
+) -> Result<Vec<projects::TestResult>, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::list_test_results(&project_dir)
+}
+
+/// Update the script text of an existing DSL script (for user edits in review UI).
+#[tauri::command]
+fn update_dsl_script(
+    script_id: String,
+    script_text: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<(), String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::update_dsl_script(&project_dir, &script_id, &script_text)
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 fn main() {
@@ -1145,6 +1345,13 @@ fn main() {
             list_session_imports,
             get_session_rows,
             delete_session_import,
+            get_session_schemas,
+            save_dsl_script,
+            list_dsl_scripts,
+            clear_dsl_scripts,
+            run_dsl_script,
+            list_test_results,
+            update_dsl_script,
         ])
         .setup(|app| {
             // Auto-start Ollama when the desktop app launches.

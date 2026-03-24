@@ -9,14 +9,50 @@ use crate::types::{AuditProcessWithControls, PbcGroup, ProjectFile};
 
 // ── Local types ───────────────────────────────────────────────────────────────
 
-#[derive(Clone, Debug)]
-struct DataFile {
-    file: ProjectFile,
-    columns: Vec<String>,
-    mappings: Vec<(String, String)>, // (source_col, pbc_field) — empty = unmapped
+/// Tracks whether the file still lives only in the browser (not yet persisted to
+/// the project's files/ directory) or has already been saved.
+#[derive(Clone)]
+enum FileSource {
+    /// Newly dropped file — bytes are in the browser, not yet sent to Tauri.
+    Browser(web_sys::File),
+    /// File was already saved to the project; holds its project-assigned ID.
+    Saved(String),
 }
 
-// ── Upload helper (free fn so it can be called from multiple event handlers) ──
+/// A data file tracked in the Step-4 UI.
+/// `local_id` equals the file name and is used as the stable selection key so
+/// we can identify files before they have a project ID.
+#[derive(Clone)]
+struct DataFile {
+    local_id: String,
+    name: String,
+    columns: Vec<String>,
+    mappings: Vec<(String, String)>, // (source_col, pbc_field) — empty = unmapped
+    source: FileSource,
+}
+
+// ── Column mapping helpers ────────────────────────────────────────────────────
+
+/// Fallback: normalised string-matching when AI is unavailable.
+fn normalize_map(columns: &[String], all_fields: &[String]) -> Vec<(String, String)> {
+    let norm = |s: &str| s.to_lowercase().replace(['_', ' ', '-'], "");
+    columns
+        .iter()
+        .map(|col| {
+            let target = all_fields
+                .iter()
+                .find(|f| norm(f) == norm(col))
+                .cloned()
+                .unwrap_or_default();
+            (col.clone(), target)
+        })
+        .collect()
+}
+
+// ── Upload helper ─────────────────────────────────────────────────────────────
+// Only headers are extracted at upload time.  The full file bytes are NOT sent
+// to Tauri here — that happens later when "Proceed to 4a" is clicked so that
+// the complete dataset is available for DSL math reconciliations in Step 4a/5.
 
 fn start_file_upload(
     file: web_sys::File,
@@ -34,13 +70,13 @@ fn start_file_upload(
         ));
         return;
     }
-    if uploading.get_untracked() {
-        return;
-    }
     uploading.set(true);
 
+    // Keep a clone of the browser File so we can re-read bytes on "Proceed"
+    let browser_file = file.clone();
+
     spawn_local(async move {
-        // Read raw bytes from the browser File object
+        // Read raw bytes from the browser File object — needed to extract headers
         let bytes = match read_file_bytes(&file).await {
             Ok(b) => b,
             Err(e) => {
@@ -50,8 +86,8 @@ fn start_file_upload(
             }
         };
 
-        // Parse column names in WASM (reuses the existing analysis infrastructure)
-        let columns = match analyze_bytes(bytes.clone(), &name).await {
+        // Parse column names in WASM
+        let columns = match analyze_bytes(bytes, &name).await {
             Ok(r) => r
                 .tables
                 .into_iter()
@@ -64,61 +100,51 @@ fn start_file_upload(
             }
         };
 
-        // Save the file into the project's files/ directory via Tauri
-        let pf: ProjectFile = match tauri_invoke_args(
-            "add_data_file",
-            serde_json::json!({ "name": name, "bytes": bytes }),
-        )
-        .await
-        {
-            Ok(f) => f,
-            Err(e) => {
-                status.set(format!("Save error: {e}"));
-                uploading.set(false);
-                return;
-            }
-        };
-
-        // Auto-map columns to PBC fields by normalised name matching
-        let all_fields: Vec<String> = pbc_groups
-            .get_untracked()
+        // Map columns to PBC fields via normalised string matching
+        let groups_snap = pbc_groups.get_untracked();
+        let all_fields: Vec<String> = groups_snap
             .iter()
             .flat_map(|g| g.items.iter())
             .flat_map(|i| i.fields.iter().cloned())
             .collect();
-        let norm = |s: &str| s.to_lowercase().replace(['_', ' ', '-'], "");
-        let mappings: Vec<(String, String)> = columns
-            .iter()
-            .map(|col| {
-                let target = all_fields
-                    .iter()
-                    .find(|f| norm(f) == norm(col))
-                    .cloned()
-                    .unwrap_or_default();
-                (col.clone(), target)
-            })
-            .collect();
+        let mappings = normalize_map(&columns, &all_fields);
 
-        let id = pf.id.clone();
+        let local_id = name.clone();
         data_files.update(|v| {
+            let df = DataFile {
+                local_id: local_id.clone(),
+                name: name.clone(),
+                columns,
+                mappings,
+                source: FileSource::Browser(browser_file.clone()),
+            };
             // Replace if same filename was already uploaded
-            if let Some(existing) = v.iter_mut().find(|d| d.file.name == pf.name) {
-                *existing = DataFile {
-                    file: pf,
-                    columns,
-                    mappings,
-                };
+            if let Some(existing) = v.iter_mut().find(|d| d.name == name) {
+                *existing = df;
             } else {
-                v.push(DataFile {
-                    file: pf,
-                    columns,
-                    mappings,
-                });
+                v.push(df);
             }
         });
-        selected_id.set(Some(id));
+        selected_id.set(Some(local_id));
         uploading.set(false);
     });
+}
+
+/// Upload all files from a FileList, one at a time.
+fn upload_file_list(
+    files: web_sys::FileList,
+    uploading: RwSignal<bool>,
+    status: RwSignal<String>,
+    data_files: RwSignal<Vec<DataFile>>,
+    pbc_groups: RwSignal<Vec<PbcGroup>>,
+    selected_id: RwSignal<Option<String>>,
+) {
+    let n = files.length();
+    for i in 0..n {
+        if let Some(f) = files.get(i) {
+            start_file_upload(f, uploading, status, data_files, pbc_groups, selected_id);
+        }
+    }
 }
 
 // ── Step4View ─────────────────────────────────────────────────────────────────
@@ -155,35 +181,26 @@ pub fn Step4View(
                 .await
                 .unwrap_or_default();
 
-                let all_fields: Vec<String> = pbc_groups
-                    .get_untracked()
+                let groups_snap = pbc_groups.get_untracked();
+                let all_fields: Vec<String> = groups_snap
                     .iter()
                     .flat_map(|g| g.items.iter())
                     .flat_map(|i| i.fields.iter().cloned())
                     .collect();
-                let norm = |s: &str| s.to_lowercase().replace(['_', ' ', '-'], "");
-                let mappings = cols
-                    .iter()
-                    .map(|col| {
-                        let target = all_fields
-                            .iter()
-                            .find(|f| norm(f) == norm(col))
-                            .cloned()
-                            .unwrap_or_default();
-                        (col.clone(), target)
-                    })
-                    .collect();
+                let mappings = normalize_map(&cols, &all_fields);
 
                 loaded.push(DataFile {
-                    file: f,
+                    local_id: f.name.clone(),
+                    name: f.name.clone(),
                     columns: cols,
                     mappings,
+                    source: FileSource::Saved(f.id.clone()),
                 });
             }
             if !loaded.is_empty() {
-                let first_id = loaded[0].file.id.clone();
+                let first_local_id = loaded[0].local_id.clone();
                 data_files.set(loaded);
-                selected_id.set(Some(first_id));
+                selected_id.set(Some(first_local_id));
             }
         }
     });
@@ -194,9 +211,7 @@ pub fn Step4View(
         move |ev: web_sys::Event| {
             let input: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
             if let Some(files) = input.files() {
-                if let Some(f) = files.get(0) {
-                    start_file_upload(f, uploading, status, data_files, pbc_groups, selected_id);
-                }
+                upload_file_list(files, uploading, status, data_files, pbc_groups, selected_id);
             }
         }
     };
@@ -277,12 +292,10 @@ pub fn Step4View(
                                     ev.prevent_default(); csv_over.set(false);
                                     if let Some(dt) = ev.data_transfer() {
                                         if let Some(fs) = dt.files() {
-                                            if let Some(f) = fs.get(0) {
-                                                start_file_upload(
-                                                    f, uploading, status,
-                                                    data_files, pbc_groups, selected_id,
-                                                );
-                                            }
+                                            upload_file_list(
+                                                fs, uploading, status,
+                                                data_files, pbc_groups, selected_id,
+                                            );
                                         }
                                     }
                                 }
@@ -291,7 +304,7 @@ pub fn Step4View(
                                 <div class="s4-drop-label">"CSV file"</div>
                                 <div class="s4-drop-hint">"Drag and drop or click to browse"</div>
                                 <div class="s4-drop-ext">".csv"</div>
-                                <input type="file" accept=".csv" style="display:none"
+                                <input type="file" accept=".csv" multiple style="display:none"
                                     on:change=make_file_handler() />
                             </label>
 
@@ -308,12 +321,10 @@ pub fn Step4View(
                                     ev.prevent_default(); xlsx_over.set(false);
                                     if let Some(dt) = ev.data_transfer() {
                                         if let Some(fs) = dt.files() {
-                                            if let Some(f) = fs.get(0) {
-                                                start_file_upload(
-                                                    f, uploading, status,
-                                                    data_files, pbc_groups, selected_id,
-                                                );
-                                            }
+                                            upload_file_list(
+                                                fs, uploading, status,
+                                                data_files, pbc_groups, selected_id,
+                                            );
                                         }
                                     }
                                 }
@@ -322,7 +333,7 @@ pub fn Step4View(
                                 <div class="s4-drop-label">"Excel file"</div>
                                 <div class="s4-drop-hint">"Drag and drop or click to browse"</div>
                                 <div class="s4-drop-ext">".xlsx · .xls"</div>
-                                <input type="file" accept=".xlsx,.xls" style="display:none"
+                                <input type="file" accept=".xlsx,.xls" multiple style="display:none"
                                     on:change=make_file_handler() />
                             </label>
                         </div>
@@ -334,12 +345,22 @@ pub fn Step4View(
                             </div>
                         })}
 
-                        // Uploading spinner
-                        {move || uploading.get().then(|| view! {
-                            <div class="s4-uploading">
-                                <Spinner size=12 />
-                                " Parsing file…"
-                            </div>
+                        // Uploading / mapping spinner
+                        {move || uploading.get().then(|| {
+                            let msg = {
+                                let s = status.get();
+                                if s.starts_with("Mapping columns") {
+                                    s
+                                } else {
+                                    "Parsing file…".to_string()
+                                }
+                            };
+                            view! {
+                                <div class="s4-uploading">
+                                    <Spinner size=12 />
+                                    {msg}
+                                </div>
+                            }
                         })}
 
                         // File list
@@ -347,8 +368,9 @@ pub fn Step4View(
                             let files = data_files.get();
                             (!files.is_empty()).then(move || {
                                 let items = files.into_iter().map(|d| {
-                                    let fid   = d.file.id.clone();
-                                    let fname = d.file.name.clone();
+                                    let lid   = d.local_id.clone();
+                                    let fname = d.name.clone();
+                                    let cols  = d.columns.clone();
                                     let total  = d.columns.len();
                                     let mapped = d.mappings.iter()
                                         .filter(|(_, t)| !t.is_empty()).count();
@@ -363,10 +385,10 @@ pub fn Step4View(
                                     view! {
                                         <div
                                             class={
-                                                let fid2 = fid.clone();
+                                                let lid2 = lid.clone();
                                                 move || {
                                                     let base = "s4-file-item";
-                                                    if selected_id.get().as_deref() == Some(fid2.as_str()) {
+                                                    if selected_id.get().as_deref() == Some(lid2.as_str()) {
                                                         format!("{base} s4-file-item--active")
                                                     } else {
                                                         base.to_string()
@@ -374,8 +396,8 @@ pub fn Step4View(
                                                 }
                                             }
                                             on:click={
-                                                let fid = fid.clone();
-                                                move |_| selected_id.set(Some(fid.clone()))
+                                                let lid = lid.clone();
+                                                move |_| selected_id.set(Some(lid.clone()))
                                             }
                                         >
                                             <span class="s4-file-icon">
@@ -399,7 +421,7 @@ pub fn Step4View(
                         {move || {
                             let sel_id = selected_id.get()?;
                             let files  = data_files.get();
-                            let idx    = files.iter().position(|d| d.file.id == sel_id)?;
+                            let idx    = files.iter().position(|d| d.local_id == sel_id)?;
                             let df     = files.get(idx)?;
                             if df.columns.is_empty() { return None; }
 
@@ -411,7 +433,7 @@ pub fn Step4View(
                             pbc_fields.sort();
                             pbc_fields.dedup();
 
-                            let fname = df.file.name.clone();
+                            let fname = df.name.clone();
                             let cols  = df.columns.clone();
                             let maps  = df.mappings.clone();
 
@@ -514,9 +536,56 @@ pub fn Step4View(
                         on_click=Callback::new(move |()| audit_ui_step.set(3)) />
                     <PrimaryButton
                         label="Proceed to 4a"
-                        disabled=Signal::derive(move || !can_proceed())
+                        disabled=Signal::derive(move || !can_proceed() || uploading.get())
                         on_click=Callback::new(move |()| {
-                            if can_proceed() { audit_ui_step.set(5); }
+                            if !can_proceed() { return; }
+                            let files = data_files.get_untracked();
+                            spawn_local(async move {
+                                for df in files {
+                                    let mapped: Vec<(String, String)> = df.mappings
+                                        .iter()
+                                        .filter(|(_, t)| !t.is_empty())
+                                        .cloned()
+                                        .collect();
+                                    if mapped.is_empty() { continue; }
+
+                                    // For browser files: save bytes to project first.
+                                    // For already-saved files: use their existing ID.
+                                    let file_id = match df.source {
+                                        FileSource::Browser(browser_file) => {
+                                            let bytes = match read_file_bytes(&browser_file).await {
+                                                Ok(b) => b,
+                                                Err(_) => continue,
+                                            };
+                                            let pf: ProjectFile = match tauri_invoke_args(
+                                                "add_data_file",
+                                                serde_json::json!({
+                                                    "name": df.name,
+                                                    "bytes": bytes
+                                                }),
+                                            )
+                                            .await
+                                            {
+                                                Ok(f) => f,
+                                                Err(_) => continue,
+                                            };
+                                            pf.id
+                                        }
+                                        FileSource::Saved(id) => id,
+                                    };
+
+                                    let _ = tauri_invoke_args::<String>(
+                                        "import_data_file",
+                                        serde_json::json!({
+                                            "fileId": file_id,
+                                            "mappings": mapped,
+                                            "sheet": null
+                                        }),
+                                    )
+                                    .await;
+                                }
+                                audit_ui_step.set(5);
+                            });
                         })
                     />
                 </div>

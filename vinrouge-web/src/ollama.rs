@@ -146,7 +146,6 @@ fn format_plan_chunk(processes: &[crate::types::AuditProcessWithControls]) -> St
 /// are concatenated and returned as a flat `Vec<serde_json::Value>`.
 ///
 /// `on_progress` receives a human-readable status string before each request.
-#[cfg(target_arch = "wasm32")]
 pub async fn ask_pbc_list(
     base_url: &str,
     model: &str,
@@ -221,7 +220,6 @@ pub async fn ask_pbc_list(
 ///
 /// `on_progress` is called with a human-readable status string before each
 /// network request so the UI can show chunk progress.
-#[cfg(target_arch = "wasm32")]
 pub async fn ask_audit_plan(
     base_url: &str,
     model: &str,

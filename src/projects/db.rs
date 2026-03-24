@@ -109,5 +109,24 @@ pub fn open_project(project_dir: &Path) -> Result<Connection> {
     let _ = conn.execute_batch(
         "ALTER TABLE controls ADD COLUMN sop_gap INTEGER NOT NULL DEFAULT 0;",
     );
+    let _ = conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS dsl_scripts (
+            id          TEXT PRIMARY KEY,
+            control_id  TEXT NOT NULL DEFAULT '',
+            control_ref TEXT NOT NULL DEFAULT '',
+            label       TEXT NOT NULL DEFAULT '',
+            script_text TEXT NOT NULL,
+            created_at  TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS test_results (
+            id           TEXT PRIMARY KEY,
+            script_id    TEXT NOT NULL,
+            result_json  TEXT NOT NULL DEFAULT '[]',
+            passed_count INTEGER NOT NULL DEFAULT 0,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            error_count  INTEGER NOT NULL DEFAULT 0,
+            run_at       TEXT NOT NULL
+        );",
+    );
     Ok(conn)
 }

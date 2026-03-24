@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod dsl;
 pub mod audit_prompts;
 pub mod config;
 pub mod export;

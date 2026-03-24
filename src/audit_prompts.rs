@@ -428,3 +428,100 @@ fn normalize_control_ref(s: &str) -> String {
         Err(_) => s.to_string(),
     }
 }
+
+// ── DSL test-script generation ────────────────────────────────────────────────
+
+pub const GENERATE_DSL: &str =
+    "You are an expert audit DSL programmer. Generate executable audit test scripts using \
+     the VinRouge DSL for the controls listed below.\n\n\
+     DSL SYNTAX REFERENCE:\n\
+     -- Comments start with --\n\
+     label: ASSERT aggregate_expr op value          -- named assertion\n\
+     ASSERT aggregate_expr op value                 -- unnamed assertion\n\
+     label: SAMPLE method FROM table.value_col SIZE n [WHERE condition]\n\
+     \n\
+     Aggregate functions (always use table.column notation):\n\
+       SUM(table.col)                    -- sum of a numeric column\n\
+       COUNT(table.col)                  -- count of non-null values\n\
+       AVG(table.col)                    -- average\n\
+       MIN(table.col) / MAX(table.col)\n\
+     \n\
+     Filtered aggregates:\n\
+       SUM(table.col) WHERE table.status = \"value\"\n\
+       COUNT(table.col) WHERE table.amount > 0\n\
+     \n\
+     Comparison operators: =  <>  >  >=  <  <=\n\
+     Logical: AND  OR  NOT\n\
+     Null checks: table.col IS NULL  |  table.col IS NOT NULL\n\
+     In list: table.col IN (\"a\", \"b\", \"c\")\n\
+     Between: table.col BETWEEN 1000 AND 50000\n\
+     \n\
+     Sample methods: MUS  RANDOM  SYSTEMATIC  STRATIFIED\n\
+     Sample size: integer count (e.g. 30) or percentage (e.g. 10%)\n\
+     \n\
+     RULES:\n\
+     - ONLY reference tables and columns from the AVAILABLE DATA section below\n\
+     - ALL aggregate columns MUST use table.column format — bare column names are invalid\n\
+     - String literals use double quotes: \"value\"\n\
+     - Produce at least one ASSERT and one SAMPLE statement per control where data is available\n\
+     - Keep scripts focused on the control's test procedure\n\
+     - Return ONLY valid JSON with no markdown fences, no explanation\n\n";
+
+// ── Column mapping ────────────────────────────────────────────────────────────
+
+/// Prompt for mapping file columns to PBC data request fields.
+pub const MAP_COLUMNS: &str =
+    "You are a data-mapping assistant for an audit engagement.\n\
+     The auditor has defined DATA REQUESTS (PBC items), each with a name, control reference, \
+     purpose, and a list of required fields.\n\
+     Given the SOURCE COLUMNS from an uploaded client data file, map each column to the \
+     single best-matching field from the data requests below.\n\n\
+     Rules:\n\
+     - Use semantic meaning, not just spelling \
+       (e.g. \"posting_dt\" → \"transaction_date\", \"auth_by\" → \"approved_by\").\n\
+     - A column may only map to a field that appears in the DATA REQUESTS list.\n\
+     - If no field is a reasonable match, use an empty string \"\".\n\
+     - Return ONLY a JSON object — no markdown, no explanation.\n\n";
+
+/// JSON Schema for column-mapping output.
+pub fn map_columns_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "mappings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "source": { "type": "string" },
+                        "target": { "type": "string" }
+                    },
+                    "required": ["source", "target"]
+                }
+            }
+        },
+        "required": ["mappings"]
+    })
+}
+
+/// JSON Schema for DSL script generation output.
+pub fn dsl_script_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "scripts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "control_ref": { "type": "string" },
+                        "label":       { "type": "string" },
+                        "script":      { "type": "string" }
+                    },
+                    "required": ["control_ref", "label", "script"]
+                }
+            }
+        },
+        "required": ["scripts"]
+    })
+}

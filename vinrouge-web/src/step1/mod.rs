@@ -346,7 +346,7 @@ pub fn AuditSetupView(
                                                 Ok(t) => t,
                                                 Err(e) => { status.set(format!("Read error: {e}")); sop_analyzing.set(None); return; }
                                             };
-                                            let json_str = match ask_audit_plan(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &text, |msg| status.set(msg)).await {
+                                            let json_str: String = match ask_audit_plan(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &text, |msg| status.set(msg)).await {
                                                 Ok(s) => s,
                                                 Err(e) => { status.set(format!("Ollama error: {e}")); sop_analyzing.set(None); return; }
                                             };

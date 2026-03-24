@@ -990,3 +990,170 @@ pub fn read_project_file_text(project_dir: &Path, file_id: &str) -> Result<Strin
         _ => std::fs::read_to_string(&path).map_err(|e| format!("Could not read file {path}: {e}")),
     }
 }
+
+// ── DSL scripts ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DslScript {
+    pub id: String,
+    pub control_id: String,
+    pub control_ref: String,
+    pub label: String,
+    pub script_text: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestResult {
+    pub id: String,
+    pub script_id: String,
+    pub results: Vec<serde_json::Value>,
+    pub passed_count: i64,
+    pub failed_count: i64,
+    pub error_count: i64,
+    pub run_at: String,
+}
+
+pub fn save_dsl_script(
+    project_dir: &Path,
+    control_id: &str,
+    control_ref: &str,
+    label: &str,
+    script_text: &str,
+) -> Result<DslScript, String> {
+    let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO dsl_scripts (id, control_id, control_ref, label, script_text, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![id, control_id, control_ref, label, script_text, now],
+    )
+    .map_err(|e| format!("DB insert dsl_script: {e}"))?;
+    Ok(DslScript {
+        id,
+        control_id: control_id.to_string(),
+        control_ref: control_ref.to_string(),
+        label: label.to_string(),
+        script_text: script_text.to_string(),
+        created_at: now,
+    })
+}
+
+pub fn list_dsl_scripts(project_dir: &Path) -> Result<Vec<DslScript>, String> {
+    let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, control_id, control_ref, label, script_text, created_at \
+             FROM dsl_scripts ORDER BY created_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(DslScript {
+                id: row.get(0)?,
+                control_id: row.get(1)?,
+                control_ref: row.get(2)?,
+                label: row.get(3)?,
+                script_text: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(rows)
+}
+
+pub fn clear_dsl_scripts(project_dir: &Path) -> Result<(), String> {
+    let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
+    conn.execute_batch(
+        "DELETE FROM test_results; DELETE FROM dsl_scripts;",
+    )
+    .map_err(|e| format!("DB clear dsl_scripts: {e}"))
+}
+
+pub fn update_dsl_script(
+    project_dir: &Path,
+    script_id: &str,
+    script_text: &str,
+) -> Result<(), String> {
+    let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE dsl_scripts SET script_text = ?1 WHERE id = ?2",
+        rusqlite::params![script_text, script_id],
+    )
+    .map_err(|e| format!("DB update dsl_script: {e}"))?;
+    Ok(())
+}
+
+pub fn save_test_result(
+    project_dir: &Path,
+    script_id: &str,
+    result_json: &str,
+    passed: i64,
+    failed: i64,
+    errors: i64,
+) -> Result<TestResult, String> {
+    let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO test_results \
+         (id, script_id, result_json, passed_count, failed_count, error_count, run_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![id, script_id, result_json, passed, failed, errors, now],
+    )
+    .map_err(|e| format!("DB insert test_result: {e}"))?;
+    let results: Vec<serde_json::Value> =
+        serde_json::from_str(result_json).unwrap_or_default();
+    Ok(TestResult {
+        id,
+        script_id: script_id.to_string(),
+        results,
+        passed_count: passed,
+        failed_count: failed,
+        error_count: errors,
+        run_at: now,
+    })
+}
+
+pub fn list_test_results(project_dir: &Path) -> Result<Vec<TestResult>, String> {
+    let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, script_id, result_json, passed_count, failed_count, error_count, run_at \
+             FROM test_results ORDER BY run_at ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    rows.into_iter()
+        .map(|(id, script_id, result_json, passed, failed, errors, run_at)| {
+            let results: Vec<serde_json::Value> =
+                serde_json::from_str(&result_json).unwrap_or_default();
+            Ok(TestResult {
+                id,
+                script_id,
+                results,
+                passed_count: passed,
+                failed_count: failed,
+                error_count: errors,
+                run_at,
+            })
+        })
+        .collect()
+}

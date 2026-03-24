@@ -4,6 +4,8 @@ use crate::step1;
 use crate::step2;
 use crate::step3;
 use crate::step4;
+use crate::step4a;
+use crate::step5;
 use crate::storage::{ls_get, ls_set, AuditSetupState};
 use crate::types::{AiMessage, AuditProcessWithControls, Project, ProjectFile};
 use leptos::prelude::*;
@@ -972,25 +974,34 @@ pub fn ProjectsView() -> impl IntoView {
                                     </div>
                                     <span class="audit-step-sep">"›"</span>
                                     <div class="audit-step-crumb"
-                                        style=move || { let s = audit_ui_step.get(); if s == 3 || s == 4 || s == 5 { "cursor:pointer" } else { "" } }
-                                        on:click=move |_| { let s = audit_ui_step.get(); if s == 3 || s == 4 || s == 5 { audit_ui_step.set(3); } }>
+                                        style=move || { let s = audit_ui_step.get(); if s >= 3 { "cursor:pointer" } else { "" } }
+                                        on:click=move |_| { if audit_ui_step.get() >= 3 { audit_ui_step.set(3); } }>
                                         <div class=move || {
                                             let s = audit_ui_step.get();
-                                            if s == 4 || s == 5 { "audit-step-num done" } else if s == 3 { "audit-step-num active" } else { "audit-step-num pending" }
+                                            if s > 3 { "audit-step-num done" } else if s == 3 { "audit-step-num active" } else { "audit-step-num pending" }
                                         }>"3"</div>
-                                        <span class=move || { let s = audit_ui_step.get(); if s == 3 || s == 4 || s == 5 { "audit-step-label active" } else { "audit-step-label muted" } }>"Data requests"</span>
+                                        <span class=move || { let s = audit_ui_step.get(); if s >= 3 { "audit-step-label active" } else { "audit-step-label muted" } }>"Data requests"</span>
                                     </div>
                                     <span class="audit-step-sep">"›"</span>
                                     <div class="audit-step-crumb"
-                                        style=move || if audit_ui_step.get() == 5 { "cursor:pointer" } else { "" }
-                                        on:click=move |_| { if audit_ui_step.get() == 5 { audit_ui_step.set(4); } }>
-                                        <div class=move || { let s = audit_ui_step.get(); if s == 5 { "audit-step-num done" } else if s == 4 { "audit-step-num active" } else { "audit-step-num pending" } }>"4"</div>
-                                        <span class=move || { if audit_ui_step.get() == 4 || audit_ui_step.get() == 5 { "audit-step-label active" } else { "audit-step-label muted" } }>"Data collection"</span>
+                                        style=move || { let s = audit_ui_step.get(); if s >= 4 { "cursor:pointer" } else { "" } }
+                                        on:click=move |_| { if audit_ui_step.get() >= 4 { audit_ui_step.set(4); } }>
+                                        <div class=move || { let s = audit_ui_step.get(); if s > 4 { "audit-step-num done" } else if s == 4 { "audit-step-num active" } else { "audit-step-num pending" } }>"4"</div>
+                                        <span class=move || { let s = audit_ui_step.get(); if s >= 4 { "audit-step-label active" } else { "audit-step-label muted" } }>"Data collection"</span>
                                     </div>
                                     <span class="audit-step-sep">"›"</span>
-                                    <div class="audit-step-crumb">
-                                        <div class="audit-step-num pending">"5"</div>
-                                        <span class="audit-step-label muted">"Workpapers"</span>
+                                    <div class="audit-step-crumb"
+                                        style=move || { let s = audit_ui_step.get(); if s >= 5 { "cursor:pointer" } else { "" } }
+                                        on:click=move |_| { if audit_ui_step.get() >= 5 { audit_ui_step.set(5); } }>
+                                        <div class=move || { let s = audit_ui_step.get(); if s > 5 { "audit-step-num done" } else if s == 5 { "audit-step-num active" } else { "audit-step-num pending" } }>"4a"</div>
+                                        <span class=move || { let s = audit_ui_step.get(); if s >= 5 { "audit-step-label active" } else { "audit-step-label muted" } }>"Analysis"</span>
+                                    </div>
+                                    <span class="audit-step-sep">"›"</span>
+                                    <div class="audit-step-crumb"
+                                        style=move || { let s = audit_ui_step.get(); if s >= 6 { "cursor:pointer" } else { "" } }
+                                        on:click=move |_| { if audit_ui_step.get() >= 6 { audit_ui_step.set(6); } }>
+                                        <div class=move || { let s = audit_ui_step.get(); if s == 6 { "audit-step-num active" } else { "audit-step-num pending" } }>"5"</div>
+                                        <span class=move || { let s = audit_ui_step.get(); if s >= 6 { "audit-step-label active" } else { "audit-step-label muted" } }>"Results"</span>
                                     </div>
                                 </div>
                             </div>
@@ -1021,6 +1032,23 @@ pub fn ProjectsView() -> impl IntoView {
                             {move || (audit_ui_step.get() == 4).then(|| view! {
                                 <step4::Step4View
                                     audit_plan=audit_plan
+                                    audit_ui_step=audit_ui_step
+                                    status=status
+                                />
+                            })}
+
+                            // ── Step 4a: Analysis & DSL execution ─────────────
+                            {move || (audit_ui_step.get() == 5).then(|| view! {
+                                <step4a::Step4aView
+                                    audit_plan=audit_plan
+                                    audit_ui_step=audit_ui_step
+                                    status=status
+                                />
+                            })}
+
+                            // ── Step 5: Results ───────────────────────────────
+                            {move || (audit_ui_step.get() == 6).then(|| view! {
+                                <step5::Step5View
                                     audit_ui_step=audit_ui_step
                                     status=status
                                 />
