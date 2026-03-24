@@ -382,6 +382,7 @@ pub fn Step4View(
                                         ("s4-file-badge-pending", "Pending")
                                     };
                                     let is_csv = fname.to_lowercase().ends_with(".csv");
+                                    let file_source = d.source.clone();
                                     view! {
                                         <div
                                             class={
@@ -410,6 +411,44 @@ pub fn Step4View(
                                                 </div>
                                             </div>
                                             <span class=badge_cls>{badge_txt}</span>
+                                            <button
+                                                class="s4-file-delete"
+                                                title="Remove file"
+                                                on:click={
+                                                    let lid = lid.clone();
+                                                    move |ev: web_sys::MouseEvent| {
+                                                        ev.stop_propagation();
+                                                        let lid = lid.clone();
+                                                        match &file_source {
+                                                            FileSource::Saved(id) => {
+                                                                let id = id.clone();
+                                                                spawn_local(async move {
+                                                                    let _ = tauri_invoke_args::<()>(
+                                                                        "delete_project_file",
+                                                                        serde_json::json!({ "fileId": id }),
+                                                                    ).await;
+                                                                    data_files.update(|v| v.retain(|d| d.local_id != lid));
+                                                                    selected_id.update(|s| {
+                                                                        if s.as_deref() == Some(lid.as_str()) {
+                                                                            *s = None;
+                                                                        }
+                                                                    });
+                                                                });
+                                                            }
+                                                            FileSource::Browser(_) => {
+                                                                data_files.update(|v| v.retain(|d| d.local_id != lid));
+                                                                selected_id.update(|s| {
+                                                                    if s.as_deref() == Some(lid.as_str()) {
+                                                                        *s = None;
+                                                                    }
+                                                                });
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            >
+                                                "✕"
+                                            </button>
                                         </div>
                                     }
                                 }).collect_view();

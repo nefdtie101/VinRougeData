@@ -578,6 +578,16 @@ fn add_data_file(
     projects::add_file_bytes_to_project(&project_dir, &name, &bytes)
 }
 
+/// Delete a project file (DB row + file on disk) by its ID.
+#[tauri::command]
+fn delete_project_file(
+    file_id: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<(), String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    projects::delete_project_file(&project_dir, &file_id)
+}
+
 /// Return the column headers for a CSV or Excel project file.
 /// Used by the frontend to populate the column-mapping UI for pre-existing files.
 #[tauri::command]
@@ -1340,6 +1350,7 @@ fn main() {
             export_pbc_pdf,
             export_pbc_docx,
             add_data_file,
+            delete_project_file,
             get_data_file_headers,
             import_data_file,
             list_session_imports,

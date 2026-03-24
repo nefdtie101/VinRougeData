@@ -1826,6 +1826,9 @@
       .s4-file-item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:var(--radius-sm); border:0.5px solid var(--w-border); background:var(--w-surface-2); margin-bottom:5px; cursor:pointer; transition:border-color 0.12s; }
       .s4-file-item:hover { border-color:var(--w-border-2); }
       .s4-file-item--active { border-color:var(--w-accent); background:var(--w-accent-dim); }
+      .s4-file-delete { flex-shrink:0; background:none; border:none; cursor:pointer; color:var(--w-text-4); font-size:11px; line-height:1; padding:3px 5px; border-radius:3px; opacity:0; transition:opacity 0.12s, color 0.12s; }
+      .s4-file-item:hover .s4-file-delete { opacity:1; }
+      .s4-file-delete:hover { color:var(--w-danger,#e05c5c); }
       .s4-file-icon { font-size:14px; flex-shrink:0; }
       .s4-file-info { flex:1; min-width:0; }
       .s4-file-name { font-size:13px; font-weight:500; color:var(--w-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

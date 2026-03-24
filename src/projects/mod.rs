@@ -314,6 +314,26 @@ pub fn get_file_path(project_dir: &Path, file_id: &str) -> Result<PathBuf, Strin
     Ok(PathBuf::from(path_str))
 }
 
+/// Delete a project file by its database ID — removes the DB row and the file on disk.
+pub fn delete_project_file(project_dir: &Path, file_id: &str) -> Result<(), String> {
+    let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
+    let path_str: String = conn
+        .query_row("SELECT path FROM files WHERE id = ?1", [file_id], |row| {
+            row.get(0)
+        })
+        .map_err(|e| format!("File not found: {e}"))?;
+
+    conn.execute("DELETE FROM files WHERE id = ?1", [file_id])
+        .map_err(|e| format!("DB delete failed: {e}"))?;
+
+    let path = PathBuf::from(path_str);
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| format!("Failed to remove file: {e}"))?;
+    }
+
+    Ok(())
+}
+
 pub fn list_project_files(project_dir: &Path) -> Result<Vec<ProjectFile>, String> {
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
     let mut stmt = conn
