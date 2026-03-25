@@ -7,7 +7,7 @@ use crate::step4;
 use crate::step4a;
 use crate::step5;
 use crate::storage::{ls_get, ls_set, AuditSetupState};
-use crate::types::{AiMessage, AuditProcessWithControls, Project, ProjectFile};
+use crate::types::{AiMessage, AuditProcessWithControls, PbcGroup, Project, ProjectFile};
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
@@ -56,6 +56,11 @@ pub fn ProjectsView() -> impl IntoView {
     // ── Audit plan state ──────────────────────────────────────────────────────
     let audit_plan: RwSignal<Vec<AuditProcessWithControls>> = RwSignal::new(vec![]);
     let sop_analyzing: RwSignal<Option<String>> = RwSignal::new(None); // file_id
+
+    // ── Step 4 state (hoisted so it survives navigation away and back) ────────
+    let step4_pbc_groups: RwSignal<Vec<PbcGroup>> = RwSignal::new(vec![]);
+    let step4_data_files: RwSignal<Vec<step4::DataFile>> = RwSignal::new(vec![]);
+    let step4_selected_id: RwSignal<Option<String>> = RwSignal::new(None);
 
     // ── Sidebar resize ────────────────────────────────────────────────────────
     let sidebar_width: RwSignal<f64> = RwSignal::new(260.0);
@@ -174,6 +179,9 @@ pub fn ProjectsView() -> impl IntoView {
                         setup_scope.set(vec![]);
                         setup_approved.set(false);
                         audit_ui_step.set(1);
+                        step4_pbc_groups.set(vec![]);
+                        step4_data_files.set(vec![]);
+                        step4_selected_id.set(None);
                     }
                     plan_needs_regen.set(false);
                     active_project.set(Some(p));
@@ -1034,6 +1042,9 @@ pub fn ProjectsView() -> impl IntoView {
                                     audit_plan=audit_plan
                                     audit_ui_step=audit_ui_step
                                     status=status
+                                    pbc_groups=step4_pbc_groups
+                                    data_files=step4_data_files
+                                    selected_id=step4_selected_id
                                 />
                             })}
 

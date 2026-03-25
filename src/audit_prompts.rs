@@ -472,16 +472,16 @@ pub const GENERATE_DSL: &str =
 /// Prompt for mapping file columns to PBC data request fields.
 pub const MAP_COLUMNS: &str =
     "You are a data-mapping assistant for an audit engagement.\n\
-     The auditor has defined DATA REQUESTS (PBC items), each with a name, control reference, \
-     purpose, and a list of required fields.\n\
-     Given the SOURCE COLUMNS from an uploaded client data file, map each column to the \
-     single best-matching field from the data requests below.\n\n\
-     Rules:\n\
-     - Use semantic meaning, not just spelling \
-       (e.g. \"posting_dt\" → \"transaction_date\", \"auth_by\" → \"approved_by\").\n\
-     - A column may only map to a field that appears in the DATA REQUESTS list.\n\
-     - If no field is a reasonable match, use an empty string \"\".\n\
-     - Return ONLY a JSON object — no markdown, no explanation.\n\n";
+     You will receive:\n\
+     1. ALLOWED FIELDS — the complete list of field names you are permitted to use as targets.\n\
+     2. SOURCE COLUMNS — column names from a client data file.\n\
+     3. DATA REQUESTS — PBC items giving context on what each field means.\n\n\
+     For every source column, pick the single best-matching entry from ALLOWED FIELDS.\n\
+     Use semantic meaning (e.g. \"posting_dt\" → \"transaction_date\").\n\
+     CRITICAL: the target value MUST be copied exactly from the ALLOWED FIELDS list.\n\
+     Do NOT invent, normalise, or paraphrase field names.\n\
+     If no allowed field is a reasonable match, use an empty string \"\".\n\
+     Return ONLY a JSON object — no markdown, no explanation.\n\n";
 
 /// JSON Schema for column-mapping output.
 pub fn map_columns_schema() -> serde_json::Value {

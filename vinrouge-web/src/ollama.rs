@@ -296,6 +296,113 @@ pub async fn ask_audit_plan(
     merge_plans(&results)
 }
 
+// ── Column mapping ────────────────────────────────────────────────────────────
+
+/// Send file headers and PBC fields to Ollama and return a mapping.
+///
+/// Both arrays are serialised to JSON strings and appended to the MAP_COLUMNS
+/// prompt. The model returns `{"mappings":[{"source":"...","target":"..."}]}`.
+/// Falls back gracefully: returns `Err` so the caller can use `normalize_map`.
+pub async fn ask_column_mapping(
+    base_url: &str,
+    model: &str,
+    headers: &[String],
+    pbc_groups: &[crate::types::PbcGroup],
+) -> Result<Vec<(String, String)>, String> {
+    use leptos::logging::log;
+    use vinrouge::audit_prompts::{map_columns_schema, MAP_COLUMNS};
+
+    log!("[column_mapping] starting — {} headers, {} pbc groups", headers.len(), pbc_groups.len());
+
+    // Build valid field set first — used both in the prompt and for post-filtering.
+    let valid_fields: std::collections::HashSet<String> = pbc_groups
+        .iter()
+        .flat_map(|g| g.items.iter())
+        .flat_map(|i| i.fields.iter().cloned())
+        .collect();
+
+    // Serialise headers to a JSON array string.
+    let headers_json = serde_json::to_string(headers).map_err(|e| e.to_string())?;
+    log!("[column_mapping] headers JSON: {}", headers_json);
+
+    // Build a compact PBC fields list: name + control_ref + fields per item.
+    let pbc_items: Vec<serde_json::Value> = pbc_groups
+        .iter()
+        .flat_map(|g| g.items.iter())
+        .map(|item| {
+            serde_json::json!({
+                "control_ref": item.control_ref,
+                "name":        item.name,
+                "purpose":     item.purpose,
+                "fields":      item.fields
+            })
+        })
+        .collect();
+    let pbc_json = serde_json::to_string(&pbc_items).map_err(|e| e.to_string())?;
+    log!("[column_mapping] pbc JSON: {}", pbc_json);
+
+    // Flat sorted list of allowed target fields to inject into the prompt.
+    let mut allowed: Vec<String> = valid_fields.iter().cloned().collect();
+    allowed.sort();
+    let allowed_json = serde_json::to_string(&allowed).map_err(|e| e.to_string())?;
+    log!("[column_mapping] allowed fields: {}", allowed_json);
+
+    let prompt = format!(
+        "{MAP_COLUMNS}\
+         ALLOWED FIELDS:\n{allowed_json}\n\n\
+         SOURCE COLUMNS:\n{headers_json}\n\n\
+         DATA REQUESTS (context only):\n{pbc_json}"
+    );
+    log!("[column_mapping] sending prompt ({} chars) to {}  model={}", prompt.len(), base_url, model);
+
+    let raw = match ask_ollama_structured(base_url, model, &prompt, map_columns_schema()).await {
+        Ok(r) => {
+            log!("[column_mapping] raw response: {}", r);
+            r
+        }
+        Err(e) => {
+            log!("[column_mapping] ollama error: {}", e);
+            return Err(e);
+        }
+    };
+
+    // Parse {"mappings":[{"source":"...","target":"..."}]}
+    let v: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            log!("[column_mapping] JSON parse error: {}", e);
+            return Err(format!("Parse error: {e}"));
+        }
+    };
+
+    let arr = match v["mappings"].as_array() {
+        Some(a) => a,
+        None => {
+            log!("[column_mapping] no 'mappings' key in response — full value: {:?}", v);
+            return Err("No mappings array".to_string());
+        }
+    };
+
+    let result: Vec<(String, String)> = arr
+        .iter()
+        .filter_map(|m| {
+            let src = m["source"].as_str()?.to_string();
+            let tgt = m["target"].as_str().unwrap_or("").to_string();
+            // Discard targets the LLM invented that aren't real PBC fields.
+            let tgt = if tgt.is_empty() || valid_fields.contains(&tgt) {
+                tgt
+            } else {
+                log!("[column_mapping] rejected hallucinated target '{}' for source '{}'", tgt, src);
+                String::new()
+            };
+            Some((src, tgt))
+        })
+        .collect();
+
+    log!("[column_mapping] mapped {} columns: {:?}", result.len(), result);
+    Ok(result)
+}
+
 use crate::types::AnalysisResult;
 
 // ── Analysis summary for Ollama context ───────────────────────────────────────

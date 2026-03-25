@@ -5,6 +5,7 @@ use wasm_bindgen_futures::spawn_local;
 use crate::components::{Banner, GhostButton, PrimaryButton, Spinner, StatCard};
 use crate::file_analysis::{analyze_bytes, read_file_bytes};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
+use crate::ollama::{ask_column_mapping, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::types::{AuditProcessWithControls, PbcGroup, ProjectFile};
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -12,7 +13,7 @@ use crate::types::{AuditProcessWithControls, PbcGroup, ProjectFile};
 /// Tracks whether the file still lives only in the browser (not yet persisted to
 /// the project's files/ directory) or has already been saved.
 #[derive(Clone)]
-enum FileSource {
+pub enum FileSource {
     /// Newly dropped file — bytes are in the browser, not yet sent to Tauri.
     Browser(web_sys::File),
     /// File was already saved to the project; holds its project-assigned ID.
@@ -23,12 +24,12 @@ enum FileSource {
 /// `local_id` equals the file name and is used as the stable selection key so
 /// we can identify files before they have a project ID.
 #[derive(Clone)]
-struct DataFile {
-    local_id: String,
-    name: String,
-    columns: Vec<String>,
-    mappings: Vec<(String, String)>, // (source_col, pbc_field) — empty = unmapped
-    source: FileSource,
+pub struct DataFile {
+    pub local_id: String,
+    pub name: String,
+    pub columns: Vec<String>,
+    pub mappings: Vec<(String, String)>, // (source_col, pbc_field) — empty = unmapped
+    pub source: FileSource,
 }
 
 // ── Column mapping helpers ────────────────────────────────────────────────────
@@ -100,14 +101,27 @@ fn start_file_upload(
             }
         };
 
-        // Map columns to PBC fields via normalised string matching
+        // Map columns to PBC fields — try AI first, fall back to string matching.
         let groups_snap = pbc_groups.get_untracked();
-        let all_fields: Vec<String> = groups_snap
-            .iter()
-            .flat_map(|g| g.items.iter())
-            .flat_map(|i| i.fields.iter().cloned())
-            .collect();
-        let mappings = normalize_map(&columns, &all_fields);
+        status.set("Mapping columns with AI…".to_string());
+        let mappings = match ask_column_mapping(
+            OLLAMA_DEFAULT_URL,
+            OLLAMA_DEFAULT_MODEL,
+            &columns,
+            &groups_snap,
+        )
+        .await
+        {
+            Ok(m) if !m.is_empty() => m,
+            _ => {
+                let all_fields: Vec<String> = groups_snap
+                    .iter()
+                    .flat_map(|g| g.items.iter())
+                    .flat_map(|i| i.fields.iter().cloned())
+                    .collect();
+                normalize_map(&columns, &all_fields)
+            }
+        };
 
         let local_id = name.clone();
         data_files.update(|v| {
@@ -154,20 +168,25 @@ pub fn Step4View(
     audit_plan: RwSignal<Vec<AuditProcessWithControls>>,
     audit_ui_step: RwSignal<u8>,
     status: RwSignal<String>,
+    // Hoisted signals so state survives navigation away and back.
+    pbc_groups: RwSignal<Vec<PbcGroup>>,
+    data_files: RwSignal<Vec<DataFile>>,
+    selected_id: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let active_tab: RwSignal<&'static str> = RwSignal::new("csv");
-    let pbc_groups: RwSignal<Vec<PbcGroup>> = RwSignal::new(vec![]);
-    let data_files: RwSignal<Vec<DataFile>> = RwSignal::new(vec![]);
-    let selected_id: RwSignal<Option<String>> = RwSignal::new(None);
     let uploading: RwSignal<bool> = RwSignal::new(false);
     let csv_over: RwSignal<bool> = RwSignal::new(false);
     let xlsx_over: RwSignal<bool> = RwSignal::new(false);
 
-    // ── Load PBC groups + pre-existing data files on mount ────────────────────
+    // ── Load PBC groups + pre-existing data files on mount (once only) ────────
+    // Guard: skip if already populated to avoid re-running on navigation back.
     spawn_local(async move {
-        if let Ok(groups) = tauri_invoke::<Vec<PbcGroup>>("list_pbc_groups").await {
-            pbc_groups.set(groups);
+        if pbc_groups.get_untracked().is_empty() {
+            if let Ok(groups) = tauri_invoke::<Vec<PbcGroup>>("list_pbc_groups").await {
+                pbc_groups.set(groups);
+            }
         }
+        if data_files.get_untracked().is_empty() {
         if let Ok(files) = tauri_invoke::<Vec<ProjectFile>>("list_project_files").await {
             let mut loaded: Vec<DataFile> = vec![];
             for f in files
@@ -182,12 +201,24 @@ pub fn Step4View(
                 .unwrap_or_default();
 
                 let groups_snap = pbc_groups.get_untracked();
-                let all_fields: Vec<String> = groups_snap
-                    .iter()
-                    .flat_map(|g| g.items.iter())
-                    .flat_map(|i| i.fields.iter().cloned())
-                    .collect();
-                let mappings = normalize_map(&cols, &all_fields);
+                let mappings = match ask_column_mapping(
+                    OLLAMA_DEFAULT_URL,
+                    OLLAMA_DEFAULT_MODEL,
+                    &cols,
+                    &groups_snap,
+                )
+                .await
+                {
+                    Ok(m) if !m.is_empty() => m,
+                    _ => {
+                        let all_fields: Vec<String> = groups_snap
+                            .iter()
+                            .flat_map(|g| g.items.iter())
+                            .flat_map(|i| i.fields.iter().cloned())
+                            .collect();
+                        normalize_map(&cols, &all_fields)
+                    }
+                };
 
                 loaded.push(DataFile {
                     local_id: f.name.clone(),
@@ -203,6 +234,7 @@ pub fn Step4View(
                 selected_id.set(Some(first_local_id));
             }
         }
+        } // end if data_files.is_empty()
     });
 
     // Factory for file-input change handlers — called twice in the view (CSV and
