@@ -471,17 +471,28 @@ pub const GENERATE_DSL: &str =
 
 /// Prompt for mapping file columns to PBC data request fields.
 pub const MAP_COLUMNS: &str =
-    "You are a data-mapping assistant for an audit engagement.\n\
+    "You are a senior audit data analyst performing column mapping for an audit engagement.\n\n\
      You will receive:\n\
-     1. ALLOWED FIELDS — the complete list of field names you are permitted to use as targets.\n\
-     2. SOURCE COLUMNS — column names from a client data file.\n\
-     3. DATA REQUESTS — PBC items giving context on what each field means.\n\n\
-     For every source column, pick the single best-matching entry from ALLOWED FIELDS.\n\
-     Use semantic meaning (e.g. \"posting_dt\" → \"transaction_date\").\n\
-     CRITICAL: the target value MUST be copied exactly from the ALLOWED FIELDS list.\n\
-     Do NOT invent, normalise, or paraphrase field names.\n\
-     If no allowed field is a reasonable match, use an empty string \"\".\n\
-     Return ONLY a JSON object — no markdown, no explanation.\n\n";
+     1. ALLOWED FIELDS — the complete list of valid target field names you may use.\n\
+     2. AUDIT DATA REQUESTS — PBC context explaining what each field means.\n\
+     3. SOURCE COLUMNS — column names extracted from the client's uploaded data file.\n\n\
+     YOUR TASK:\n\
+     For every source column, identify which ALLOWED FIELD it most likely represents — even if the \
+     names differ in language, abbreviation, formatting, or phrasing. Reason about business \
+     meaning, not just spelling.\n\n\
+     REASONING EXAMPLES:\n\
+     - \"Policyholder #\", \"Client ID\", \"Insured ID\", \"klant_id\" → policyholder_id\n\
+     - \"Loading Applied %\", \"Premium Load\", \"load_pct\" → premium_loading\n\
+     - \"BMS Disc\", \"Bonus-Malus %\", \"bms_discount_rate\" → bms\n\
+     - \"Appointed Actuary Sign-off Date\", \"actuary_approval_dt\" → approval_date\n\
+     - \"Transaction Dt\", \"Posting Date\", \"trans_datum\" → transaction_date\n\n\
+     RULES:\n\
+     - The \"target\" value must be copied EXACTLY as it appears in the ALLOWED FIELDS list — \
+       character for character, same case, same underscores.\n\
+     - Do NOT invent, normalise, or paraphrase field names.\n\
+     - If a column matches nothing in the allowed fields, set target to \"\".\n\
+     - Every source column must have an entry in the output — even unmapped ones (target = \"\").\n\
+     - Return ONLY valid JSON, no markdown fences, no explanation.\n\n";
 
 /// JSON Schema for column-mapping output.
 pub fn map_columns_schema() -> serde_json::Value {

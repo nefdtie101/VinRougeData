@@ -2016,6 +2016,77 @@
       .s4a-btn-run-ready { opacity: 1; pointer-events: auto; }
       .s4a-btn-run-ready:hover { opacity: 0.85; }
 
+      /* ── Step 4a three-zone layout ─────────────────────────────────────────── */
+      .s4a-zones { display:grid; grid-template-columns:1fr 240px 4px 260px; flex:1; overflow:hidden; min-height:0; position:relative; }
+      .s4a-z1 { display:flex; flex-direction:column; background:#141414; font-family:var(--mono); border-right:0.5px solid #2a2a2a; overflow:hidden; }
+      .s4a-z2 { display:flex; flex-direction:column; background:var(--w-surface); border-right:0.5px solid var(--w-border); overflow:hidden; }
+      .s4a-resize-handle {
+        background:var(--w-border);
+        cursor:col-resize;
+        position:relative;
+        transition:background 0.15s;
+      }
+      .s4a-resize-handle:hover { background:var(--w-text-3); }
+      .s4a-z3 { display:flex; flex-direction:column; background:var(--w-bg); overflow:hidden; }
+      .s4a-zone-hdr { padding:7px 12px; border-bottom:0.5px solid var(--w-border); font-size:10px; font-weight:500; color:var(--w-text-3); letter-spacing:0.06em; text-transform:uppercase; flex-shrink:0; background:var(--w-surface-2); }
+      .s4a-zone-hdr-dark { padding:7px 12px; border-bottom:0.5px solid #2a2a2a; font-size:10px; font-weight:400; color:#555; letter-spacing:0.05em; text-transform:uppercase; flex-shrink:0; background:#181818; }
+
+      /* Zone 1 — spreadsheet */
+      .s4a-tbl-topbar { display:flex; align-items:center; justify-content:space-between; padding:6px 10px; border-bottom:0.5px solid #2a2a2a; flex-shrink:0; gap:8px; background:#161616; }
+      .s4a-tbl-pill { background:#1e1e1e; border:0.5px solid #333; border-radius:99px; padding:2px 8px; font-size:10px; color:#666; }
+      .s4a-tbl-pill-src { color:#9fe1cb !important; border-color:#5dcaa533 !important; background:#04342c22 !important; }
+      .s4a-tbl-wrap { flex:1; overflow-y:auto; overflow-x:auto; }
+      .s4a-sheet-tbl { width:100%; border-collapse:collapse; table-layout:auto; }
+      .s4a-th-lbl { background:#1a1a1a; padding:4px 7px; font-size:10px; font-weight:400; color:#444; border-bottom:0.5px solid #2a2a2a; border-right:0.5px solid #222; text-align:center; position:sticky; top:0; z-index:2; }
+      .s4a-th-lbl.corner { background:#111; }
+      .s4a-th-fld { background:#1a1a1a; padding:4px 7px; font-size:10px; font-weight:400; color:#666; border-bottom:0.5px solid #282828; border-right:0.5px solid #222; text-align:left; white-space:nowrap; position:sticky; top:23px; z-index:2; }
+      .s4a-sheet-tbl td { padding:5px 7px; border-bottom:0.5px solid #1e1e1e; border-right:0.5px solid #1a1a1a; font-size:11px; color:#c0c0c0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:110px; vertical-align:middle; cursor:pointer; }
+      .s4a-sheet-tbl td.rn { background:#181818; color:#333; font-size:10px; text-align:center; padding:5px 3px; border-right:0.5px solid #222; width:24px; cursor:default; }
+      .s4a-sheet-tbl tbody tr:hover td { background:#1c1c1c; }
+      .s4a-sheet-tbl td.selected { background:#3a1f25 !important; border:1px solid #8b1a2a !important; z-index:1; position:relative; }
+      .s4a-sheet-tbl td.selected-col { background:#1e1316 !important; }
+      .s4a-sheet-tbl td.selected-row { background:#1e1316 !important; }
+      .s4a-no-data { padding:40px 16px; text-align:center; font-size:12px; color:#444; }
+
+      /* Zone 2 — DSL editor */
+      .s4a-z2-body { padding:10px; flex:1; display:flex; flex-direction:column; gap:9px; overflow-y:auto; min-height:0; }
+      .s4a-z2-lbl { font-size:10px; color:var(--w-text-3); letter-spacing:0.04em; }
+      .s4a-z2-select { width:100%; background:var(--w-surface-2); border:0.5px solid var(--w-border); border-radius:var(--radius-sm); padding:5px 8px; font-size:11px; color:var(--w-text); font-family:inherit; outline:none; }
+      .s4a-z2-select:focus { border-color:var(--w-border-2); }
+      .s4a-z2-ed { background:var(--w-surface-2); border:0.5px solid var(--w-border); border-radius:var(--radius-sm); padding:8px 9px; font-family:var(--mono); font-size:11.5px; color:#9fe1cb; min-height:90px; line-height:1.75; width:100%; resize:vertical; outline:none; display:block; }
+      .s4a-z2-ed:focus { border-color:var(--w-border-2); }
+      .s4a-z2-actions { display:flex; gap:5px; flex-wrap:wrap; }
+      .s4a-z2-btn { padding:3px 9px; border-radius:var(--radius-sm); font-size:10.5px; font-family:var(--mono); cursor:pointer; border:0.5px solid var(--w-border); color:var(--w-text-2); background:transparent; transition:all 0.12s; }
+      .s4a-z2-btn:hover:not(:disabled) { border-color:var(--w-text-3); color:var(--w-text); }
+      .s4a-z2-btn:disabled { opacity:0.4; cursor:default; }
+      .s4a-z2-btn-run { background:#0f6e56 !important; border-color:#0f6e56 !important; color:#9fe1cb !important; }
+      .s4a-z2-btn-run:hover:not(:disabled) { background:#178856 !important; border-color:#178856 !important; }
+      .s4a-z2-hint { font-size:10px; color:var(--w-text-3); font-family:var(--mono); line-height:2; }
+      .s4a-result-block { background:var(--w-surface-2); border:0.5px solid var(--w-border); border-radius:var(--radius-sm); padding:9px 10px; }
+      .s4a-result-hdr { font-size:10px; color:var(--w-text-3); letter-spacing:0.04em; margin-bottom:6px; }
+      .s4a-result-row { display:flex; justify-content:space-between; font-size:11px; font-family:var(--mono); padding:2px 0; border-bottom:0.5px solid var(--w-border); }
+      .s4a-result-row:last-child { border-bottom:none; }
+      .s4a-result-key { color:var(--w-text-3); }
+      .s4a-result-val { color:#9fe1cb; }
+      .s4a-result-fail { color:#f87171 !important; }
+
+      /* Zone 3 — AI chat */
+      .s4a-chat-msgs { flex:1; padding:8px 10px; display:flex; flex-direction:column; gap:8px; overflow-y:auto; min-height:0; }
+      .s4a-msg { display:flex; flex-direction:column; gap:3px; }
+      .s4a-msg-lbl { font-size:10px; color:var(--w-text-3); }
+      .s4a-msg-lbl-ai { color:#5dcaa5 !important; }
+      .s4a-bubble { padding:7px 9px; border-radius:var(--radius-sm); font-size:11.5px; line-height:1.5; color:var(--w-text); background:var(--w-surface-2); border:0.5px solid var(--w-border); }
+      .s4a-bubble-ai { background:#04342c18 !important; border-color:#5dcaa533 !important; }
+      .s4a-code-chip { font-family:var(--mono); font-size:10.5px; color:#9fe1cb; background:#04342c33; padding:5px 7px; border-radius:4px; margin-top:5px; display:block; white-space:pre; overflow-x:auto; cursor:pointer; border:0.5px solid #5dcaa522; transition:background 0.12s; }
+      .s4a-code-chip:hover { background:#04342c55; }
+      .s4a-chat-input { padding:8px 10px; border-top:0.5px solid var(--w-border); display:flex; gap:6px; align-items:flex-end; flex-shrink:0; }
+      .s4a-chat-ta { flex:1; background:var(--w-surface-2); border:0.5px solid var(--w-border); border-radius:var(--radius-sm); padding:6px 9px; font-family:inherit; font-size:11.5px; color:var(--w-text); resize:none; line-height:1.5; min-height:32px; outline:none; }
+      .s4a-chat-ta:focus { border-color:var(--w-border-2); }
+      .s4a-chat-ta::placeholder { color:var(--w-text-4); }
+      .s4a-send-btn { width:28px; height:28px; border-radius:var(--radius-sm); background:#0f6e56; border:none; color:#9fe1cb; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; font-size:12px; transition:background 0.12s; }
+      .s4a-send-btn:hover:not(:disabled) { background:#178856; }
+      .s4a-send-btn:disabled { opacity:0.4; cursor:default; }
+
       /* ── Step 5 — Test results ─────────────────────────────────────────────── */
       .s5-script-card { border:0.5px solid var(--w-border); border-radius:var(--radius-sm); background:var(--w-surface-2); overflow:hidden; }
       .s5-script-header { background:var(--w-surface-2); transition:background 0.1s; }

@@ -624,9 +624,14 @@ async fn get_data_file_headers(
                             .await
                             .map_err(|e| e.to_string())?
                     };
+                    let mut seen = std::collections::HashSet::new();
                     let headers = tables
                         .into_iter()
                         .flat_map(|t| t.columns.into_iter().map(|c| c.name))
+                        .filter(|h| {
+                            let t = h.trim();
+                            !t.is_empty() && seen.insert(t.to_string())
+                        })
                         .collect::<Vec<_>>();
                     Ok(headers)
                 })
@@ -637,8 +642,9 @@ async fn get_data_file_headers(
 }
 
 /// Parse a project CSV/Excel file and write mapped rows into the session store.
-/// `mappings` is a list of `[source_column, pbc_field]` pairs; columns mapped to
-/// an empty string are discarded.  Returns the new `import_id`.
+/// `mappings` is a list of `[source_column, pbc_field]` pairs; columns with an
+/// empty or missing target are stored under their original source column name.
+/// Returns the new `import_id`.
 #[tauri::command]
 fn import_data_file(
     file_id: String,
@@ -663,6 +669,46 @@ fn import_data_file(
         "xlsx" | "xls" => db.import_excel(Some(&file_id), &name, bytes, &mappings, sheet.as_deref()),
         _ => Err(format!("Unsupported file type: .{ext}")),
     }
+}
+
+/// Persist the column mappings for a project file so they survive navigation.
+#[tauri::command]
+fn save_column_mappings(
+    file_id: String,
+    mappings: Vec<(String, String)>,
+    state: tauri::State<ProjectsState>,
+) -> Result<(), String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let json = serde_json::to_string(&mappings).map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT OR REPLACE INTO file_column_mappings (file_id, mappings_json, updated_at) \
+         VALUES (?1, ?2, ?3)",
+        rusqlite::params![file_id, json, now],
+    )
+    .map_err(|e| format!("DB error: {e}"))?;
+    Ok(())
+}
+
+/// Load previously-saved column mappings for a project file.
+#[tauri::command]
+fn get_column_mappings(
+    file_id: String,
+    state: tauri::State<ProjectsState>,
+) -> Result<Vec<(String, String)>, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT mappings_json FROM file_column_mappings WHERE file_id = ?1",
+            rusqlite::params![file_id],
+            |row| row.get(0),
+        )
+        .ok();
+    Ok(json
+        .and_then(|j| serde_json::from_str(&j).ok())
+        .unwrap_or_default())
 }
 
 /// List all session imports for the active project.
@@ -1109,39 +1155,69 @@ async fn export_pbc_docx(
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SessionSchema {
     pub import_id: String,
+    pub source_type: String,
     pub table_name: String,
     pub columns: Vec<String>,
     pub row_count: usize,
 }
 
-/// Return one SchemaInfo per session import — the table name is the
-/// source filename without extension (normalised to lowercase/underscores).
+/// Return one SessionSchema per import.
+/// Columns include both mapped (PBC field name) and unmapped (original source name).
+/// Master imports get their column list by sampling the first stored row.
 #[tauri::command]
 fn get_session_schemas(
     state: tauri::State<ProjectsState>,
 ) -> Result<Vec<SessionSchema>, String> {
     let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
     let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
-    let imports = session_db::SessionDb::new(&conn).list_imports()?;
+    let db = session_db::SessionDb::new(&conn);
+    let imports = db.list_imports()?;
 
-    Ok(imports
+    imports
         .into_iter()
         .map(|imp| {
             let table_name = table_name_from_source(&imp.source_name);
-            let columns: Vec<String> = imp
-                .mappings
-                .into_iter()
-                .filter(|(_, t)| !t.is_empty())
-                .map(|(_, t)| t)
-                .collect();
-            SessionSchema {
+            let columns: Vec<String> = if imp.mappings.is_empty() {
+                // Master record: derive columns from the first stored row
+                db.get_import_columns(&imp.id).unwrap_or_default()
+            } else {
+                imp.mappings
+                    .iter()
+                    .map(|(src, tgt)| if tgt.is_empty() { src.clone() } else { tgt.clone() })
+                    .filter(|n| !n.trim().is_empty())
+                    .collect()
+            };
+            Ok(SessionSchema {
                 import_id: imp.id,
+                source_type: imp.source_type,
                 table_name,
                 columns,
                 row_count: imp.row_count,
-            }
+            })
         })
-        .collect())
+        .collect()
+}
+
+/// Detect likely join keys across all non-master session imports.
+#[tauri::command]
+fn detect_data_relationships(
+    state: tauri::State<ProjectsState>,
+) -> Result<Vec<session_db::RelCandidate>, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+    session_db::SessionDb::new(&conn).detect_data_relationships()
+}
+
+/// Hash-join imports by the confirmed JoinSpecs and persist the result as a
+/// "master" session import.  Returns the new import_id.
+#[tauri::command]
+fn build_master_record(
+    joins: Vec<session_db::JoinSpec>,
+    state: tauri::State<ProjectsState>,
+) -> Result<String, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+    session_db::SessionDb::new(&conn).build_master_record(joins)
 }
 
 /// Derive a DSL table name from a file's source_name (e.g. "Sales Data.xlsx" → "sales_data").
@@ -1303,6 +1379,335 @@ fn update_dsl_script(
     projects::update_dsl_script(&project_dir, &script_id, &script_text)
 }
 
+/// Open a new window to display data preview.
+#[tauri::command]
+fn open_data_preview_window(
+    app: tauri::AppHandle,
+    data: serde_json::Value,
+) -> Result<(), String> {
+    use tauri::WebviewWindowBuilder;
+
+    let columns = data["columns"].as_array()
+        .ok_or("Missing columns in data")?
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect::<Vec<_>>();
+
+    let rows = data["rows"].as_array()
+        .ok_or("Missing rows in data")?;
+
+    let source = data["source"].as_str().unwrap_or("Unknown");
+
+    // Build HTML for the data preview window (matching Step 4a styling exactly)
+    let mut html = String::from(r#"
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Data Preview</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            background: #141414;
+            color: #c0c0c0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            padding: 6px 10px;
+            border-bottom: 0.5px solid #2a2a2a;
+            flex-shrink: 0;
+            gap: 8px;
+            background: #161616;
+        }
+        .pill {
+            background: #1e1e1e;
+            border: 0.5px solid #333;
+            border-radius: 99px;
+            padding: 2px 8px;
+            font-size: 10px;
+            color: #666;
+        }
+        .pill-src {
+            color: #9fe1cb !important;
+            border-color: #5dcaa533 !important;
+            background: #04342c22 !important;
+        }
+        .table-wrap {
+            flex: 1;
+            overflow: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: auto;
+        }
+        th.lbl {
+            background: #1a1a1a;
+            padding: 4px 7px;
+            font-size: 10px;
+            font-weight: 400;
+            color: #444;
+            border-bottom: 0.5px solid #2a2a2a;
+            border-right: 0.5px solid #222;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+        th.lbl.corner {
+            background: #111;
+        }
+        th.fld {
+            background: #1a1a1a;
+            padding: 4px 7px;
+            font-size: 10px;
+            font-weight: 400;
+            color: #666;
+            border-bottom: 0.5px solid #282828;
+            border-right: 0.5px solid #222;
+            text-align: left;
+            white-space: nowrap;
+            position: sticky;
+            top: 23px;
+            z-index: 2;
+        }
+        td {
+            padding: 5px 7px;
+            border-bottom: 0.5px solid #1e1e1e;
+            border-right: 0.5px solid #1a1a1a;
+            font-size: 11px;
+            color: #c0c0c0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 110px;
+            vertical-align: middle;
+        }
+        td.rn {
+            background: #181818;
+            color: #333;
+            font-size: 10px;
+            text-align: center;
+            padding: 5px 3px;
+            border-right: 0.5px solid #222;
+            width: 24px;
+        }
+        tbody tr:hover td {
+            background: #1c1c1c;
+        }
+        td.selected {
+            background: #3a1f25 !important;
+            border: 1px solid #8b1a2a !important;
+            z-index: 1;
+            position: relative;
+        }
+        td.selected-col {
+            background: #1e1316 !important;
+        }
+        td.selected-row {
+            background: #1e1316 !important;
+        }
+    </style>
+    <script>
+        let selectedCell = null;
+
+        function selectCell(rowIdx, colIdx) {
+            // Remove all previous selections
+            document.querySelectorAll('td.selected, td.selected-row, td.selected-col').forEach(td => {
+                td.classList.remove('selected', 'selected-row', 'selected-col');
+            });
+
+            // Highlight selected cell
+            const rows = document.querySelectorAll('tbody tr');
+            if (rows[rowIdx]) {
+                const cells = rows[rowIdx].querySelectorAll('td');
+                if (cells[colIdx + 1]) { // +1 because first cell is row number
+                    cells[colIdx + 1].classList.add('selected');
+
+                    // Highlight column
+                    rows.forEach(row => {
+                        const cell = row.querySelectorAll('td')[colIdx + 1];
+                        if (cell && !cell.classList.contains('selected')) {
+                            cell.classList.add('selected-col');
+                        }
+                    });
+
+                    // Highlight row
+                    cells.forEach((cell, idx) => {
+                        if (idx > 0 && !cell.classList.contains('selected')) {
+                            cell.classList.add('selected-row');
+                        }
+                    });
+                }
+            }
+
+            selectedCell = { row: rowIdx, col: colIdx };
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const rows = document.querySelectorAll('tbody tr');
+            const maxRow = rows.length - 1;
+            const maxCol = rows[0] ? rows[0].querySelectorAll('td').length - 2 : 0; // -2 for row number and 0-index
+
+            // Add click handlers
+            rows.forEach((row, rowIdx) => {
+                row.querySelectorAll('td').forEach((cell, cellIdx) => {
+                    if (cellIdx > 0) { // Skip row number cell
+                        cell.style.cursor = 'pointer';
+                        cell.addEventListener('click', () => {
+                            selectCell(rowIdx, cellIdx - 1);
+                        });
+                    }
+                });
+            });
+
+            // Add keyboard navigation
+            document.addEventListener('keydown', (e) => {
+                if (!selectedCell) return;
+
+                let newRow = selectedCell.row;
+                let newCol = selectedCell.col;
+
+                switch(e.key) {
+                    case 'ArrowUp':
+                        if (newRow > 0) {
+                            e.preventDefault();
+                            newRow--;
+                        }
+                        break;
+                    case 'ArrowDown':
+                        if (newRow < maxRow) {
+                            e.preventDefault();
+                            newRow++;
+                        }
+                        break;
+                    case 'ArrowLeft':
+                        if (newCol > 0) {
+                            e.preventDefault();
+                            newCol--;
+                        }
+                        break;
+                    case 'ArrowRight':
+                        if (newCol < maxCol) {
+                            e.preventDefault();
+                            newCol++;
+                        }
+                        break;
+                    default:
+                        return;
+                }
+
+                if (newRow !== selectedCell.row || newCol !== selectedCell.col) {
+                    selectCell(newRow, newCol);
+
+                    // Scroll the selected cell into view
+                    const rows = document.querySelectorAll('tbody tr');
+                    if (rows[newRow]) {
+                        const cells = rows[newRow].querySelectorAll('td');
+                        if (cells[newCol + 1]) { // +1 for row number cell
+                            cells[newCol + 1].scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'nearest',
+                                inline: 'nearest'
+                            });
+                        }
+                    }
+                }
+            });
+        });
+    </script>
+</head>
+<body>
+    <div class="header">
+        <span class="pill">"#);
+    html.push_str(&format!("{} rows", rows.len()));
+    html.push_str(r#"</span>
+        <span class="pill pill-src">"#);
+    html.push_str(source);
+    html.push_str(r#"</span>
+    </div>
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th class="lbl corner"></th>"#);
+
+    // Column letters
+    for i in 0..columns.len() {
+        let letter = if i < 26 {
+            ((b'A' + i as u8) as char).to_string()
+        } else {
+            format!("{}{}", (b'A' + (i / 26 - 1) as u8) as char,
+                (b'A' + (i % 26) as u8) as char)
+        };
+        html.push_str(&format!("<th class=\"lbl\">{}</th>", letter));
+    }
+
+    html.push_str("</tr><tr><th class=\"lbl\" style=\"background:#111\"></th>");
+
+    // Column names
+    for col in &columns {
+        html.push_str(&format!("<th class=\"fld\">{}</th>",
+            col.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")));
+    }
+
+    html.push_str("</tr></thead><tbody>");
+
+    // Data rows
+    for (row_idx, row) in rows.iter().enumerate() {
+        html.push_str(&format!("<tr><td class=\"rn\">{}</td>", row_idx + 1));
+        if let Some(row_arr) = row.as_array() {
+            for cell in row_arr {
+                let cell_str = cell.as_str().unwrap_or("");
+                html.push_str(&format!("<td>{}</td>",
+                    cell_str.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")));
+            }
+        }
+        html.push_str("</tr>");
+    }
+
+    html.push_str("</tbody></table></div></body></html>");
+
+    // Write HTML to a temporary file
+    use std::io::Write;
+    let temp_dir = std::env::temp_dir();
+    let file_path = temp_dir.join("vinrouge_data_preview.html");
+
+    std::fs::File::create(&file_path)
+        .and_then(|mut f| f.write_all(html.as_bytes()))
+        .map_err(|e| format!("Failed to write temp file: {e}"))?;
+
+    // Create window pointing to the temp file
+    let file_url = format!("file://{}", file_path.display());
+    let window = WebviewWindowBuilder::new(
+        &app,
+        "data-preview",
+        tauri::WebviewUrl::External(file_url.parse().unwrap())
+    )
+    .title("Data Preview")
+    .inner_size(1200.0, 800.0)
+    .build()
+    .map_err(|e| format!("Failed to create window: {e}"))?;
+
+    // Listen for window close event and emit to main window
+    let app_handle = app.clone();
+    window.on_window_event(move |event| {
+        if let tauri::WindowEvent::Destroyed = event {
+            // Emit event to main window that data preview was closed
+            let _ = app_handle.emit("data-preview-closed", ());
+        }
+    });
+
+    Ok(())
+}
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 fn main() {
@@ -1353,16 +1758,21 @@ fn main() {
             delete_project_file,
             get_data_file_headers,
             import_data_file,
+            save_column_mappings,
+            get_column_mappings,
             list_session_imports,
             get_session_rows,
             delete_session_import,
             get_session_schemas,
+            detect_data_relationships,
+            build_master_record,
             save_dsl_script,
             list_dsl_scripts,
             clear_dsl_scripts,
             run_dsl_script,
             list_test_results,
             update_dsl_script,
+            open_data_preview_window,
         ])
         .setup(|app| {
             // Auto-start Ollama when the desktop app launches.

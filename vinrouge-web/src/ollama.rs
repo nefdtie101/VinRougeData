@@ -300,9 +300,17 @@ pub async fn ask_audit_plan(
 
 /// Send file headers and PBC fields to Ollama and return a mapping.
 ///
-/// Both arrays are serialised to JSON strings and appended to the MAP_COLUMNS
-/// prompt. The model returns `{"mappings":[{"source":"...","target":"..."}]}`.
-/// Falls back gracefully: returns `Err` so the caller can use `normalize_map`.
+/// How many source columns to send per LLM call.
+/// Keeps each prompt well within the model's context window.
+const COLUMN_CHUNK_SIZE: usize = 20;
+
+/// Map source file headers to PBC fields using the LLM.
+///
+/// Columns are processed in chunks of [`COLUMN_CHUNK_SIZE`] so no single
+/// prompt overwhelms the model — the same pattern used by `ask_pbc_list` and
+/// `ask_audit_plan`.  The full PBC context is included in every chunk so the
+/// model has enough information to reason semantically regardless of which
+/// columns it is currently looking at.
 pub async fn ask_column_mapping(
     base_url: &str,
     model: &str,
@@ -314,93 +322,103 @@ pub async fn ask_column_mapping(
 
     log!("[column_mapping] starting — {} headers, {} pbc groups", headers.len(), pbc_groups.len());
 
-    // Build valid field set first — used both in the prompt and for post-filtering.
+    // Valid field set — used to reject hallucinated targets after each call.
     let valid_fields: std::collections::HashSet<String> = pbc_groups
         .iter()
         .flat_map(|g| g.items.iter())
         .flat_map(|i| i.fields.iter().cloned())
         .collect();
 
-    // Serialise headers to a JSON array string.
-    let headers_json = serde_json::to_string(headers).map_err(|e| e.to_string())?;
-    log!("[column_mapping] headers JSON: {}", headers_json);
-
-    // Build a compact PBC fields list: name + control_ref + fields per item.
-    let pbc_items: Vec<serde_json::Value> = pbc_groups
+    // Rich PBC context sent with every chunk so the model can reason about
+    // semantic meaning (e.g. "Loading Applied %" → "premium_loading").
+    // Items without fields are skipped — they carry no mappable targets.
+    let pbc_context: Vec<serde_json::Value> = pbc_groups
         .iter()
-        .flat_map(|g| g.items.iter())
-        .map(|item| {
-            serde_json::json!({
-                "control_ref": item.control_ref,
-                "name":        item.name,
-                "purpose":     item.purpose,
-                "fields":      item.fields
+        .flat_map(|g| {
+            g.items.iter().filter(|i| !i.fields.is_empty()).map(|item| {
+                serde_json::json!({
+                    "control_ref":    item.control_ref,
+                    "request_name":   item.name,
+                    "audit_purpose":  item.purpose,
+                    "required_fields": item.fields
+                })
             })
         })
         .collect();
-    let pbc_json = serde_json::to_string(&pbc_items).map_err(|e| e.to_string())?;
-    log!("[column_mapping] pbc JSON: {}", pbc_json);
+    let pbc_json = serde_json::to_string(&pbc_context).map_err(|e| e.to_string())?;
+    log!("[column_mapping] pbc context: {} items", pbc_context.len());
 
-    // Flat sorted list of allowed target fields to inject into the prompt.
+    // Flat sorted list of allowed target names — sent in every chunk prompt so
+    // the model can copy them character-for-character without digging into JSON.
     let mut allowed: Vec<String> = valid_fields.iter().cloned().collect();
     allowed.sort();
     let allowed_json = serde_json::to_string(&allowed).map_err(|e| e.to_string())?;
-    log!("[column_mapping] allowed fields: {}", allowed_json);
 
-    let prompt = format!(
-        "{MAP_COLUMNS}\
-         ALLOWED FIELDS:\n{allowed_json}\n\n\
-         SOURCE COLUMNS:\n{headers_json}\n\n\
-         DATA REQUESTS (context only):\n{pbc_json}"
-    );
-    log!("[column_mapping] sending prompt ({} chars) to {}  model={}", prompt.len(), base_url, model);
+    let chunks: Vec<&[String]> = headers.chunks(COLUMN_CHUNK_SIZE).collect();
+    let total = chunks.len();
+    let mut all_mappings: Vec<(String, String)> = Vec::new();
 
-    let raw = match ask_ollama_structured(base_url, model, &prompt, map_columns_schema()).await {
-        Ok(r) => {
-            log!("[column_mapping] raw response: {}", r);
-            r
+    for (i, chunk) in chunks.iter().enumerate() {
+        log!(
+            "[column_mapping] chunk {}/{} — {} columns",
+            i + 1, total, chunk.len()
+        );
+
+        let chunk_json = serde_json::to_string(chunk).map_err(|e| e.to_string())?;
+        let prompt = format!(
+            "{MAP_COLUMNS}\
+             ALLOWED FIELDS:\n{allowed_json}\n\n\
+             AUDIT DATA REQUESTS (context):\n{pbc_json}\n\n\
+             SOURCE COLUMNS (batch {} of {}):\n{chunk_json}",
+            i + 1, total
+        );
+        log!("[column_mapping] prompt {} chars", prompt.len());
+
+        let raw = match ask_ollama_structured(base_url, model, &prompt, map_columns_schema()).await {
+            Ok(r) => {
+                log!("[column_mapping] chunk {} response: {}", i + 1, r);
+                r
+            }
+            Err(e) => {
+                log!("[column_mapping] chunk {} ollama error: {}", i + 1, e);
+                // On error fall through — unmapped columns will get "" via normalize_map fallback
+                continue;
+            }
+        };
+
+        let v: serde_json::Value = match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(e) => {
+                log!("[column_mapping] chunk {} parse error: {}", i + 1, e);
+                continue;
+            }
+        };
+
+        if let Some(arr) = v["mappings"].as_array() {
+            for m in arr {
+                let src = match m["source"].as_str() {
+                    Some(s) => s.to_string(),
+                    None => continue,
+                };
+                let tgt = m["target"].as_str().unwrap_or("").to_string();
+                let tgt = if tgt.is_empty() || valid_fields.contains(&tgt) {
+                    tgt
+                } else {
+                    log!("[column_mapping] rejected '{}' for '{}'", tgt, src);
+                    String::new()
+                };
+                all_mappings.push((src, tgt));
+            }
+        } else {
+            log!("[column_mapping] chunk {} missing mappings key", i + 1);
         }
-        Err(e) => {
-            log!("[column_mapping] ollama error: {}", e);
-            return Err(e);
-        }
-    };
+    }
 
-    // Parse {"mappings":[{"source":"...","target":"..."}]}
-    let v: serde_json::Value = match serde_json::from_str(&raw) {
-        Ok(v) => v,
-        Err(e) => {
-            log!("[column_mapping] JSON parse error: {}", e);
-            return Err(format!("Parse error: {e}"));
-        }
-    };
-
-    let arr = match v["mappings"].as_array() {
-        Some(a) => a,
-        None => {
-            log!("[column_mapping] no 'mappings' key in response — full value: {:?}", v);
-            return Err("No mappings array".to_string());
-        }
-    };
-
-    let result: Vec<(String, String)> = arr
-        .iter()
-        .filter_map(|m| {
-            let src = m["source"].as_str()?.to_string();
-            let tgt = m["target"].as_str().unwrap_or("").to_string();
-            // Discard targets the LLM invented that aren't real PBC fields.
-            let tgt = if tgt.is_empty() || valid_fields.contains(&tgt) {
-                tgt
-            } else {
-                log!("[column_mapping] rejected hallucinated target '{}' for source '{}'", tgt, src);
-                String::new()
-            };
-            Some((src, tgt))
-        })
-        .collect();
-
-    log!("[column_mapping] mapped {} columns: {:?}", result.len(), result);
-    Ok(result)
+    log!("[column_mapping] done — {} mappings total: {:?}", all_mappings.len(), all_mappings);
+    if all_mappings.is_empty() {
+        return Err("No mappings returned by LLM".to_string());
+    }
+    Ok(all_mappings)
 }
 
 use crate::types::AnalysisResult;

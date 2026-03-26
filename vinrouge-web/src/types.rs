@@ -103,9 +103,30 @@ pub struct SessionImport {
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct SessionSchema {
     pub import_id: String,
+    pub source_type: String,
     pub table_name: String,
     pub columns: Vec<String>,
     pub row_count: usize,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct RelCandidate {
+    pub left_import_id: String,
+    pub left_table: String,
+    pub left_col: String,
+    pub right_import_id: String,
+    pub right_table: String,
+    pub right_col: String,
+    pub confidence: u8,
+    pub overlap_count: usize,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct JoinSpec {
+    pub left_import_id: String,
+    pub left_col: String,
+    pub right_import_id: String,
+    pub right_col: String,
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]
