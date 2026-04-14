@@ -257,7 +257,7 @@ pub fn Step5View(
                 </span>
                 <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
                     <GhostButton label="Back" back=true
-                        on_click=Callback::new(move |()| audit_ui_step.set(5)) />
+                        on_click=Callback::new(move |()| audit_ui_step.set(6)) />
                 </div>
             </div>
 

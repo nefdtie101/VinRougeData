@@ -107,6 +107,8 @@ pub struct SessionSchema {
     pub table_name: String,
     pub columns: Vec<String>,
     pub row_count: usize,
+    /// (original_col_name, pbc_col_name) for non-master imports; empty for master.
+    pub col_map: Vec<(String, String)>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]

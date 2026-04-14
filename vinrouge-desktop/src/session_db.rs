@@ -154,10 +154,17 @@ impl<'a> SessionDb<'a> {
             Ok::<_, String>((headers, data))
         })?;
 
+        // Store rows with ORIGINAL column names. PBC renaming is applied only
+        // when building the master record so non-master tabs show source schema.
         let rows: Vec<HashMap<String, String>> = data
             .iter()
-            .map(|row| Self::apply_mappings(row, &headers, mappings))
-            .filter(|m| !m.is_empty())
+            .map(|row| {
+                headers.iter().zip(row.iter())
+                    .filter(|(h, _)| !h.trim().is_empty())
+                    .map(|(h, v)| (h.clone(), v.clone()))
+                    .collect()
+            })
+            .filter(|m: &HashMap<String, String>| !m.is_empty())
             .collect();
 
         self.write_import(file_id, "csv", name, mappings, rows)
@@ -165,6 +172,8 @@ impl<'a> SessionDb<'a> {
 
     // ── Excel import ──────────────────────────────────────────────────────────
 
+    /// Import an Excel file. Each sheet becomes its own import/table.
+    /// Returns the list of import IDs created (one per sheet).
     pub fn import_excel(
         &self,
         file_id: Option<&str>,
@@ -172,15 +181,14 @@ impl<'a> SessionDb<'a> {
         bytes: Vec<u8>,
         mappings: &[(String, String)],
         sheet: Option<&str>,
-    ) -> Result<String, String> {
+    ) -> Result<Vec<String>, String> {
         let rt = Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|e| e.to_string())?;
 
-        // When a specific sheet is requested import only that sheet.
-        // Otherwise iterate every sheet so no data is missed.
-        let rows: Vec<HashMap<String, String>> = rt.block_on(async {
+        // Collect (sheet_name, rows) pairs — each sheet gets its own import.
+        let sheets: Vec<(String, Vec<HashMap<String, String>>)> = rt.block_on(async {
             let src = ExcelSource::from_bytes(bytes.clone(), name.to_string());
 
             let sheet_names: Vec<String> = match sheet {
@@ -188,7 +196,7 @@ impl<'a> SessionDb<'a> {
                 None => src.sheet_names().map_err(|e| e.to_string())?,
             };
 
-            let mut all_rows: Vec<HashMap<String, String>> = Vec::new();
+            let mut result = Vec::new();
 
             for sh in &sheet_names {
                 let mut src = ExcelSource::from_bytes(bytes.clone(), name.to_string())
@@ -200,17 +208,55 @@ impl<'a> SessionDb<'a> {
                     .flat_map(|t| t.columns.into_iter().map(|c| c.name))
                     .collect();
 
-                let data = src.read_data().await.map_err(|e| e.to_string())?;
+                if headers.is_empty() {
+                    continue; // skip empty/hidden sheets
+                }
 
-                for row in &data {
-                    all_rows.push(Self::apply_mappings(row, &headers, mappings));
+                let data = src.read_data().await.map_err(|e| e.to_string())?;
+                // Store rows with ORIGINAL column names. PBC renaming is applied only
+                // when building the master record so non-master tabs show source schema.
+                let rows: Vec<HashMap<String, String>> = data
+                    .iter()
+                    .map(|row| {
+                        headers.iter().zip(row.iter())
+                            .filter(|(h, _)| !h.trim().is_empty())
+                            .map(|(h, v)| (h.clone(), v.clone()))
+                            .collect()
+                    })
+                    .filter(|m: &HashMap<String, String>| !m.is_empty())
+                    .collect();
+
+                if !rows.is_empty() {
+                    result.push((sh.clone(), rows));
                 }
             }
 
-            Ok::<_, String>(all_rows)
+            Ok::<_, String>(result)
         })?;
 
-        self.write_import(file_id, "excel", name, mappings, rows)
+        // Build a source name per sheet: "filename.xlsx [SheetName]"
+        // so each sheet appears as a distinct table in the UI.
+        let stem = std::path::Path::new(name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(name);
+
+        let mut import_ids = Vec::new();
+        for (sheet_name, rows) in sheets {
+            let source_name = if sheet_name == stem || sheets_count_is_one(sheet, name) {
+                name.to_string()
+            } else {
+                format!("{} [{}]", name, sheet_name)
+            };
+            let id = self.write_import(file_id, "excel", &source_name, mappings, rows)?;
+            import_ids.push(id);
+        }
+
+        if import_ids.is_empty() {
+            return Err("No data found in any sheet".to_string());
+        }
+
+        Ok(import_ids)
     }
 
     // ── SQL / pre-parsed import ───────────────────────────────────────────────
@@ -292,6 +338,35 @@ impl<'a> SessionDb<'a> {
                     })
                 },
             )
+            .collect()
+    }
+
+    pub fn get_rows_paged(
+        &self,
+        import_id: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<HashMap<String, String>>, String> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT data_json FROM session_rows \
+                 WHERE import_id = ?1 ORDER BY row_index ASC LIMIT ?2 OFFSET ?3",
+            )
+            .map_err(|e| e.to_string())?;
+        let jsons = stmt
+            .query_map(rusqlite::params![import_id, limit as i64, offset as i64], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        jsons
+            .into_iter()
+            .map(|json| {
+                serde_json::from_str::<HashMap<String, String>>(&json)
+                    .map_err(|e| format!("Corrupt session row: {e}"))
+            })
             .collect()
     }
 
@@ -438,6 +513,9 @@ impl<'a> SessionDb<'a> {
     /// Detect join relationships across all non-master imports using:
     ///  - `RelationshipDetector` (name + FK pattern matching)
     ///  - Value overlap sampling for scoring
+    /// Only returns relationships where one side is the primary table
+    /// (the import with the most rows), so secondary-to-secondary joins
+    /// are never surfaced.
     pub fn detect_data_relationships(&self) -> Result<Vec<RelCandidate>, String> {
         let imports = self.list_imports()?;
         let imports: Vec<&SessionImport> = imports
@@ -448,6 +526,13 @@ impl<'a> SessionDb<'a> {
         if imports.len() < 2 {
             return Ok(vec![]);
         }
+
+        // The primary table is the one with the most rows.
+        let primary_id = imports
+            .iter()
+            .max_by_key(|i| i.row_count)
+            .map(|i| i.id.clone())
+            .unwrap_or_default();
 
         let mut tables: Vec<SchemaTable> = Vec::new();
         let mut table_to_import: HashMap<String, String> = HashMap::new();
@@ -476,6 +561,11 @@ impl<'a> SessionDb<'a> {
         for rel in &relationships {
             let Some(lid) = table_to_import.get(&rel.from_table) else { continue };
             let Some(rid) = table_to_import.get(&rel.to_table) else { continue };
+
+            // Only keep relationships that involve the primary table on one side.
+            if lid != &primary_id && rid != &primary_id {
+                continue;
+            }
 
             let key = (lid.clone(), rel.from_column.clone(), rid.clone(), rel.to_column.clone());
             if !seen.insert(key) {
@@ -583,7 +673,8 @@ impl<'a> SessionDb<'a> {
             let mut map: HashMap<String, HashMap<String, String>> = HashMap::new();
             for row in sec_rows {
                 if let Some(k) = row.get(sec_col).cloned() {
-                    if !k.trim().is_empty() {
+                    let k = k.trim().to_lowercase();
+                    if !k.is_empty() {
                         map.entry(k).or_insert(row);
                     }
                 }
@@ -609,7 +700,9 @@ impl<'a> SessionDb<'a> {
                 let key = row
                     .get(&lookup.primary_col)
                     .cloned()
-                    .unwrap_or_default();
+                    .unwrap_or_default()
+                    .trim()
+                    .to_lowercase();
                 if let Some(sec_row) = lookup.map.get(&key) {
                     for (k, v) in sec_row {
                         if k == &lookup.secondary_col {
@@ -627,12 +720,30 @@ impl<'a> SessionDb<'a> {
             merged.push(row);
         }
 
+        // Apply primary table's PBC column mapping so master has standardised field names.
+        let pbc_map: HashMap<&str, &str> = primary.mappings
+            .iter()
+            .filter(|(src, tgt)| !src.is_empty() && !tgt.is_empty())
+            .map(|(src, tgt)| (src.as_str(), tgt.as_str()))
+            .collect();
+
+        let final_rows: Vec<HashMap<String, String>> = if pbc_map.is_empty() {
+            merged
+        } else {
+            merged.into_iter().map(|row| {
+                row.into_iter().map(|(k, v)| {
+                    let new_k = pbc_map.get(k.as_str()).copied().unwrap_or(k.as_str());
+                    (new_k.to_string(), v)
+                }).collect()
+            }).collect()
+        };
+
         // Remove any previous master record
         for imp in imports.iter().filter(|i| i.source_type == "master") {
             self.delete_import(&imp.id)?;
         }
 
-        self.write_import(None, "master", "Master Record", &[], merged)
+        self.write_import(None, "master", "Master Record", &[], final_rows)
     }
 
     pub fn delete_import(&self, import_id: &str) -> Result<(), String> {
@@ -653,6 +764,10 @@ impl<'a> SessionDb<'a> {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn sheets_count_is_one(sheet: Option<&str>, _name: &str) -> bool {
+    sheet.is_some() // if a specific sheet was requested, it's a single-sheet import
+}
 
 fn stem_from_source(source_name: &str) -> String {
     std::path::Path::new(source_name)

@@ -357,6 +357,8 @@ pub async fn ask_column_mapping(
     let chunks: Vec<&[String]> = headers.chunks(COLUMN_CHUNK_SIZE).collect();
     let total = chunks.len();
     let mut all_mappings: Vec<(String, String)> = Vec::new();
+    // Track used targets across chunks so each subsequent chunk knows what's already claimed.
+    let mut used_targets: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for (i, chunk) in chunks.iter().enumerate() {
         log!(
@@ -364,13 +366,24 @@ pub async fn ask_column_mapping(
             i + 1, total, chunk.len()
         );
 
-        let chunk_json = serde_json::to_string(chunk).map_err(|e| e.to_string())?;
+        // Number the source columns so the model must process them in order.
+        let numbered: Vec<String> = chunk.iter().enumerate()
+            .map(|(j, h)| format!("{}. {}", j + 1, h))
+            .collect();
+        let chunk_json = serde_json::to_string(&numbered).map_err(|e| e.to_string())?;
+
+        // Tell the model which targets are already taken by previous chunks.
+        let mut taken: Vec<String> = used_targets.iter().cloned().collect();
+        taken.sort();
+        let taken_json = serde_json::to_string(&taken).map_err(|e| e.to_string())?;
+
         let prompt = format!(
             "{MAP_COLUMNS}\
              ALLOWED FIELDS:\n{allowed_json}\n\n\
              AUDIT DATA REQUESTS (context):\n{pbc_json}\n\n\
-             SOURCE COLUMNS (batch {} of {}):\n{chunk_json}",
-            i + 1, total
+             ALREADY ASSIGNED (do NOT use these targets — they are taken):\n{taken_json}\n\n\
+             SOURCE COLUMNS — output EXACTLY {} entries, one per column:\n{chunk_json}",
+            chunk.len()
         );
         log!("[column_mapping] prompt {} chars", prompt.len());
 
@@ -381,7 +394,10 @@ pub async fn ask_column_mapping(
             }
             Err(e) => {
                 log!("[column_mapping] chunk {} ollama error: {}", i + 1, e);
-                // On error fall through — unmapped columns will get "" via normalize_map fallback
+                // On error, emit unmapped entries for every column in this chunk.
+                for col in chunk.iter() {
+                    all_mappings.push((col.clone(), String::new()));
+                }
                 continue;
             }
         };
@@ -390,9 +406,16 @@ pub async fn ask_column_mapping(
             Ok(v) => v,
             Err(e) => {
                 log!("[column_mapping] chunk {} parse error: {}", i + 1, e);
+                for col in chunk.iter() {
+                    all_mappings.push((col.clone(), String::new()));
+                }
                 continue;
             }
         };
+
+        // Build a set of the actual source column names in this chunk for validation.
+        let chunk_set: std::collections::HashSet<&str> =
+            chunk.iter().map(|s| s.as_str()).collect();
 
         if let Some(arr) = v["mappings"].as_array() {
             for m in arr {
@@ -400,13 +423,26 @@ pub async fn ask_column_mapping(
                     Some(s) => s.to_string(),
                     None => continue,
                 };
+                // Reject sources that aren't in this chunk (model hallucinated column names).
+                if !chunk_set.contains(src.as_str()) {
+                    log!("[column_mapping] rejected unknown source '{}' in chunk {}", src, i + 1);
+                    continue;
+                }
                 let tgt = m["target"].as_str().unwrap_or("").to_string();
-                let tgt = if tgt.is_empty() || valid_fields.contains(&tgt) {
+                let tgt = if tgt.is_empty() {
                     tgt
-                } else {
-                    log!("[column_mapping] rejected '{}' for '{}'", tgt, src);
+                } else if !valid_fields.contains(&tgt) {
+                    log!("[column_mapping] rejected hallucinated target '{}' for '{}'", tgt, src);
                     String::new()
+                } else if used_targets.contains(&tgt) {
+                    log!("[column_mapping] demoted '{}' → '{}': target already taken", src, tgt);
+                    String::new()
+                } else {
+                    tgt
                 };
+                if !tgt.is_empty() {
+                    used_targets.insert(tgt.clone());
+                }
                 all_mappings.push((src, tgt));
             }
         } else {
@@ -414,7 +450,24 @@ pub async fn ask_column_mapping(
         }
     }
 
-    log!("[column_mapping] done — {} mappings total: {:?}", all_mappings.len(), all_mappings);
+    log!("[column_mapping] done — {} raw mappings", all_mappings.len());
+
+    // Final dedup: remove any duplicate source entries the model may have produced within a chunk.
+    // Target uniqueness is already guaranteed by `used_targets` maintained during the loop.
+    let mut seen_sources: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let all_mappings: Vec<(String, String)> = all_mappings
+        .into_iter()
+        .filter_map(|(src, tgt)| {
+            if seen_sources.contains(&src) {
+                log!("[column_mapping] dropped duplicate source '{}'", src);
+                return None;
+            }
+            seen_sources.insert(src.clone());
+            Some((src, tgt))
+        })
+        .collect();
+
+    log!("[column_mapping] {} mappings after dedup", all_mappings.len());
     if all_mappings.is_empty() {
         return Err("No mappings returned by LLM".to_string());
     }

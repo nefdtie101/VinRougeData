@@ -8,6 +8,9 @@ use vinrouge::audit_prompts::{dsl_script_schema, GENERATE_DSL};
 use super::types::{Phase, ScriptStatus, ScriptState};
 use super::prompts::{build_schema_section, build_plan_section};
 
+// Note: relationship detection is handled directly in step4a/view.rs.
+// This pipeline only contains do_load_or_generate (used by step4b).
+
 pub async fn do_load_or_generate(
     audit_plan:      RwSignal<Vec<AuditProcessWithControls>>,
     phase:           RwSignal<Phase>,
@@ -68,27 +71,10 @@ pub async fn do_load_or_generate(
         }
     }
 
-    // 2b. Load preview from master (or first import if no master)
-    let preview_source_schema = master
-        .or_else(|| session_schemas.first())
-        .cloned();
-
-    if let Some(s) = preview_source_schema {
-        let import_id = s.import_id.clone();
-        let cols      = s.columns.clone();
-        preview_source.set(s.table_name.clone());
-        preview_cols.set(cols.clone());
-
-        if let Ok(raw_rows) = tauri_invoke_args::<Vec<HashMap<String, String>>>(
-            "get_session_rows",
-            serde_json::json!({ "importId": import_id }),
-        ).await {
-            let rows: Vec<Vec<String>> = raw_rows.into_iter().take(200).map(|row| {
-                cols.iter().map(|c| row.get(c).cloned().unwrap_or_default()).collect()
-            }).collect();
-            preview_rows.set(rows);
-        }
-    }
+    // 2b. Preview data is loaded by the tab-selection Effect in the view,
+    //     not here, to avoid a race where the pipeline overwrites a tab the
+    //     user has already clicked.  We just make sure selected_preview_id
+    //     is cleared so the Effect fires when schemas are set below.
 
     // 3. Load PBC context
     let pbc_groups: Vec<PbcGroup> =

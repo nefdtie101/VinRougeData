@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Program Files/OpenSSL-Win64/lib/VC/x64/**)",
+      "Read(//c/Program Files/OpenSSL-Win64/include/**)",
+      "Bash(rm \"C:/Users/johan/RustroverProjects/VinRougeData/vinrouge-desktop/.cargo/config.toml\")",
+      "Bash(rmdir \"C:/Users/johan/RustroverProjects/VinRougeData/vinrouge-desktop/.cargo\")",
+      "Bash(winget install:*)",
+      "Bash(mkdir -p \"C:/Users/johan/RustroverProjects/VinRougeData/vinrouge-desktop/binaries/lib/ollama\")",
+      "Bash(touch \"C:/Users/johan/RustroverProjects/VinRougeData/vinrouge-desktop/binaries/lib/ollama/.gitkeep\")",
+      "Bash(rm \"C:/Users/johan/RustroverProjects/VinRougeData/vinrouge-desktop/binaries/lib/ollama/.gitkeep\")",
+      "Bash(touch \"C:/Users/johan/RustroverProjects/VinRougeData/vinrouge-desktop/binaries/lib/ollama/placeholder\")",
+      "Bash(cargo check:*)",
+      "Bash(cargo tauri:*)",
+      "Bash(where perl:*)",
+      "Bash(/c/Strawberry/perl/bin/perl --version)",
+      "Bash(taskkill //F //IM \"vinrouge-desktop.exe\")",
+      "Bash(cargo build:*)",
+      "Bash(trunk build:*)"
+    ]
+  }
+}

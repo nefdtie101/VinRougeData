@@ -646,29 +646,38 @@ async fn get_data_file_headers(
 /// empty or missing target are stored under their original source column name.
 /// Returns the new `import_id`.
 #[tauri::command]
-fn import_data_file(
+async fn import_data_file(
     file_id: String,
     mappings: Vec<(String, String)>,
     sheet: Option<String>,
-    state: tauri::State<ProjectsState>,
+    state: tauri::State<'_, ProjectsState>,
 ) -> Result<String, String> {
     let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    let path = projects::get_file_path(&project_dir, &file_id)?;
-    let bytes = std::fs::read(&path).map_err(|e| format!("Read error: {e}"))?;
-    let name = path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
-    let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
-    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
-    let db = session_db::SessionDb::new(&conn);
+    tokio::task::spawn_blocking(move || {
+        let path = projects::get_file_path(&project_dir, &file_id)?;
+        let bytes = std::fs::read(&path).map_err(|e| format!("Read error: {e}"))?;
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
+        let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+        let db = session_db::SessionDb::new(&conn);
 
-    match ext.as_str() {
-        "csv" => db.import_csv(Some(&file_id), &name, bytes, &mappings),
-        "xlsx" | "xls" => db.import_excel(Some(&file_id), &name, bytes, &mappings, sheet.as_deref()),
-        _ => Err(format!("Unsupported file type: .{ext}")),
-    }
+        match ext.as_str() {
+            "csv" => db.import_csv(Some(&file_id), &name, bytes, &mappings),
+            "xlsx" | "xls" => {
+                // Each sheet becomes its own import; return the first ID as a
+                // simple acknowledgement (the caller discards the value).
+                db.import_excel(Some(&file_id), &name, bytes, &mappings, sheet.as_deref())
+                    .map(|ids| ids.into_iter().next().unwrap_or_default())
+            }
+            _ => Err(format!("Unsupported file type: .{ext}")),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Persist the column mappings for a project file so they survive navigation.
@@ -730,6 +739,23 @@ fn get_session_rows(
     let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
     let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
     session_db::SessionDb::new(&conn).get_rows(&import_id)
+}
+
+/// Fetch a page of rows for a specific import.
+#[tauri::command]
+async fn get_session_rows_paged(
+    import_id: String,
+    offset: usize,
+    limit: usize,
+    state: tauri::State<'_, ProjectsState>,
+) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    tokio::task::spawn_blocking(move || {
+        let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+        session_db::SessionDb::new(&conn).get_rows_paged(&import_id, offset, limit)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Delete a session import and all its rows.
@@ -1159,74 +1185,105 @@ pub struct SessionSchema {
     pub table_name: String,
     pub columns: Vec<String>,
     pub row_count: usize,
+    /// (original_col_name, pbc_col_name) pairs for non-master imports; empty for master.
+    pub col_map: Vec<(String, String)>,
 }
 
 /// Return one SessionSchema per import.
 /// Columns include both mapped (PBC field name) and unmapped (original source name).
 /// Master imports get their column list by sampling the first stored row.
 #[tauri::command]
-fn get_session_schemas(
-    state: tauri::State<ProjectsState>,
+async fn get_session_schemas(
+    state: tauri::State<'_, ProjectsState>,
 ) -> Result<Vec<SessionSchema>, String> {
     let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
-    let db = session_db::SessionDb::new(&conn);
-    let imports = db.list_imports()?;
-
-    imports
-        .into_iter()
-        .map(|imp| {
-            let table_name = table_name_from_source(&imp.source_name);
-            let columns: Vec<String> = if imp.mappings.is_empty() {
-                // Master record: derive columns from the first stored row
-                db.get_import_columns(&imp.id).unwrap_or_default()
-            } else {
-                imp.mappings
-                    .iter()
-                    .map(|(src, tgt)| if tgt.is_empty() { src.clone() } else { tgt.clone() })
-                    .filter(|n| !n.trim().is_empty())
-                    .collect()
-            };
-            Ok(SessionSchema {
-                import_id: imp.id,
-                source_type: imp.source_type,
-                table_name,
-                columns,
-                row_count: imp.row_count,
+    tokio::task::spawn_blocking(move || {
+        let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+        let db = session_db::SessionDb::new(&conn);
+        let imports = db.list_imports()?;
+        imports
+            .into_iter()
+            .map(|imp| {
+                let table_name = table_name_from_source(&imp.source_name);
+                let is_master = imp.source_type == "master";
+                // Always read column names from the first stored row.
+                // Non-master rows store original source names; master rows store PBC names.
+                let columns: Vec<String> = db.get_import_columns(&imp.id).unwrap_or_default();
+                // col_map: (original_name, pbc_name) — only for non-master so the data
+                // preview can display original file column names instead of PBC aliases.
+                let col_map: Vec<(String, String)> = if is_master || imp.mappings.is_empty() {
+                    vec![]
+                } else {
+                    imp.mappings
+                        .iter()
+                        .filter(|(src, _)| !src.trim().is_empty())
+                        .map(|(src, tgt)| {
+                            let pbc = if tgt.is_empty() { src.clone() } else { tgt.clone() };
+                            (src.clone(), pbc)
+                        })
+                        .collect()
+                };
+                Ok(SessionSchema {
+                    import_id: imp.id,
+                    source_type: imp.source_type,
+                    table_name,
+                    columns,
+                    row_count: imp.row_count,
+                    col_map,
+                })
             })
-        })
-        .collect()
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Detect likely join keys across all non-master session imports.
 #[tauri::command]
-fn detect_data_relationships(
-    state: tauri::State<ProjectsState>,
+async fn detect_data_relationships(
+    state: tauri::State<'_, ProjectsState>,
 ) -> Result<Vec<session_db::RelCandidate>, String> {
     let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
-    session_db::SessionDb::new(&conn).detect_data_relationships()
+    tokio::task::spawn_blocking(move || {
+        let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+        session_db::SessionDb::new(&conn).detect_data_relationships()
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Hash-join imports by the confirmed JoinSpecs and persist the result as a
 /// "master" session import.  Returns the new import_id.
 #[tauri::command]
-fn build_master_record(
+async fn build_master_record(
     joins: Vec<session_db::JoinSpec>,
-    state: tauri::State<ProjectsState>,
+    state: tauri::State<'_, ProjectsState>,
 ) -> Result<String, String> {
     let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
-    session_db::SessionDb::new(&conn).build_master_record(joins)
+    tokio::task::spawn_blocking(move || {
+        let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+        session_db::SessionDb::new(&conn).build_master_record(joins)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Derive a DSL table name from a file's source_name (e.g. "Sales Data.xlsx" → "sales_data").
 fn table_name_from_source(source_name: &str) -> String {
-    let stem = std::path::Path::new(source_name)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(source_name);
-    stem.chars()
+    // If the source name contains a sheet suffix like "file.xlsx [SheetName]",
+    // use the sheet name as the table name so each sheet gets a distinct identifier.
+    let base = if let Some(start) = source_name.find('[') {
+        let sheet = &source_name[start + 1..];
+        let sheet = sheet.trim_end_matches(']').trim();
+        sheet
+    } else {
+        // No sheet suffix — use the file stem (name without extension)
+        std::path::Path::new(source_name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(source_name)
+    };
+    base.chars()
         .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
         .collect::<String>()
         .split('_')
@@ -1269,11 +1326,21 @@ fn clear_dsl_scripts(
 /// Execute a saved DSL script against all session rows and save the results.
 /// Returns a JSON array of StatementResult objects.
 #[tauri::command]
-fn run_dsl_script(
+async fn run_dsl_script(
     script_id: String,
-    state: tauri::State<ProjectsState>,
+    state: tauri::State<'_, ProjectsState>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    tokio::task::spawn_blocking(move || run_dsl_script_blocking(script_id, project_dir))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn run_dsl_script_blocking(
+    script_id: String,
+    project_dir: std::path::PathBuf,
+) -> Result<Vec<serde_json::Value>, String> {
+    let project_dir = &project_dir;
     let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
 
     // Load the script text
@@ -1762,6 +1829,7 @@ fn main() {
             get_column_mappings,
             list_session_imports,
             get_session_rows,
+            get_session_rows_paged,
             delete_session_import,
             get_session_schemas,
             detect_data_relationships,

@@ -52,10 +52,7 @@ tracing = "0.1"
 clap = { version = "4.5", features = ["derive"] }
 
 # HTTP client (for Ollama integration)
-reqwest = { version = "0.12", features = ["json"] }
-
-# OpenSSL vendored so cross-compilation doesn't need system OpenSSL headers
-openssl = { version = "0.10", features = ["vendored"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 
 # Async runtime
 tokio = { version = "1.42", features = ["full"] }

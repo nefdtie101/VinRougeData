@@ -501,13 +501,14 @@ pub fn Step4View(
                         on_click=Callback::new(move |()| {
                             if !can_proceed() { return; }
                             let files = data_files.get_untracked();
+                            // Navigate immediately — imports run in the background.
+                            // Step 4a will wait for the data to appear.
+                            audit_ui_step.set(5);
                             spawn_local(async move {
                                 for df in files {
                                     if df.columns.is_empty() { continue; }
                                     let mapped = df.mappings.clone();
 
-                                    // For browser files: save bytes to project first.
-                                    // For already-saved files: use their existing ID.
                                     let file_id = match df.source {
                                         FileSource::Browser(browser_file) => {
                                             let bytes = match read_file_bytes(&browser_file).await {
@@ -541,7 +542,6 @@ pub fn Step4View(
                                     )
                                     .await;
                                 }
-                                audit_ui_step.set(5);
                             });
                         })
                     />

@@ -473,26 +473,29 @@ pub const GENERATE_DSL: &str =
 pub const MAP_COLUMNS: &str =
     "You are a senior audit data analyst performing column mapping for an audit engagement.\n\n\
      You will receive:\n\
-     1. ALLOWED FIELDS — the complete list of valid target field names you may use.\n\
-     2. AUDIT DATA REQUESTS — PBC context explaining what each field means.\n\
-     3. SOURCE COLUMNS — column names extracted from the client's uploaded data file.\n\n\
+     1. ALLOWED FIELDS — all valid PBC target field names you may use.\n\
+     2. AUDIT DATA REQUESTS — context explaining each PBC field's meaning.\n\
+     3. ALREADY ASSIGNED — targets already used by previous batches; you must skip these.\n\
+     4. SOURCE COLUMNS — a numbered list of client file column names. THIS is your input.\n\n\
      YOUR TASK:\n\
-     For every source column, identify which ALLOWED FIELD it most likely represents — even if the \
-     names differ in language, abbreviation, formatting, or phrasing. Reason about business \
-     meaning, not just spelling.\n\n\
-     REASONING EXAMPLES:\n\
-     - \"Policyholder #\", \"Client ID\", \"Insured ID\", \"klant_id\" → policyholder_id\n\
-     - \"Loading Applied %\", \"Premium Load\", \"load_pct\" → premium_loading\n\
-     - \"BMS Disc\", \"Bonus-Malus %\", \"bms_discount_rate\" → bms\n\
-     - \"Appointed Actuary Sign-off Date\", \"actuary_approval_dt\" → approval_date\n\
-     - \"Transaction Dt\", \"Posting Date\", \"trans_datum\" → transaction_date\n\n\
-     RULES:\n\
-     - The \"target\" value must be copied EXACTLY as it appears in the ALLOWED FIELDS list — \
-       character for character, same case, same underscores.\n\
-     - Do NOT invent, normalise, or paraphrase field names.\n\
-     - If a column matches nothing in the allowed fields, set target to \"\".\n\
-     - Every source column must have an entry in the output — even unmapped ones (target = \"\").\n\
-     - Return ONLY valid JSON, no markdown fences, no explanation.\n\n";
+     Process SOURCE COLUMNS one by one, in order. For each numbered source column output exactly \
+     one JSON entry. Decide which ALLOWED FIELD (if any) that source column represents.\n\n\
+     ABSOLUTE RULES — any violation makes the output unusable:\n\
+     - Your \"mappings\" array must contain EXACTLY as many entries as there are source columns.\n\
+     - The \"source\" value must be the exact column name (without the number prefix).\n\
+     - Each ALLOWED FIELD may appear as a target AT MOST ONCE in your output.\n\
+     - Never use any field listed in ALREADY ASSIGNED.\n\
+     - Most source columns will NOT match any PBC field — that is correct and expected. \
+       Use \"\" when unsure. Do NOT force a match.\n\
+     - Copy \"target\" EXACTLY from ALLOWED FIELDS — same case, same underscores.\n\
+     - Do NOT invent or paraphrase target names.\n\
+     - Return ONLY valid JSON, no markdown fences, no explanation.\n\n\
+     EXAMPLE — 3 source columns, only 2 match, targets used only once:\n\
+     SOURCE COLUMNS: [\"1. klant_id\", \"2. load_pct\", \"3. invoice_ref\"]\n\
+     OUTPUT: {\"mappings\": [\
+     {\"source\":\"klant_id\",\"target\":\"Policyholder_ID\"},\
+     {\"source\":\"load_pct\",\"target\":\"Loading_Pct\"},\
+     {\"source\":\"invoice_ref\",\"target\":\"\"}]}\n\n";
 
 /// JSON Schema for column-mapping output.
 pub fn map_columns_schema() -> serde_json::Value {
