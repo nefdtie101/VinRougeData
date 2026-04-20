@@ -10,23 +10,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::runtime::Builder;
 use vinrouge::analysis::{DataProfiler, PatternType};
-use vinrouge::schema::{Column as SchemaColumn, DataType as SchemaDataType, RelationshipType, Table as SchemaTable};
+use vinrouge::schema::{Column as SchemaColumn, DataType as SchemaDataType, Table as SchemaTable};
 use vinrouge::sources::{CsvSource, DataSource, ExcelSource};
-use vinrouge::RelationshipDetector;
 
 // ── Public types ──────────────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RelCandidate {
-    pub left_import_id: String,
-    pub left_table: String,
-    pub left_col: String,
-    pub right_import_id: String,
-    pub right_table: String,
-    pub right_col: String,
-    pub confidence: u8,      // 0–100
-    pub overlap_count: usize,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JoinSpec {
@@ -441,7 +428,7 @@ impl<'a> SessionDb<'a> {
             .collect()
     }
 
-    fn sample_column(
+    pub fn sample_column(
         &self,
         import_id: &str,
         col: &str,
@@ -458,7 +445,7 @@ impl<'a> SessionDb<'a> {
     // ── Relationship detection ─────────────────────────────────────────────────
 
     /// Build a `SchemaTable` from a session import by profiling its stored rows.
-    fn build_schema_table(&self, imp: &SessionImport) -> Result<SchemaTable, String> {
+    pub fn build_schema_table(&self, imp: &SessionImport) -> Result<SchemaTable, String> {
         // Column names in a stable order: use mappings (tgt if mapped, src if not)
         let col_names: Vec<String> = imp
             .mappings
@@ -508,107 +495,6 @@ impl<'a> SessionDb<'a> {
         }
 
         Ok(table)
-    }
-
-    /// Detect join relationships across all non-master imports using:
-    ///  - `RelationshipDetector` (name + FK pattern matching)
-    ///  - Value overlap sampling for scoring
-    /// Only returns relationships where one side is the primary table
-    /// (the import with the most rows), so secondary-to-secondary joins
-    /// are never surfaced.
-    pub fn detect_data_relationships(&self) -> Result<Vec<RelCandidate>, String> {
-        let imports = self.list_imports()?;
-        let imports: Vec<&SessionImport> = imports
-            .iter()
-            .filter(|i| i.source_type != "master")
-            .collect();
-
-        if imports.len() < 2 {
-            return Ok(vec![]);
-        }
-
-        // The primary table is the one with the most rows.
-        let primary_id = imports
-            .iter()
-            .max_by_key(|i| i.row_count)
-            .map(|i| i.id.clone())
-            .unwrap_or_default();
-
-        let mut tables: Vec<SchemaTable> = Vec::new();
-        let mut table_to_import: HashMap<String, String> = HashMap::new();
-
-        for imp in &imports {
-            match self.build_schema_table(imp) {
-                Ok(t) => {
-                    table_to_import.insert(t.full_name.clone(), imp.id.clone());
-                    tables.push(t);
-                }
-                Err(e) => eprintln!("[detect_relationships] skipping {}: {e}", imp.source_name),
-            }
-        }
-
-        if tables.len() < 2 {
-            return Ok(vec![]);
-        }
-
-        let mut detector = RelationshipDetector::new(tables);
-        let relationships = detector.detect_relationships();
-
-        let mut seen: std::collections::HashSet<(String, String, String, String)> =
-            std::collections::HashSet::new();
-        let mut candidates: Vec<RelCandidate> = Vec::new();
-
-        for rel in &relationships {
-            let Some(lid) = table_to_import.get(&rel.from_table) else { continue };
-            let Some(rid) = table_to_import.get(&rel.to_table) else { continue };
-
-            // Only keep relationships that involve the primary table on one side.
-            if lid != &primary_id && rid != &primary_id {
-                continue;
-            }
-
-            let key = (lid.clone(), rel.from_column.clone(), rid.clone(), rel.to_column.clone());
-            if !seen.insert(key) {
-                continue;
-            }
-
-            let name_conf: u8 = match &rel.relationship_type {
-                RelationshipType::ForeignKey => 95,
-                RelationshipType::NameMatch { confidence } => *confidence,
-                RelationshipType::UniquePattern => 70,
-                RelationshipType::Composite => 85,
-                RelationshipType::ValueOverlap { overlap_percent } => *overlap_percent,
-            };
-
-            // Value overlap on up to 200 sample rows
-            let lv = self.sample_column(lid, &rel.from_column, 200)?;
-            let rv = self.sample_column(rid, &rel.to_column, 200)?;
-            let rv_set: std::collections::HashSet<&str> =
-                rv.iter().map(|s| s.as_str()).collect();
-            let overlap = lv.iter().filter(|v| rv_set.contains(v.as_str())).count();
-            let overlap_ratio = if lv.is_empty() {
-                0.0_f64
-            } else {
-                overlap as f64 / lv.len().min(rv.len()).max(1) as f64
-            };
-
-            // 60 % name / pattern confidence + 40 % value overlap
-            let confidence = ((name_conf as f64 * 0.6) + (overlap_ratio * 100.0 * 0.4)) as u8;
-
-            candidates.push(RelCandidate {
-                left_import_id: lid.clone(),
-                left_table: rel.from_table.clone(),
-                left_col: rel.from_column.clone(),
-                right_import_id: rid.clone(),
-                right_table: rel.to_table.clone(),
-                right_col: rel.to_column.clone(),
-                confidence: confidence.min(100),
-                overlap_count: overlap,
-            });
-        }
-
-        candidates.sort_by(|a, b| b.confidence.cmp(&a.confidence));
-        Ok(candidates)
     }
 
     // ── Master record builder ──────────────────────────────────────────────────

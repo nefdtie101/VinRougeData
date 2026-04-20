@@ -100,20 +100,55 @@ impl RelationshipDetector {
                 }
             }
 
-            // Create relationships: foreign keys -> keys
+            // Case 1: Classic FK → PK (different classification on each side)
             for (fk_table, fk_column) in &potential_foreign_keys {
                 for (pk_table, pk_column) in &potential_keys {
                     if fk_table != pk_table {
-                        // Avoid self-references for now
-                        // Calculate confidence based on naming
-                        let confidence = 85; // High confidence for exact name match
-
+                        let confidence = 85;
                         let relationship = Relationship::new(
                             fk_table.clone(),
                             fk_column.clone(),
                             pk_table.clone(),
                             pk_column.clone(),
                             RelationshipType::NameMatch { confidence },
+                        );
+                        self.relationships.push(relationship);
+                    }
+                }
+            }
+
+            // Case 2: All occurrences look like keys (e.g. shared `policyholder_id`).
+            // Relate every pair — value-overlap scoring will filter out false positives.
+            if potential_foreign_keys.is_empty() && potential_keys.len() >= 2 {
+                for i in 0..potential_keys.len() {
+                    for j in (i + 1)..potential_keys.len() {
+                        let (ta, ca) = &potential_keys[i];
+                        let (tb, cb) = &potential_keys[j];
+                        let relationship = Relationship::new(
+                            ta.clone(),
+                            ca.clone(),
+                            tb.clone(),
+                            cb.clone(),
+                            RelationshipType::NameMatch { confidence: 80 },
+                        );
+                        self.relationships.push(relationship);
+                    }
+                }
+            }
+
+            // Case 3: Shared non-id column (e.g. `department`).
+            // Both sides look like data columns rather than keys; still worth surfacing.
+            if potential_keys.is_empty() && potential_foreign_keys.len() >= 2 {
+                for i in 0..potential_foreign_keys.len() {
+                    for j in (i + 1)..potential_foreign_keys.len() {
+                        let (ta, ca) = &potential_foreign_keys[i];
+                        let (tb, cb) = &potential_foreign_keys[j];
+                        let relationship = Relationship::new(
+                            ta.clone(),
+                            ca.clone(),
+                            tb.clone(),
+                            cb.clone(),
+                            RelationshipType::NameMatch { confidence: 60 },
                         );
                         self.relationships.push(relationship);
                     }

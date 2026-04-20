@@ -3,6 +3,7 @@ mod grouping_analyzer;
 mod multi_value_detector;
 mod reconciliation;
 mod relationship_detector;
+mod relationship_scorer;
 mod workflow_detector;
 
 pub use data_profiler::{
@@ -20,4 +21,5 @@ pub use reconciliation::{
     FieldMismatch, ReconciliationConfig, ReconciliationResult, Reconciliator,
 };
 pub use relationship_detector::RelationshipDetector;
+pub use relationship_scorer::{RelCandidate, RelationshipScorer};
 pub use workflow_detector::{Workflow, WorkflowDetector, WorkflowStep, WorkflowType};

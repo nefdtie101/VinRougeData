@@ -9,7 +9,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, FilePath};
-use vinrouge::analysis::{RelationshipDetector, Workflow, WorkflowDetector};
+use vinrouge::analysis::{RelationshipDetector, RelationshipScorer, Workflow, WorkflowDetector};
+use vinrouge::RelCandidate;
 use vinrouge::dsl::{self, parse_value, InMemoryDataSource, StatementResult};
 use vinrouge::ollama;
 use vinrouge::projects;
@@ -1239,14 +1240,72 @@ async fn get_session_schemas(
 }
 
 /// Detect likely join keys across all non-master session imports.
+///
+/// Orchestration:
+///   1. Fetch imports + build schema tables  (session_db — SQLite)
+///   2. Run name/pattern detection           (RelationshipDetector — lib)
+///   3. Fetch value samples for each candidate (session_db — SQLite)
+///   4. Score candidates                     (RelationshipScorer — lib)
 #[tauri::command]
 async fn detect_data_relationships(
     state: tauri::State<'_, ProjectsState>,
-) -> Result<Vec<session_db::RelCandidate>, String> {
+) -> Result<Vec<RelCandidate>, String> {
     let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
     tokio::task::spawn_blocking(move || {
         let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
-        session_db::SessionDb::new(&conn).detect_data_relationships()
+        let db = session_db::SessionDb::new(&conn);
+
+        // Step 1 — load non-master imports and build schema tables
+        let all_imports = db.list_imports()?;
+        let imports: Vec<&session_db::SessionImport> = all_imports
+            .iter()
+            .filter(|i| i.source_type != "master")
+            .collect();
+
+        if imports.len() < 2 {
+            return Ok(vec![]);
+        }
+
+        let mut tables = Vec::new();
+        let mut table_to_import = std::collections::HashMap::new();
+
+        for imp in &imports {
+            match db.build_schema_table(imp) {
+                Ok(t) => {
+                    table_to_import.insert(t.full_name.clone(), imp.id.clone());
+                    tables.push(t);
+                }
+                Err(e) => eprintln!("[detect_relationships] skipping {}: {e}", imp.source_name),
+            }
+        }
+
+        if tables.len() < 2 {
+            return Ok(vec![]);
+        }
+
+        // Step 2 — name/pattern detection
+        let relationships = RelationshipDetector::new(tables).detect_relationships();
+
+        // Step 3 — fetch value samples for every detected candidate
+        let mut samples: std::collections::HashMap<(String, String), Vec<String>> =
+            std::collections::HashMap::new();
+
+        for rel in &relationships {
+            let Some(lid) = table_to_import.get(&rel.from_table) else { continue };
+            let Some(rid) = table_to_import.get(&rel.to_table) else { continue };
+
+            let lk = (lid.clone(), rel.from_column.clone());
+            if !samples.contains_key(&lk) {
+                samples.insert(lk, db.sample_column(lid, &rel.from_column, 200)?);
+            }
+            let rk = (rid.clone(), rel.to_column.clone());
+            if !samples.contains_key(&rk) {
+                samples.insert(rk, db.sample_column(rid, &rel.to_column, 200)?);
+            }
+        }
+
+        // Step 4 — score
+        Ok(RelationshipScorer::score(&relationships, &table_to_import, &samples))
     })
     .await
     .map_err(|e| e.to_string())?
