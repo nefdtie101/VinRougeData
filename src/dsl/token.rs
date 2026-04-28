@@ -26,6 +26,27 @@ pub enum Token {
     Systematic,
     Stratified,
     Top,        // Top stratum in MUS
+    From,       // FROM keyword in SAMPLE
+    Size,       // SIZE keyword in SAMPLE
+    Distinct,   // DISTINCT modifier in COUNT(DISTINCT ...)
+    Like,       // LIKE pattern match
+    Upper,      // UPPER() string function
+    Lower,      // LOWER() string function
+    Trim,       // TRIM() string function
+    Length,     // LENGTH() string function
+    Date,       // DATE() normalization function
+    Case,       // CASE expression
+    When,       // WHEN clause
+    Then,       // THEN clause
+    Else,       // ELSE clause
+    End,        // END of CASE
+    Coalesce,   // COALESCE(a, b, ...) — first non-null
+    NullIf,     // NULLIF(a, b) — null if a = b
+    Iif,        // IIF(cond, then, else) — inline if
+    Abs,        // ABS(expr) — absolute value
+    Round,      // ROUND(expr, scale) — decimal rounding
+    CountIf,    // COUNTIF(col, criteria) — Excel-style conditional count
+    SumIf,      // SUMIF(range, criteria, sum_col) — Excel-style conditional sum
 
     // Identifiers and literals
     Ident(String),      // table.column or plain name

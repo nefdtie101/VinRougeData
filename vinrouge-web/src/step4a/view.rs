@@ -55,10 +55,10 @@ pub fn Step4aView(
                 continue;
             }
 
-            // If master already exists or only one dataset: skip straight to 4b
-            let has_master = session_schemas.iter().any(|s| s.source_type == "master");
+            // Skip only when there's truly nothing to join (single dataset).
+            // If a master already exists the user may want to re-detect and rebuild.
             let non_master = session_schemas.iter().filter(|s| s.source_type != "master").count();
-            if has_master || non_master < 2 {
+            if non_master < 2 {
                 audit_ui_step.set(6);
                 return;
             }

@@ -4,6 +4,8 @@ pub enum ScriptStatus {
     Edited,
     Approved,
     Rejected,
+    /// Script failed DSL validation even after the AI fix pass; contains the error list.
+    ValidationError(String),
 }
 
 #[derive(Clone, Debug)]

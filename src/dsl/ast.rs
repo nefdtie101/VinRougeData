@@ -4,6 +4,14 @@ use rust_decimal::Decimal;
 #[derive(Debug, PartialEq, Clone)]
 pub enum AggFunc { Sum, Avg, Count, Min, Max }
 
+/// String scalar functions
+#[derive(Debug, PartialEq, Clone)]
+pub enum StringFunc { Upper, Lower, Trim, Length }
+
+/// Math scalar functions
+#[derive(Debug, PartialEq, Clone)]
+pub enum MathFunc { Abs, Round }
+
 /// Sampling methods
 #[derive(Debug, PartialEq, Clone)]
 pub enum SampleMethod { Mus, Random, Systematic, Stratified }
@@ -52,9 +60,10 @@ pub enum Expr {
         rhs: Box<Expr>,
     },
 
-    /// Aggregate  e.g.  SUM(invoices.amount)  or  COUNT(invoices.id) WHERE status = "paid"
+    /// Aggregate  e.g.  SUM(invoices.amount)  or  COUNT(DISTINCT invoices.id) WHERE status = "paid"
     Aggregate {
         func: AggFunc,
+        distinct: bool,
         expr: Box<Expr>,
         filter: Option<Box<Expr>>,
     },
@@ -96,6 +105,39 @@ pub enum Expr {
         expr: Box<Expr>,
         negated: bool,
     },
+
+    /// LIKE pattern match  e.g.  table.col LIKE "INV-%"
+    Like {
+        expr: Box<Expr>,
+        pattern: Box<Expr>,
+        negated: bool,
+    },
+
+    /// String function  e.g.  UPPER(table.col)
+    StringFn {
+        func: StringFunc,
+        expr: Box<Expr>,
+    },
+
+    /// DATE() normalisation  e.g.  DATE(table.col) >= DATE("2024-01-01")
+    DateFn {
+        expr: Box<Expr>,
+    },
+
+    /// CASE WHEN cond THEN val … ELSE default END
+    Case {
+        branches: Vec<(Box<Expr>, Box<Expr>)>,
+        else_expr: Option<Box<Expr>>,
+    },
+
+    /// COALESCE(a, b, …) — first non-null value
+    Coalesce { exprs: Vec<Box<Expr>> },
+
+    /// NULLIF(a, b) — returns NULL when a = b, else a
+    NullIf { expr: Box<Expr>, compare: Box<Expr> },
+
+    /// Math function  e.g.  ABS(table.col)  or  ROUND(table.col, 2)
+    MathFn { func: MathFunc, expr: Box<Expr>, scale: Option<Box<Expr>> },
 
     /// ASSERT  e.g.  ASSERT debtors_control = SUM(sub_ledger)
     Assert {

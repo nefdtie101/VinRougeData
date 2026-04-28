@@ -16,7 +16,10 @@
       "Bash(/c/Strawberry/perl/bin/perl --version)",
       "Bash(taskkill //F //IM \"vinrouge-desktop.exe\")",
       "Bash(cargo build:*)",
-      "Bash(trunk build:*)"
+      "Bash(trunk build:*)",
+      "Bash(python3 *)",
+      "Bash(cargo test *)",
+      "Bash(grep -E \"FAILED|ok$|error\\\\[\")"
     ]
   }
 }

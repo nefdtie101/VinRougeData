@@ -1494,6 +1494,57 @@ fn list_test_results(
     projects::list_test_results(&project_dir)
 }
 
+/// Return value-frequency distribution for a single column in a session table.
+/// `table_col` is the DSL-style `table.column` reference (e.g. `invoices.status`).
+/// Returns up to 50 entries sorted by frequency descending.
+#[tauri::command]
+async fn get_column_distribution(
+    table_col: String,
+    state: tauri::State<'_, ProjectsState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    tokio::task::spawn_blocking(move || {
+        let conn = projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+        let db = session_db::SessionDb::new(&conn);
+
+        // Parse "table.column" — the table part maps to `table_name_from_source`.
+        let (table_part, col_part) = table_col
+            .split_once('.')
+            .ok_or_else(|| format!("expected table.column, got: {table_col}"))?;
+
+        // Find import whose derived table_name matches (case-insensitive).
+        let imports = db.list_imports()?;
+        let import = imports
+            .iter()
+            .find(|imp| table_name_from_source(&imp.source_name).eq_ignore_ascii_case(table_part))
+            .ok_or_else(|| format!("table '{table_part}' not found in session imports"))?;
+
+        let rows = db.get_rows(&import.id)?;
+
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for row in &rows {
+            let val = row
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(col_part))
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            *counts.entry(val).or_insert(0) += 1;
+        }
+
+        let mut entries: Vec<(String, usize)> = counts.into_iter().collect();
+        entries.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        entries.truncate(50);
+
+        Ok(entries
+            .into_iter()
+            .map(|(value, count)| serde_json::json!({ "value": value, "count": count }))
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Update the script text of an existing DSL script (for user edits in review UI).
 #[tauri::command]
 fn update_dsl_script(
@@ -1898,6 +1949,7 @@ fn main() {
             clear_dsl_scripts,
             run_dsl_script,
             list_test_results,
+            get_column_distribution,
             update_dsl_script,
             open_data_preview_window,
         ])

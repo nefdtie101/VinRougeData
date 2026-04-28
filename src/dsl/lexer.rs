@@ -73,6 +73,27 @@ impl<'a> Lexer<'a> {
             "SYSTEMATIC" => Token::Systematic,
             "STRATIFIED" => Token::Stratified,
             "TOP"        => Token::Top,
+            "FROM"       => Token::From,
+            "SIZE"       => Token::Size,
+            "DISTINCT"   => Token::Distinct,
+            "LIKE"       => Token::Like,
+            "COUNTIF"    => Token::CountIf,
+            "SUMIF"      => Token::SumIf,
+            "COALESCE"   => Token::Coalesce,
+            "NULLIF"     => Token::NullIf,
+            "IIF"        => Token::Iif,
+            "ABS"        => Token::Abs,
+            "ROUND"      => Token::Round,
+            "UPPER"      => Token::Upper,
+            "LOWER"      => Token::Lower,
+            "TRIM"       => Token::Trim,
+            "LENGTH"     => Token::Length,
+            "DATE"       => Token::Date,
+            "CASE"       => Token::Case,
+            "WHEN"       => Token::When,
+            "THEN"       => Token::Then,
+            "ELSE"       => Token::Else,
+            "END"        => Token::End,
             _            => Token::Ident(word.to_string()),
         }
     }
@@ -94,13 +115,13 @@ impl<'a> Lexer<'a> {
             .map_err(|_| ParseError::new(start, format!("invalid number '{s}'")))
     }
 
-    fn read_string(&mut self, start: usize) -> ParseResult<Token> {
+    fn read_string_until(&mut self, start: usize, terminator: u8) -> ParseResult<Token> {
         let mut s = String::new();
         loop {
             match self.next_char() {
-                Some((_, '"')) => return Ok(Token::StringLit(s)),
-                Some((_, c))   => s.push(c),
-                None           => return Err(ParseError::new(start, "unterminated string literal")),
+                Some((_, c)) if c as u8 == terminator => return Ok(Token::StringLit(s)),
+                Some((_, c)) => s.push(c),
+                None => return Err(ParseError::new(start, "unterminated string literal")),
             }
         }
     }
@@ -123,8 +144,8 @@ impl<'a> Lexer<'a> {
                 Some((i, c)) if c.is_ascii_digit() => {
                     tokens.push((i, self.read_number(i)?));
                 }
-                Some((i, '"')) => {
-                    tokens.push((i, self.read_string(i)?));
+                Some((i, '"')) | Some((i, '\'')) => {
+                    tokens.push((i, self.read_string_until(i, self.input.as_bytes()[i])?));
                 }
                 Some((i, '+')) => tokens.push((i, Token::Plus)),
                 Some((i, '-')) => tokens.push((i, Token::Minus)),
@@ -149,6 +170,14 @@ impl<'a> Lexer<'a> {
                         Some('=') => { self.next_char(); tokens.push((i, Token::Lte)); }
                         Some('>') => { self.next_char(); tokens.push((i, Token::NotEq)); }
                         _         => tokens.push((i, Token::Lt)),
+                    }
+                }
+                Some((i, '!')) => {
+                    if self.peek_char() == Some('=') {
+                        self.next_char();
+                        tokens.push((i, Token::NotEq));
+                    } else {
+                        return Err(ParseError::new(i, "unexpected character '!' — did you mean '<>'?".to_string()));
                     }
                 }
                 Some((i, c)) => {

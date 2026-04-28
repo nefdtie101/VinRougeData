@@ -7,6 +7,8 @@ use crate::step4;
 use crate::step4a;
 use crate::step4b;
 use crate::step5;
+use crate::step5a;
+use crate::step5b;
 use crate::storage::{ls_get, ls_set, AuditSetupState};
 use crate::types::{AiMessage, AuditProcessWithControls, PbcGroup, Project, ProjectFile};
 use leptos::prelude::*;
@@ -1019,8 +1021,22 @@ pub fn ProjectsView() -> impl IntoView {
                                     <div class="audit-step-crumb"
                                         style=move || { let s = audit_ui_step.get(); if s >= 7 { "cursor:pointer" } else { "" } }
                                         on:click=move |_| { if audit_ui_step.get() >= 7 { audit_ui_step.set(7); } }>
-                                        <div class=move || { let s = audit_ui_step.get(); if s == 7 { "audit-step-num active" } else { "audit-step-num pending" } }>"5"</div>
+                                        <div class=move || { let s = audit_ui_step.get(); if s > 7 { "audit-step-num done" } else if s == 7 { "audit-step-num active" } else { "audit-step-num pending" } }>"5"</div>
                                         <span class=move || { let s = audit_ui_step.get(); if s >= 7 { "audit-step-label active" } else { "audit-step-label muted" } }>"Results"</span>
+                                    </div>
+                                    <span class="audit-step-sep">"›"</span>
+                                    <div class="audit-step-crumb"
+                                        style=move || { let s = audit_ui_step.get(); if s >= 8 { "cursor:pointer" } else { "" } }
+                                        on:click=move |_| { if audit_ui_step.get() >= 8 { audit_ui_step.set(8); } }>
+                                        <div class=move || { let s = audit_ui_step.get(); if s > 8 { "audit-step-num done" } else if s == 8 { "audit-step-num active" } else { "audit-step-num pending" } }>"5a"</div>
+                                        <span class=move || { let s = audit_ui_step.get(); if s >= 8 { "audit-step-label active" } else { "audit-step-label muted" } }>"Findings"</span>
+                                    </div>
+                                    <span class="audit-step-sep">"›"</span>
+                                    <div class="audit-step-crumb"
+                                        style=move || { let s = audit_ui_step.get(); if s >= 9 { "cursor:pointer" } else { "" } }
+                                        on:click=move |_| { if audit_ui_step.get() >= 9 { audit_ui_step.set(9); } }>
+                                        <div class=move || { let s = audit_ui_step.get(); if s == 9 { "audit-step-num active" } else { "audit-step-num pending" } }>"5b"</div>
+                                        <span class=move || { let s = audit_ui_step.get(); if s >= 9 { "audit-step-label active" } else { "audit-step-label muted" } }>"Report"</span>
                                     </div>
                                 </div>
                             </div>
@@ -1080,6 +1096,23 @@ pub fn ProjectsView() -> impl IntoView {
                             // ── Step 5: Results ───────────────────────────────
                             {move || (audit_ui_step.get() == 7).then(|| view! {
                                 <step5::Step5View
+                                    audit_ui_step=audit_ui_step
+                                    status=status
+                                />
+                            })}
+
+                            // ── Step 5a: Findings ─────────────────────────────
+                            {move || (audit_ui_step.get() == 8).then(|| view! {
+                                <step5a::Step5aView
+                                    audit_ui_step=audit_ui_step
+                                    status=status
+                                />
+                            })}
+
+                            // ── Step 5b: Report ───────────────────────────────
+                            {move || (audit_ui_step.get() == 9).then(|| view! {
+                                <step5b::Step5bView
+                                    audit_plan=audit_plan
                                     audit_ui_step=audit_ui_step
                                     status=status
                                 />

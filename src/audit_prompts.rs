@@ -183,8 +183,20 @@ pub const ANALYZE_SOP: &str =
        industry norms for that type of failure\n\n\
      SAMPLING REQUIREMENT — every control MUST include a sampling section in test_procedure:\n\
      Format: \"SAMPLING: [method] — [sample size] — [justification]\"\n\
-     Method must be one of: MUS per ISA 530 / judgmental / full population.\n\
+     Choose the method as follows:\n\
+       MUS per ISA 530: ONLY when the test measures a monetary population \
+(invoice values, premium amounts, claim payments). NEVER for governance reviews, \
+role verifications, document checks, or any qualitative population.\n\
+       Judgmental: for governance controls, document reviews, role and authority \
+verifications, and any non-monetary population. State the specific items selected and why.\n\
+       Full population: when the entire population is ≤ 30 items or completeness is \
+critical (e.g. all Board resolutions, all regulatory submissions, all SCR calculations).\n\
      A test_procedure without a SAMPLING line is invalid.\n\n\
+     CITATION REQUIREMENT — if the SOP or its regulatory framework references a specific \
+formula, rule number, or named methodology (e.g. Chain Ladder, Mack variance, \
+Board Notice 158, PPR Rule 17, FSCA Conduct Standard 3, SAM Directive 159, \
+Lemaire BMS formula, ISA 530), that reference MUST appear verbatim in the \
+test_procedure of every control that tests that area.\n\n\
      NEGATIVE EXAMPLE — do NOT produce tests like this:\n\
      BAD: \"Ensure that the relevant process complies with applicable standards.\"\n\
      GOOD: \"Obtain [specific document named in SOP] from [role or system named in SOP]. \
@@ -197,6 +209,13 @@ pub const ANALYZE_SOP: &str =
      4. The language used throughout reflects the terminology of an expert in the \
         detected industry — not generic audit boilerplate\n\
      5. control_ref is sequential and unique across all processes (C-1, C-2, C-3 ...)\n\
+     6. MUS is used ONLY for controls that test a monetary/dollar-value population — \
+        any governance, role, or document test that uses MUS is INVALID; fix it to \
+        Judgmental or Full Population before outputting\n\
+     7. Every SOP-specific formula, regulation number, or named methodology has been \
+        cited verbatim in the test_procedure of the control that tests it\n\
+     8. Every major business-process section from the SOP has at least one control — \
+        no substantive SOP section may be silently skipped\n\
      If any check fails, fix it before outputting.\n\n\
      Return ONLY a valid JSON object — no markdown fences, no explanation — with this exact shape:\n\
      {\n\
@@ -231,6 +250,34 @@ pub const ANALYZE_SOP: &str =
        from the SOP or established expert practice in the detected industry\n\
      - Return ONLY the JSON object, nothing else\n\n\
      SOP TEXT:";
+
+/// Pre-pass prompt: extract every section heading from the SOP so we can inject
+/// a coverage checklist into the main ANALYZE_SOP prompt.
+pub const EXTRACT_SECTIONS: &str =
+    "You are a document parser. Extract every numbered or named section heading from \
+     the SOP document below.\n\
+     Return ONLY valid JSON with this exact shape:\n\
+     {\"sections\": [\"1. Introduction\", \"2. Underwriting Process\", \"3.1 Authority Limits\"]}\n\
+     Rules:\n\
+     - Include every heading at any level (1., 1.1, Section A, Part II, Appendix B, etc.)\n\
+     - Use the exact heading text as it appears in the document — do not paraphrase\n\
+     - Do NOT include body text, sub-bullets, or table rows — headings only\n\
+     - Return ONLY the JSON object, nothing else\n\n\
+     SOP TEXT:";
+
+/// JSON Schema for `EXTRACT_SECTIONS` output.
+pub fn extract_sections_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "sections": {
+                "type": "array",
+                "items": { "type": "string" }
+            }
+        },
+        "required": ["sections"]
+    })
+}
 
 /// JSON Schema for the PBC list generation output.
 pub fn pbc_list_schema() -> serde_json::Value {
@@ -432,40 +479,178 @@ fn normalize_control_ref(s: &str) -> String {
 // ── DSL test-script generation ────────────────────────────────────────────────
 
 pub const GENERATE_DSL: &str =
-    "You are an expert audit DSL programmer. Generate executable audit test scripts using \
-     the VinRouge DSL for the controls listed below.\n\n\
-     DSL SYNTAX REFERENCE:\n\
-     -- Comments start with --\n\
-     label: ASSERT aggregate_expr op value          -- named assertion\n\
-     ASSERT aggregate_expr op value                 -- unnamed assertion\n\
-     label: SAMPLE method FROM table.value_col SIZE n [WHERE condition]\n\
-     \n\
-     Aggregate functions (always use table.column notation):\n\
-       SUM(table.col)                    -- sum of a numeric column\n\
-       COUNT(table.col)                  -- count of non-null values\n\
-       AVG(table.col)                    -- average\n\
-       MIN(table.col) / MAX(table.col)\n\
-     \n\
-     Filtered aggregates:\n\
-       SUM(table.col) WHERE table.status = \"value\"\n\
-       COUNT(table.col) WHERE table.amount > 0\n\
-     \n\
-     Comparison operators: =  <>  >  >=  <  <=\n\
-     Logical: AND  OR  NOT\n\
-     Null checks: table.col IS NULL  |  table.col IS NOT NULL\n\
-     In list: table.col IN (\"a\", \"b\", \"c\")\n\
-     Between: table.col BETWEEN 1000 AND 50000\n\
-     \n\
-     Sample methods: MUS  RANDOM  SYSTEMATIC  STRATIFIED\n\
-     Sample size: integer count (e.g. 30) or percentage (e.g. 10%)\n\
-     \n\
-     RULES:\n\
-     - ONLY reference tables and columns from the AVAILABLE DATA section below\n\
-     - ALL aggregate columns MUST use table.column format — bare column names are invalid\n\
-     - String literals use double quotes: \"value\"\n\
-     - Produce at least one ASSERT and one SAMPLE statement per control where data is available\n\
-     - Keep scripts focused on the control's test procedure\n\
-     - Return ONLY valid JSON with no markdown fences, no explanation\n\n";
+"You are an expert audit DSL programmer. Generate executable VinRouge DSL test scripts.\n\
+\n\
+════════════════════════════════════════════════════════\n\
+ STATEMENT TYPES  (every script is a list of statements)\n\
+════════════════════════════════════════════════════════\n\
+\n\
+1. ASSERT  — verify a value or condition\n\
+   ASSERT <expr> <op> <value>          -- aggregate comparison\n\
+   ASSERT <bool_expr>                  -- row-level / boolean check\n\
+   label: ASSERT ...                   -- named (label is a plain word, no quotes)\n\
+\n\
+   Examples:\n\
+     ASSERT COUNT(invoices.id) > 0\n\
+     ASSERT SUM(ledger.amount) / COUNT(ledger.id) < 50000\n\
+     coverage: ASSERT COUNT(policies.id) WHERE policies.status = \"active\" >= 100\n\
+     ASSERT c1_roles.authority_level IS NOT NULL\n\
+     ASSERT LENGTH(sop.sop_title) >= 5\n\
+\n\
+2. SAMPLE  — draw an audit sample\n\
+   SAMPLE <method> FROM <table.col> SIZE <n|pct%> [WHERE <condition>]\n\
+   label: SAMPLE ...\n\
+\n\
+   Methods: MUS  RANDOM  SYSTEMATIC  STRATIFIED\n\
+   ⚠ MUS RULE: MUS <col> MUST be a monetary/numeric column with positive values (e.g. amount, value, cost).\n\
+     If no such column exists, use RANDOM instead of MUS.\n\
+   Examples:\n\
+     SAMPLE MUS FROM invoices.amount SIZE 30\n\
+     SAMPLE RANDOM FROM policies.id SIZE 10%\n\
+     high_risk: SAMPLE STRATIFIED FROM ledger.amount SIZE 25 WHERE ledger.risk = \"High\"\n\
+\n\
+-- Comments begin with two dashes\n\
+\n\
+══════════════════════════════════════\n\
+ AGGREGATE FUNCTIONS  (use table.col)\n\
+══════════════════════════════════════\n\
+\n\
+  COUNT(table.col)               non-null row count\n\
+  COUNT(DISTINCT table.col)      unique non-null values\n\
+  SUM(table.col)                 numeric sum\n\
+  AVG(table.col)                 average\n\
+  MIN(table.col)                 minimum value\n\
+  MAX(table.col)                 maximum value\n\
+  COUNTIF(table.col, \"value\")    rows where col = value\n\
+  SUMIF(table.col, \"x\", table.amount_col)  sum amount where col = x\n\
+\n\
+Filtered aggregates — append WHERE after the closing ):\n\
+  COUNT(table.col) WHERE table.status = \"active\"\n\
+  SUM(table.amount) WHERE table.dept = \"Finance\" AND table.amount > 0\n\
+\n\
+Aggregate arithmetic inside ASSERT:\n\
+  ASSERT SUM(t.approved) / SUM(t.total) >= 0.95\n\
+  ASSERT MAX(t.score) - MIN(t.score) <= 100\n\
+\n\
+═══════════════════════════════════\n\
+ COMPARISON & LOGICAL OPERATORS\n\
+═══════════════════════════════════\n\
+\n\
+  =  <>  >  >=  <  <=\n\
+  AND   OR   NOT\n\
+  table.col IS NULL\n\
+  table.col IS NOT NULL\n\
+  table.col IN (\"a\", \"b\", \"c\")\n\
+  table.col NOT IN (\"x\", \"y\")\n\
+  table.col BETWEEN 1000 AND 50000\n\
+  table.col NOT BETWEEN 0 AND 100\n\
+  table.col LIKE \"INV-%\"          -- % = any chars, _ = one char\n\
+  table.col NOT LIKE \"%draft%\"\n\
+\n\
+══════════════════════════════\n\
+ SCALAR FUNCTIONS\n\
+══════════════════════════════\n\
+\n\
+  UPPER(table.col)               uppercase text\n\
+  LOWER(table.col)               lowercase text\n\
+  TRIM(table.col)                strip whitespace\n\
+  LENGTH(table.col)              character count\n\
+  DATE(table.col)                normalise date string → YYYY-MM-DD\n\
+  ABS(table.col)                 absolute value\n\
+  ROUND(table.col, 2)            round to N decimal places\n\
+  COALESCE(table.col, 0)         first non-null\n\
+  NULLIF(table.col, 0)           return NULL when col = 0\n\
+  IIF(condition, then, else)     inline conditional\n\
+\n\
+  Use scalar functions inside aggregates or ASSERT conditions:\n\
+    COUNT(table.col) WHERE UPPER(table.status) = \"ACTIVE\"\n\
+    ASSERT LENGTH(table.sop_title) >= 5\n\
+    ASSERT DATE(table.eff_date) >= DATE(\"2024-01-01\")\n\
+\n\
+══════════════════════════════\n\
+ CASE / WHEN\n\
+══════════════════════════════\n\
+\n\
+  CASE WHEN <cond> THEN <val> [WHEN ...] [ELSE <val>] END\n\
+\n\
+  Examples:\n\
+    SUM(CASE WHEN t.risk = \"High\" THEN t.amount ELSE 0 END)\n\
+    ASSERT COUNT(t.id) WHERE CASE WHEN t.score > 80 THEN 1 ELSE 0 END = 1 > 0\n\
+\n\
+═══════════════════════════════════════════════════════════\n\
+ BUSINESS RULE ASSERTIONS — translate SOP constraints into tests\n\
+═══════════════════════════════════════════════════════════\n\
+\n\
+When the control_description or test_procedure states a specific constraint\n\
+(a maximum value, a set of allowed values, a logical dependency between columns),\n\
+generate at least one ASSERT that enforces it against the data.\n\
+\n\
+Pattern → ASSERT:\n\
+  Allowed-values list  →  ASSERT COUNT(t.col) WHERE t.col NOT IN (\"A\",\"B\",\"C\") = 0\n\
+  Maximum value        →  ASSERT MAX(t.score) <= 4\n\
+  Logical dependency   →  ASSERT COUNT(t.id) WHERE t.breach = \"Yes\" AND t.status = \"Active\" = 0\n\
+  Mandatory field      →  ASSERT COUNT(t.id) WHERE t.id_verified = \"N\" AND t.cdd_level = \"Standard\" = 0\n\
+  No superseded active →  ASSERT COUNT(docs.id) WHERE docs.status = \"Superseded\" AND docs.active = \"Y\" = 0\n\
+  Timeframe SLA        →  ASSERT MAX(t.days_to_decision) <= 10\n\
+  Rating floor         →  ASSERT COUNT(reinsurers.id) WHERE reinsurers.rating < \"A-\" > 0\n\
+\n\
+Rule: every named threshold or approved-value list in the control_description\n\
+MUST produce at least one ASSERT. These catch real violations in client data.\n\
+\n\
+══════════════════════════════════════════════════════════════\n\
+ ABSOLUTE RULES — violating any of these breaks the script\n\
+══════════════════════════════════════════════════════════════\n\
+\n\
+1. Table names MUST be copied EXACTLY from VALID TABLE NAMES below.\n\
+   Never invent, shorten, or paraphrase a table name.\n\
+\n\
+2. Every column reference MUST use table.column notation.\n\
+   Bare column names (without a table prefix) are INVALID inside aggregates.\n\
+\n\
+3. String literals MUST use double quotes: \"value\"  (not single quotes).\n\
+\n\
+4. Do NOT use any function not listed above.\n\
+   Forbidden: COUNTA  ISNULL  NVL  NVLIF  DECODE  CHOOSE  IF  VLOOKUP\n\
+   DATEDIFF  DATEPART  YEAR  MONTH  STRPOS  SUBSTR  REPLACE  CONCAT\n\
+   Use the equivalents listed in SCALAR FUNCTIONS instead.\n\
+\n\
+5. WHERE belongs OUTSIDE the aggregate parentheses:\n\
+   CORRECT:   COUNT(table.col) WHERE table.x = \"y\"\n\
+   WRONG:     COUNT(table.col WHERE table.x = \"y\")\n\
+\n\
+6. Produce at least one ASSERT and one SAMPLE per control.\n\
+\n\
+7. Use the table that best matches the control's test procedure.\n\
+   The MASTER table (if present) joins all imports; prefer a specific\n\
+   source table when the control concerns only one dataset.\n\
+\n\
+8. Return ONLY a valid JSON object — no markdown fences, no explanation.\n\
+\n\
+9. LIKE patterns MUST be short format patterns — a code prefix, file extension,\n\
+   or keyword that genuinely appears as a VALUE in the column.\n\
+   NEVER use the control objective, description, or procedural text as a LIKE pattern.\n\
+   WRONG: table.col LIKE \"Actuarially sound risk differentiation...\"\n\
+   RIGHT: table.col LIKE \"APP-%\"   or   table.col NOT LIKE \"%DRAFT%\"\n\
+\n\
+10. For approval / signature / authorisation columns use IS NOT NULL or IN lists;\n\
+    never LIKE with long sentences.\n\
+    RIGHT: ASSERT COUNT(t.id) WHERE t.approval IS NULL = 0\n\
+    RIGHT: ASSERT COUNT(t.id) WHERE t.approval NOT IN (\"Approved\",\"Yes\",\"Y\") = 0\n\
+\n\
+11. For COUNT/SUM/AVG/MIN/MAX, the column inside the aggregate MUST be a column\n\
+    that actually exists in the table with that exact name.\n\
+    Use only column names listed in the COLUMN NAMES provided below;\n\
+    do NOT invent or paraphrase column names.\n\
+\n\
+12. COLUMN NAMES THAT DO NOT APPEAR IN AVAILABLE DATA DO NOT EXIST.\n\
+    If the control requires data that is not present in any listed column,\n\
+    OMIT that ASSERT statement entirely — do NOT write it with an invented name.\n\
+    A script with no ASSERT is valid if no testable assertion can be made.\n\
+\n\
+13. TABLE NAMES THAT DO NOT APPEAR IN VALID TABLE NAMES DO NOT EXIST.\n\
+    If no listed table contains data relevant to a control, generate ONLY:\n\
+      SAMPLE RANDOM FROM <any_listed_table>.<any_listed_column> SIZE 10\n\
+    NEVER invent a table name to make the script look complete.\n\n";
 
 // ── Column mapping ────────────────────────────────────────────────────────────
 
@@ -515,6 +700,72 @@ pub fn map_columns_schema() -> serde_json::Value {
             }
         },
         "required": ["mappings"]
+    })
+}
+
+/// Prompt for generating a structured audit report from test execution results.
+pub const GENERATE_AUDIT_REPORT: &str =
+    "You are a senior audit partner. Based on the automated test results below, write a \
+     formal internal audit report.\n\
+     For each failing control, write a finding that states:\n\
+     - What the test found (specific, factual)\n\
+     - The evidence (exact values from the assertions)\n\
+     - The regulatory or business-rule implication\n\
+     - A specific, actionable recommendation\n\n\
+     Return ONLY valid JSON — no markdown fences, no explanation:\n\
+     {\n\
+       \"executive_summary\": \"2-3 sentence overview of audit scope and key findings\",\n\
+       \"overall_risk\": \"High\",\n\
+       \"findings\": [\n\
+         {\n\
+           \"control_ref\": \"C-1\",\n\
+           \"control_name\": \"Descriptive name\",\n\
+           \"risk_level\": \"High\",\n\
+           \"finding\": \"What the test found — specific and factual\",\n\
+           \"evidence\": \"Exact values from the test output (lhs op rhs)\",\n\
+           \"recommendation\": \"What management should do — specific and actionable\"\n\
+         }\n\
+       ],\n\
+       \"passed_controls\": [\"C-2\", \"C-3\"],\n\
+       \"overall_conclusion\": \"Based on the testing performed...\"\n\
+     }\n\n\
+     Rules:\n\
+     - overall_risk must be exactly one of: High, Medium, Low\n\
+     - risk_level must be exactly one of: High, Medium, Low\n\
+     - findings must only include controls that FAILED — never include passed controls here\n\
+     - passed_controls lists control_refs where ALL assertions passed\n\
+     - evidence must quote the actual test values from the assertions\n\
+     - recommendation must be actionable and specific — avoid generic boilerplate\n\
+     - Return ONLY the JSON object, nothing else\n\n\
+     TEST RESULTS:";
+
+/// JSON Schema for the audit report output.
+pub fn audit_report_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "executive_summary": { "type": "string" },
+            "overall_risk": { "type": "string", "enum": ["High", "Medium", "Low"] },
+            "findings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "control_ref":    { "type": "string" },
+                        "control_name":   { "type": "string" },
+                        "risk_level":     { "type": "string", "enum": ["High", "Medium", "Low"] },
+                        "finding":        { "type": "string" },
+                        "evidence":       { "type": "string" },
+                        "recommendation": { "type": "string" }
+                    },
+                    "required": ["control_ref", "control_name", "risk_level",
+                                 "finding", "evidence", "recommendation"]
+                }
+            },
+            "passed_controls":    { "type": "array", "items": { "type": "string" } },
+            "overall_conclusion": { "type": "string" }
+        },
+        "required": ["executive_summary", "overall_risk", "findings", "overall_conclusion"]
     })
 }
 

@@ -114,6 +114,17 @@ impl Value {
         }
     }
 
+    /// Coerce to `String`; any value has a text representation.
+    pub fn as_text(&self) -> String {
+        match self {
+            Value::Text(s)    => s.clone(),
+            Value::Decimal(d) => d.to_string(),
+            Value::Bool(b)    => b.to_string(),
+            Value::Null       => String::new(),
+            Value::List(v)    => v.iter().map(|x| x.as_text()).collect::<Vec<_>>().join(", "),
+        }
+    }
+
     /// SQL-style equality: Null = Null → false, Null = anything → false.
     pub fn sql_eq(a: &Value, b: &Value) -> bool {
         match (a, b) {

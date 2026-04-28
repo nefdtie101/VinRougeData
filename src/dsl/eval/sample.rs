@@ -60,11 +60,20 @@ impl<'ds> Evaluator<'ds> {
             }
         };
 
-        let selected_rows: Vec<Row> = match method {
-            SampleMethod::Mus        => self.sample_mus(&filtered, col, n)?,
-            SampleMethod::Random     => self.sample_random(&filtered, n),
-            SampleMethod::Systematic => self.sample_systematic(&filtered, n),
-            SampleMethod::Stratified => self.sample_stratified(&filtered, col, n),
+        // For MUS, fall back to random if the value column has no positive values.
+        let (effective_method, selected_rows): (&str, Vec<Row>) = match method {
+            SampleMethod::Mus => {
+                match self.sample_mus(&filtered, col, n) {
+                    Ok(rows) => ("Mus", rows),
+                    Err(EvalError::SampleError(ref msg)) if msg.contains("positive total") => {
+                        ("Mus→Random (no positive values in column)", self.sample_random(&filtered, n))
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            SampleMethod::Random     => ("Random",     self.sample_random(&filtered, n)),
+            SampleMethod::Systematic => ("Systematic", self.sample_systematic(&filtered, n)),
+            SampleMethod::Stratified => ("Stratified", self.sample_stratified(&filtered, col, n)),
         };
 
         let selected = selected_rows
@@ -73,7 +82,7 @@ impl<'ds> Evaluator<'ds> {
             .collect();
 
         Ok(SampleResult {
-            method: format!("{method:?}"),
+            method: effective_method.to_string(),
             population_table: population.to_string(),
             population_size: pop_size,
             selected,

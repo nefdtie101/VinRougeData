@@ -9,6 +9,7 @@ impl<'ds> Evaluator<'ds> {
     pub(super) fn eval_aggregate(
         &self,
         func: &AggFunc,
+        distinct: bool,
         expr: &Expr,
         filter: &Option<Box<Expr>>,
     ) -> EvalResult<Value> {
@@ -39,13 +40,21 @@ impl<'ds> Evaluator<'ds> {
             .map(|row| self.eval(expr, row))
             .collect::<EvalResult<Vec<_>>>()?;
 
-        let non_null: Vec<&Value> = values.iter().filter(|v| **v != Value::Null).collect();
+        let non_null: Vec<Value> = values.into_iter().filter(|v| *v != Value::Null).collect();
+
+        // For DISTINCT aggregates deduplicate by string representation
+        let effective: Vec<&Value> = if distinct {
+            let mut seen = std::collections::HashSet::new();
+            non_null.iter().filter(|v| seen.insert(v.to_string())).collect()
+        } else {
+            non_null.iter().collect()
+        };
 
         match func {
-            AggFunc::Count => Ok(Value::Decimal(Decimal::from(non_null.len()))),
+            AggFunc::Count => Ok(Value::Decimal(Decimal::from(effective.len()))),
 
             AggFunc::Sum => {
-                let sum = non_null
+                let sum = effective
                     .iter()
                     .map(|v| v.as_decimal())
                     .collect::<EvalResult<Vec<_>>>()?
@@ -55,24 +64,24 @@ impl<'ds> Evaluator<'ds> {
             }
 
             AggFunc::Avg => {
-                if non_null.is_empty() {
+                if effective.is_empty() {
                     return Ok(Value::Null);
                 }
-                let sum = non_null
+                let sum = effective
                     .iter()
                     .map(|v| v.as_decimal())
                     .collect::<EvalResult<Vec<_>>>()?
                     .into_iter()
                     .fold(Decimal::ZERO, |acc, d| acc + d);
-                Ok(Value::Decimal(sum / Decimal::from(non_null.len())))
+                Ok(Value::Decimal(sum / Decimal::from(effective.len())))
             }
 
             AggFunc::Min => {
-                if non_null.is_empty() {
+                if effective.is_empty() {
                     return Ok(Value::Null);
                 }
-                let mut min = non_null[0].clone();
-                for v in &non_null[1..] {
+                let mut min = effective[0].clone();
+                for v in &effective[1..] {
                     if Value::partial_cmp_values(v, &min) == Some(std::cmp::Ordering::Less) {
                         min = (*v).clone();
                     }
@@ -81,11 +90,11 @@ impl<'ds> Evaluator<'ds> {
             }
 
             AggFunc::Max => {
-                if non_null.is_empty() {
+                if effective.is_empty() {
                     return Ok(Value::Null);
                 }
-                let mut max = non_null[0].clone();
-                for v in &non_null[1..] {
+                let mut max = effective[0].clone();
+                for v in &effective[1..] {
                     if Value::partial_cmp_values(v, &max) == Some(std::cmp::Ordering::Greater) {
                         max = (*v).clone();
                     }

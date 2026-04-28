@@ -210,6 +210,64 @@ pub async fn ask_pbc_list(
     Ok(all_items)
 }
 
+// ── Audit report generation ───────────────────────────────────────────────────
+
+/// Generate a structured audit report from a pre-formatted test-results summary.
+pub async fn ask_audit_report(
+    base_url: &str,
+    model: &str,
+    test_summary: &str,
+) -> Result<String, String> {
+    use vinrouge::audit_prompts::{audit_report_schema, GENERATE_AUDIT_REPORT};
+    let prompt = format!("{GENERATE_AUDIT_REPORT}\n\n{test_summary}");
+    ask_ollama_structured(base_url, model, &prompt, audit_report_schema()).await
+}
+
+// ── SOP section extraction ────────────────────────────────────────────────────
+
+/// Call the LLM to extract every section heading from the full SOP text.
+/// Returns an empty vec on any error — the coverage checklist is an enhancement,
+/// not a hard requirement, so failures degrade gracefully.
+async fn extract_sop_sections(base_url: &str, model: &str, sop_text: &str) -> Vec<String> {
+    use vinrouge::audit_prompts::{extract_sections_schema, EXTRACT_SECTIONS};
+
+    let prompt = format!("{EXTRACT_SECTIONS}\n\n{sop_text}");
+    let raw = match ask_ollama_structured(base_url, model, &prompt, extract_sections_schema()).await
+    {
+        Ok(r) => r,
+        Err(_) => return vec![],
+    };
+
+    serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|v| v["sections"].as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| v.as_str().map(String::from))
+        .filter(|s| !s.trim().is_empty())
+        .collect()
+}
+
+/// Format the extracted section list as a coverage checklist to inject into each
+/// ANALYZE_SOP prompt.
+fn format_coverage_checklist(sections: &[String]) -> String {
+    if sections.is_empty() {
+        return String::new();
+    }
+    let mut s = String::from(
+        "\n\nMANDATORY COVERAGE CHECKLIST — the following sections were identified in this SOP.\n\
+         EVERY substantive section below MUST produce at least one control in your output.\n\
+         Sections that are purely definitional (e.g. \"1. Introduction\", \"2. Scope\") need \
+         no control — all other process and procedure sections must be covered.\n\n\
+         SOP SECTIONS:\n",
+    );
+    for section in sections {
+        s.push_str(&format!("  - {section}\n"));
+    }
+    s.push('\n');
+    s
+}
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
 /// Fetch an audit plan from Ollama.
@@ -228,6 +286,12 @@ pub async fn ask_audit_plan(
 ) -> Result<String, String> {
     use vinrouge::audit_prompts::{audit_plan_schema, normalize_audit_plan_json, ANALYZE_SOP};
 
+    // Pre-pass: extract all section headings from the full SOP so every chunk
+    // prompt can include a coverage checklist. Fires once regardless of chunk count.
+    on_progress("Extracting SOP section inventory…".to_string());
+    let sections = extract_sop_sections(base_url, model, sop_text).await;
+    let coverage_checklist = format_coverage_checklist(&sections);
+
     let chunks = chunk_sop(sop_text);
     let total = chunks.len();
     let schema = audit_plan_schema();
@@ -243,6 +307,7 @@ pub async fn ask_audit_plan(
         let prompt = if total > 1 {
             format!(
                 "{ANALYZE_SOP}\
+                 {coverage_checklist}\
                  \n[Document is split into {total} sections for processing. \
                  This is section {} of {total}. Analyse ONLY the content below — \
                  do not fabricate content for sections not shown. \
@@ -252,7 +317,7 @@ pub async fn ask_audit_plan(
                 chunk
             )
         } else {
-            format!("{ANALYZE_SOP}\n\n{chunk}")
+            format!("{ANALYZE_SOP}{coverage_checklist}\n\n{chunk}")
         };
 
         let raw = ask_ollama_structured(base_url, model, &prompt, schema.clone()).await?;

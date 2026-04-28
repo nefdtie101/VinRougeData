@@ -1,6 +1,6 @@
 use rust_decimal::Decimal;
 
-use super::ast::*;
+use super::ast::{self, *};
 use super::error::{ParseError, ParseResult};
 use super::token::Token;
 
@@ -18,6 +18,10 @@ impl Parser {
 
     fn peek(&self) -> &Token {
         &self.tokens[self.pos].1
+    }
+
+    fn peek_next(&self) -> &Token {
+        self.tokens.get(self.pos + 1).map(|(_, t)| t).unwrap_or(&Token::Eof)
     }
 
     fn peek_pos(&self) -> usize {
@@ -153,6 +157,12 @@ impl Parser {
             false
         };
 
+        if self.peek() == &Token::Like {
+            self.advance();
+            let pattern = self.parse_add()?;
+            return Ok(Expr::Like { expr: Box::new(lhs), pattern: Box::new(pattern), negated });
+        }
+
         if self.peek() == &Token::In {
             self.advance();
             self.expect(&Token::LParen)?;
@@ -178,7 +188,7 @@ impl Parser {
         }
 
         if negated {
-            return Err(ParseError::new(self.peek_pos(), "expected IN or BETWEEN after NOT"));
+            return Err(ParseError::new(self.peek_pos(), "expected LIKE, IN, or BETWEEN after NOT"));
         }
 
         let op = match self.peek() {
@@ -259,6 +269,24 @@ impl Parser {
             Token::Min   => self.parse_aggregate(AggFunc::Min),
             Token::Max   => self.parse_aggregate(AggFunc::Max),
 
+            Token::Upper  => self.parse_string_fn(ast::StringFunc::Upper),
+            Token::Lower  => self.parse_string_fn(ast::StringFunc::Lower),
+            Token::Trim   => self.parse_string_fn(ast::StringFunc::Trim),
+            Token::Length => self.parse_string_fn(ast::StringFunc::Length),
+            Token::Date   => self.parse_date_fn(),
+            Token::Case   => self.parse_case(),
+
+            // DISTINCT outside COUNT(DISTINCT ...) — consume it and parse the inner expr
+            Token::Distinct => { self.advance(); self.parse_primary() }
+
+            Token::Coalesce => self.parse_coalesce(),
+            Token::NullIf   => self.parse_nullif(),
+            Token::Iif      => self.parse_iif(),
+            Token::Abs      => self.parse_math_fn(ast::MathFunc::Abs),
+            Token::Round    => self.parse_math_fn(ast::MathFunc::Round),
+            Token::CountIf  => self.parse_countif(),
+            Token::SumIf    => self.parse_sumif(),
+
             Token::LParen => {
                 self.advance();
                 let expr = self.parse_expr()?;
@@ -266,10 +294,154 @@ impl Parser {
                 Ok(expr)
             }
 
-            Token::Ident(name) => { self.advance(); Ok(Expr::ColumnRef(name)) }
+            Token::Ident(name) => {
+                if self.peek_next() == &Token::LParen {
+                    return Err(ParseError::new(pos, format!(
+                        "unknown function '{name}' — supported: \
+                         SUM COUNT AVG MIN MAX COUNTIF SUMIF  \
+                         UPPER LOWER TRIM LENGTH  \
+                         DATE COALESCE NULLIF IIF ABS ROUND  CASE"
+                    )));
+                }
+                self.advance();
+                Ok(Expr::ColumnRef(name))
+            }
 
             other => Err(ParseError::new(pos, format!("unexpected token {other}"))),
         }
+    }
+
+    // ── utility functions ─────────────────────
+
+    fn parse_coalesce(&mut self) -> ParseResult<Expr> {
+        self.advance(); // consume COALESCE
+        self.expect(&Token::LParen)?;
+        let mut exprs = vec![Box::new(self.parse_expr()?)];
+        while self.eat(&Token::Comma) {
+            exprs.push(Box::new(self.parse_expr()?));
+        }
+        self.expect(&Token::RParen)?;
+        Ok(Expr::Coalesce { exprs })
+    }
+
+    fn parse_nullif(&mut self) -> ParseResult<Expr> {
+        self.advance(); // consume NULLIF
+        self.expect(&Token::LParen)?;
+        let expr    = self.parse_expr()?;
+        self.expect(&Token::Comma)?;
+        let compare = self.parse_expr()?;
+        self.expect(&Token::RParen)?;
+        Ok(Expr::NullIf { expr: Box::new(expr), compare: Box::new(compare) })
+    }
+
+    fn parse_iif(&mut self) -> ParseResult<Expr> {
+        self.advance(); // consume IIF — desugar to CASE WHEN cond THEN then ELSE else END
+        self.expect(&Token::LParen)?;
+        let condition  = self.parse_or()?;
+        self.expect(&Token::Comma)?;
+        let then_expr  = self.parse_expr()?;
+        self.expect(&Token::Comma)?;
+        let else_expr  = self.parse_expr()?;
+        self.expect(&Token::RParen)?;
+        Ok(Expr::Case {
+            branches:  vec![(Box::new(condition), Box::new(then_expr))],
+            else_expr: Some(Box::new(else_expr)),
+        })
+    }
+
+    fn parse_math_fn(&mut self, func: MathFunc) -> ParseResult<Expr> {
+        self.advance(); // consume ABS / ROUND
+        self.expect(&Token::LParen)?;
+        let expr = self.parse_expr()?;
+        let scale = if self.eat(&Token::Comma) {
+            Some(Box::new(self.parse_expr()?))
+        } else {
+            None
+        };
+        self.expect(&Token::RParen)?;
+        Ok(Expr::MathFn { func, expr: Box::new(expr), scale })
+    }
+
+    // COUNTIF(col [, criteria]) → COUNT(col) [WHERE col = criteria]
+    // One-arg form counts non-null values; two-arg form filters by equality.
+    fn parse_countif(&mut self) -> ParseResult<Expr> {
+        self.advance(); // consume COUNTIF
+        self.expect(&Token::LParen)?;
+        let col = self.parse_expr()?;
+        let filter = if self.eat(&Token::Comma) {
+            let criteria = self.parse_expr()?;
+            Some(Box::new(Expr::Compare {
+                op:  CmpOp::Eq,
+                lhs: Box::new(col.clone()),
+                rhs: Box::new(criteria),
+            }))
+        } else {
+            None
+        };
+        self.expect(&Token::RParen)?;
+        Ok(Expr::Aggregate { func: AggFunc::Count, distinct: false, expr: Box::new(col), filter })
+    }
+
+    // SUMIF(range_col, criteria [, sum_col]) → SUM(sum_col|range_col) WHERE range_col = criteria
+    // Two-arg form sums the range column itself; three-arg is the standard Excel form.
+    fn parse_sumif(&mut self) -> ParseResult<Expr> {
+        self.advance(); // consume SUMIF
+        self.expect(&Token::LParen)?;
+        let range_col = self.parse_expr()?;
+        let (criteria, sum_col) = if self.eat(&Token::Comma) {
+            let crit = self.parse_expr()?;
+            let sum  = if self.eat(&Token::Comma) { self.parse_expr()? } else { range_col.clone() };
+            (Some(crit), sum)
+        } else {
+            (None, range_col.clone())
+        };
+        self.expect(&Token::RParen)?;
+        let filter = criteria.map(|c| Box::new(Expr::Compare {
+            op:  CmpOp::Eq,
+            lhs: Box::new(range_col),
+            rhs: Box::new(c),
+        }));
+        Ok(Expr::Aggregate { func: AggFunc::Sum, distinct: false, expr: Box::new(sum_col), filter })
+    }
+
+    // ── string functions ──────────────────────
+
+    fn parse_string_fn(&mut self, func: StringFunc) -> ParseResult<Expr> {
+        self.advance(); // consume function name
+        self.expect(&Token::LParen)?;
+        let expr = self.parse_expr()?;
+        self.expect(&Token::RParen)?;
+        Ok(Expr::StringFn { func, expr: Box::new(expr) })
+    }
+
+    fn parse_date_fn(&mut self) -> ParseResult<Expr> {
+        self.advance(); // consume DATE
+        self.expect(&Token::LParen)?;
+        let expr = self.parse_expr()?;
+        self.expect(&Token::RParen)?;
+        Ok(Expr::DateFn { expr: Box::new(expr) })
+    }
+
+    fn parse_case(&mut self) -> ParseResult<Expr> {
+        self.advance(); // consume CASE
+        let mut branches = Vec::new();
+        while self.peek() == &Token::When {
+            self.advance(); // consume WHEN
+            let condition = self.parse_or()?;
+            self.expect(&Token::Then)?;
+            let result = self.parse_or()?;
+            branches.push((Box::new(condition), Box::new(result)));
+        }
+        if branches.is_empty() {
+            return Err(ParseError::new(self.peek_pos(), "CASE must have at least one WHEN branch"));
+        }
+        let else_expr = if self.eat(&Token::Else) {
+            Some(Box::new(self.parse_or()?))
+        } else {
+            None
+        };
+        self.expect(&Token::End)?;
+        Ok(Expr::Case { branches, else_expr })
     }
 
     // ── aggregate ─────────────────────────────
@@ -277,6 +449,7 @@ impl Parser {
     fn parse_aggregate(&mut self, func: AggFunc) -> ParseResult<Expr> {
         self.advance(); // consume function name
         self.expect(&Token::LParen)?;
+        let distinct = self.eat(&Token::Distinct);
         let expr = self.parse_add()?;
         self.expect(&Token::RParen)?;
 
@@ -286,7 +459,7 @@ impl Parser {
             None
         };
 
-        Ok(Expr::Aggregate { func, expr: Box::new(expr), filter })
+        Ok(Expr::Aggregate { func, distinct, expr: Box::new(expr), filter })
     }
 
     // ── assert ────────────────────────────────
@@ -301,24 +474,31 @@ impl Parser {
             None
         };
 
-        let lhs = self.parse_add()?;
+        // Use parse_or so IS NULL / IS NOT NULL / LIKE / IN / BETWEEN / AND / OR
+        // are all valid inside an ASSERT without an explicit comparison operator.
+        let lhs = self.parse_or()?;
 
+        // Optional explicit comparison op (e.g. ASSERT SUM(...) > 0).
+        // When absent the lhs must be a boolean expression; we store it as
+        // `lhs = true` so the evaluator can detect row-level assertions.
         let op = match self.peek() {
-            Token::Eq    => CmpOp::Eq,
-            Token::NotEq => CmpOp::NotEq,
-            Token::Gt    => CmpOp::Gt,
-            Token::Gte   => CmpOp::Gte,
-            Token::Lt    => CmpOp::Lt,
-            Token::Lte   => CmpOp::Lte,
-            other => return Err(ParseError::new(
-                self.peek_pos(),
-                format!("expected comparison operator in ASSERT, got {other}"),
-            )),
+            Token::Eq    => Some(CmpOp::Eq),
+            Token::NotEq => Some(CmpOp::NotEq),
+            Token::Gt    => Some(CmpOp::Gt),
+            Token::Gte   => Some(CmpOp::Gte),
+            Token::Lt    => Some(CmpOp::Lt),
+            Token::Lte   => Some(CmpOp::Lte),
+            _            => None,
         };
-        self.advance();
 
-        let rhs = self.parse_add()?;
-        Ok(Expr::Assert { label, lhs: Box::new(lhs), rhs: Box::new(rhs), op })
+        if let Some(op) = op {
+            self.advance();
+            let rhs = self.parse_or()?;
+            return Ok(Expr::Assert { label, lhs: Box::new(lhs), rhs: Box::new(rhs), op });
+        }
+
+        // Boolean expression — e.g. ASSERT col IS NOT NULL
+        Ok(Expr::Assert { label, lhs: Box::new(lhs), rhs: Box::new(Expr::Bool(true)), op: CmpOp::Eq })
     }
 
     // ── sample ────────────────────────────────
@@ -337,6 +517,9 @@ impl Parser {
             )),
         };
 
+        // Optional FROM keyword (documented syntax: SAMPLE method FROM table.col SIZE n)
+        self.eat(&Token::From);
+
         let value_column = match self.peek().clone() {
             Token::Ident(s) => { self.advance(); s }
             other => return Err(ParseError::new(
@@ -350,6 +533,9 @@ impl Parser {
         } else {
             value_column.clone()
         };
+
+        // Optional SIZE keyword (documented syntax: SAMPLE method FROM table.col SIZE n)
+        self.eat(&Token::Size);
 
         let size = match self.peek().clone() {
             Token::Number(n) => {

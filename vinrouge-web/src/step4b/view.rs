@@ -11,6 +11,7 @@ use crate::types::{AuditProcessWithControls, DslScript, JoinSpec, RelCandidate, 
 use crate::step4a::types::{Phase, ScriptStatus, ScriptState, RunResult, ChatMsg};
 use crate::step4a::helpers::{parse_run_result, extract_dsl_code};
 use crate::step4a::pipeline::do_load_or_generate;
+use vinrouge::dsl::{parse as dsl_parse, resolve, Schema};
 
 #[component]
 pub fn Step4bView(
@@ -179,15 +180,17 @@ pub fn Step4bView(
     let pending_count = move || {
         let ss = script_states.get();
         let decided = ss.values()
-            .filter(|s| matches!(s.status, ScriptStatus::Approved | ScriptStatus::Rejected))
+            .filter(|s| matches!(s.status, ScriptStatus::Approved | ScriptStatus::Rejected | ScriptStatus::ValidationError(_)))
             .count();
         scripts.get().len().saturating_sub(decided)
     };
     let can_run = move || {
         if !matches!(phase.get(), Phase::Review) { return false; }
         let ss = script_states.get();
-        let rejected = ss.values().filter(|s| s.status == ScriptStatus::Rejected).count();
-        !scripts.get().is_empty() && scripts.get().len() > rejected
+        let non_runnable = ss.values().filter(|s| matches!(
+            s.status, ScriptStatus::Rejected | ScriptStatus::ValidationError(_)
+        )).count();
+        !scripts.get().is_empty() && scripts.get().len() > non_runnable
     };
 
     let on_generate_all = move |_| {
@@ -256,25 +259,107 @@ pub fn Step4bView(
         chat_msgs.update(|v| v.push(ChatMsg { is_user: true, text: msg.clone(), code: None }));
         chat_input.set(String::new());
         chat_loading.set(true);
-        let schema_ctx = schemas.get_untracked().iter()
-            .map(|s| format!("Table {} ({} rows): {}", s.table_name, s.row_count, s.columns.join(", ")))
-            .collect::<Vec<_>>().join("\n");
-        let current_script = selected_id.get_untracked()
-            .and_then(|sid| script_states.get_untracked().get(&sid).map(|s| s.text.clone()))
+
+        let sid = selected_id.get_untracked();
+        let session_schemas = schemas.get_untracked();
+
+        // Current script text + its validation status
+        let current_script = sid.as_ref()
+            .and_then(|id| script_states.get_untracked().get(id).map(|s| s.text.clone()))
             .unwrap_or_default();
+        let validation_errs = sid.as_ref()
+            .and_then(|id| script_states.get_untracked().get(id).and_then(|s| {
+                if let ScriptStatus::ValidationError(e) = &s.status { Some(e.clone()) } else { None }
+            }));
+
+        // Control metadata (label)
+        let control_label = sid.as_ref()
+            .and_then(|id| scripts.get_untracked().into_iter().find(|s| &s.id == id))
+            .map(|s| format!("{} — {}", s.control_ref, s.label))
+            .unwrap_or_default();
+
+        // Schema section: one line per table listing every available column
+        let schema_ctx = session_schemas.iter()
+            .map(|s| format!("  {} ({}r): {}", s.table_name, s.row_count, s.columns.join(", ")))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let validation_section = validation_errs.as_ref()
+            .map(|e| format!("\nCURRENT SCRIPT HAS ERRORS — fix these:\n{e}\n"))
+            .unwrap_or_default();
+
         let context = format!(
-            "You are a VinRouge audit DSL assistant. Help the auditor write and improve DSL test scripts.\n\n\
-             Available data:\n{schema_ctx}\n\nCurrent script:\n{current_script}\n\n\
-             DSL reference:\n\
-             - EXCEPTIONS <table> WHERE <condition>\n- RECONCILE <field>=<value>\n\
-             - SAMPLE <table> RANDOM|INTERVAL <n>\n- TOTAL <table>.<field>\n- COUNT <table>\n\n\
-             Wrap DSL code in ``` fences."
+            "You are a VinRouge audit DSL expert. Write or fix DSL test scripts for audit controls.\n\n\
+             CONTROL: {control_label}\
+             {validation_section}\n\
+             AVAILABLE DATA (table: columns):\n{schema_ctx}\n\n\
+             CURRENT SCRIPT:\n{current_script}\n\n\
+             DSL RULES (follow exactly):\n\
+             - Every column reference: table.column  (never bare column names)\n\
+             - String literals: double quotes only\n\
+             - SAMPLE RANDOM FROM table.col SIZE n  or  SIZE n%\n\
+             - ASSERT COUNT(table.col) > 0\n\
+             - ASSERT COUNT(table.col) WHERE table.other_col = \"value\" = 0\n\
+             - ASSERT SUM(table.col) / COUNT(table.col) < 50000\n\
+             - Use only table/column names from AVAILABLE DATA above — never invent names\n\
+             - If the required data is not in the available columns, say so clearly\n\n\
+             Wrap your DSL answer in ``` fences."
         );
+
+        // Clone schema for use inside async block (needed for validation)
+        let schemas_for_validation = session_schemas.clone();
+        let sid_for_update = sid.clone();
+
         spawn_local(async move {
             match ask_ollama_wasm(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &context, &msg).await {
                 Ok(resp) => {
                     let code = extract_dsl_code(&resp);
-                    chat_msgs.update(|v| v.push(ChatMsg { is_user: false, text: resp, code }));
+
+                    // If the AI returned a script, validate it and auto-update the editor + status.
+                    if let (Some(raw_code), Some(script_id)) = (code.clone(), sid_for_update) {
+                        // Build schema for validation
+                        let mut schema = Schema::new();
+                        for tbl in &schemas_for_validation {
+                            schema.add_table(&tbl.table_name, tbl.columns.iter().map(String::as_str));
+                        }
+
+                        let validation_result = match dsl_parse(&raw_code) {
+                            Err(e)   => Err(format!("Parse error: {}", e.message)),
+                            Ok(stmts) => {
+                                let errs: Vec<String> = resolve(&stmts, &schema)
+                                    .into_iter().map(|e| e.to_string()).collect();
+                                if errs.is_empty() { Ok(()) } else { Err(errs.join("; ")) }
+                            }
+                        };
+
+                        match validation_result {
+                            Ok(()) => {
+                                // Valid script — inject it and clear the error status
+                                script_states.update(|m| {
+                                    if let Some(st) = m.get_mut(&script_id) {
+                                        st.text   = raw_code;
+                                        st.status = ScriptStatus::Edited;
+                                    }
+                                });
+                                chat_msgs.update(|v| v.push(ChatMsg {
+                                    is_user: false,
+                                    text: format!("{resp}\n\n✓ Script validated and injected into the editor."),
+                                    code: None,
+                                }));
+                            }
+                            Err(errs) => {
+                                // Still has errors — show the code as clickable but warn
+                                chat_msgs.update(|v| v.push(ChatMsg {
+                                    is_user: false,
+                                    text: format!("{resp}\n\n⚠ Script has validation errors: {errs}"),
+                                    code,
+                                }));
+                            }
+                        }
+                    } else {
+                        // No code block returned — just show the text response
+                        chat_msgs.update(|v| v.push(ChatMsg { is_user: false, text: resp, code }));
+                    }
                 }
                 Err(e) => chat_msgs.update(|v| v.push(ChatMsg {
                     is_user: false, text: format!("Could not reach AI: {e}"), code: None,
@@ -325,6 +410,7 @@ pub fn Step4bView(
         let has_any = ss.values().any(|s| s.status == ScriptStatus::Approved);
         let to_run: Vec<DslScript> = all.into_iter().filter(|s| {
             ss.get(&s.id).map(|st| {
+                if matches!(st.status, ScriptStatus::ValidationError(_)) { return false; }
                 if has_any { st.status == ScriptStatus::Approved } else { st.status != ScriptStatus::Rejected }
             }).unwrap_or(true)
         }).collect();
@@ -729,10 +815,24 @@ pub fn Step4bView(
                         }}
                         {move || {
                             let sid = selected_id.get()?;
-                            let text = script_states.get().get(&sid).map(|s| s.text.clone()).unwrap_or_default();
+                            let state = script_states.get();
+                            let st = state.get(&sid)?;
+                            let errs = if let ScriptStatus::ValidationError(e) = &st.status {
+                                Some(e.clone())
+                            } else {
+                                None
+                            };
+                            let text = st.text.clone();
                             let sid_input = sid.clone();
                             Some(view! {
                                 <div>
+                                    {errs.map(|e| view! {
+                                        <div style="background:#3a1a1a;border:1px solid #7a3030;border-radius:4px;\
+                                                    padding:6px 10px;margin-bottom:6px;font-size:11px;color:#e09090">
+                                            <strong>"Validation error — script will be skipped when running: "</strong>
+                                            {e}
+                                        </div>
+                                    })}
                                     <div class="s4a-z2-lbl" style="margin-bottom:4px">"expression"</div>
                                     <textarea class="s4a-z2-ed" prop:value=text
                                         on:input=move |ev| {
@@ -742,7 +842,7 @@ pub fn Step4bView(
                                                 script_states.update(|m| {
                                                     if let Some(st) = m.get_mut(&sid) {
                                                         st.text = val;
-                                                        if st.status == ScriptStatus::Generated { st.status = ScriptStatus::Edited; }
+                                                        if matches!(st.status, ScriptStatus::Generated | ScriptStatus::ValidationError(_)) { st.status = ScriptStatus::Edited; }
                                                     }
                                                 });
                                             }

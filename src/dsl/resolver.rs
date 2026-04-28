@@ -142,6 +142,39 @@ impl<'s> Resolver<'s> {
                 }
             }
 
+            Expr::Coalesce { exprs } => {
+                for e in exprs { self.check_expr(e); }
+            }
+
+            Expr::NullIf { expr, compare } => {
+                self.check_expr(expr);
+                self.check_expr(compare);
+            }
+
+            Expr::MathFn { expr, scale, .. } => {
+                self.check_expr(expr);
+                if let Some(s) = scale { self.check_expr(s); }
+            }
+
+            Expr::Like { expr, pattern, .. } => {
+                self.check_expr(expr);
+                self.check_expr(pattern);
+            }
+
+            Expr::StringFn { expr, .. } => self.check_expr(expr),
+
+            Expr::DateFn { expr } => self.check_expr(expr),
+
+            Expr::Case { branches, else_expr } => {
+                for (cond, result) in branches {
+                    self.check_expr(cond);
+                    self.check_expr(result);
+                }
+                if let Some(e) = else_expr {
+                    self.check_expr(e);
+                }
+            }
+
             // Assert — recurse both sides
             Expr::Assert { lhs, rhs, .. } => {
                 self.check_expr(lhs);
