@@ -1,0 +1,194 @@
+/* data-grid.css — shared DataGrid component (vr-sheet-* classes) */
+
+/* ── Shared DataGrid component (vr-sheet-*) ─────────────────────────────── */
+.vr-sheet-wrap {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  outline: none;
+}
+
+.vr-sheet-tbl {
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--mono);
+  white-space: nowrap;
+  width: max-content;
+  min-width: 100%;
+}
+
+/* Sticky header lives on individual <th> cells so the header correctly
+   follows horizontal scroll (thead-level sticky breaks h-scroll in Chrome). */
+.vr-th-letter {
+  background: #0e0b0c;
+  color: var(--w-text-4);
+  font-size: 10px;
+  font-weight: 400;
+  text-align: center;
+  padding: 0 8px;
+  border: 0.5px solid #1e1316;
+  min-width: 80px;
+  height: 22px;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background 0.12s, color 0.12s;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.vr-th-letter:not(.corner):hover { background: #1a1316; color: var(--w-text-3); }
+.vr-th-letter.corner { min-width: 40px; width: 40px; cursor: default !important; position: sticky; top: 0; left: 0; z-index: 3; }
+.vr-th-letter--active { background: rgba(139,26,42,0.15) !important; color: var(--w-accent-hover) !important; }
+.vr-th-letter--open   { background: rgba(139,26,42,0.25) !important; color: #fff !important; }
+
+/* Excel-style value-picker dropdown */
+.vr-th-letter-text { pointer-events: none; }
+
+.vr-filter-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 220px;
+  background: #1a1316;
+  border: 1px solid var(--w-border-2);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.55);
+  padding: 8px 0 6px;
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.vr-filter-input {
+  width: calc(100% - 16px);
+  margin: 0 8px 6px;
+  background: #0e0b0c;
+  border: 1px solid var(--w-border-2);
+  border-radius: var(--radius-sm);
+  color: var(--w-text);
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+  font-family: var(--mono);
+  box-sizing: border-box;
+}
+.vr-filter-input:focus { border-color: var(--accent); }
+
+.vr-filter-actions {
+  display: flex;
+  gap: 4px;
+  padding: 0 8px 6px;
+  border-bottom: 1px solid var(--w-border);
+}
+
+.vr-filter-action-btn {
+  flex: 1;
+  background: none;
+  border: 1px solid var(--w-border);
+  border-radius: var(--radius-sm);
+  color: var(--w-text-3);
+  font-size: 11px;
+  padding: 3px 6px;
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s, background 0.1s;
+}
+.vr-filter-action-btn:hover { border-color: var(--accent); color: var(--w-text); }
+.vr-filter-action-btn--on   { border-color: var(--accent); color: var(--w-accent-hover); background: rgba(139,26,42,0.12); }
+
+.vr-filter-value-list {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.vr-filter-value-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--w-text-2);
+  font-family: var(--mono);
+  transition: background 0.08s;
+  user-select: none;
+}
+.vr-filter-value-item:hover { background: #1e1519; color: var(--w-text); }
+
+.vr-filter-value-item input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.vr-filter-value-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vr-th-name {
+  background: #100d0e;
+  color: var(--w-text-2);
+  font-size: 11px;
+  font-weight: 500;
+  text-align: left;
+  padding: 0 10px;
+  border: 0.5px solid #1e1316;
+  max-width: 200px;
+  height: 28px;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+  position: sticky;
+  top: 22px;
+  z-index: 2;
+}
+.vr-th-name--active { color: var(--w-accent-hover) !important; background: rgba(139,26,42,0.10) !important; }
+
+/* Fixed row height — must match ROW_H const in data_grid.rs */
+.vr-sheet-tbl tbody tr { height: 28px; }
+.vr-sheet-tbl tbody tr:hover .vr-td { background: #150f10; }
+
+.vr-td {
+  padding: 0 10px;
+  height: 28px;
+  box-sizing: border-box;
+  border: 0.5px solid #1a1316;
+  color: var(--w-text-2);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.vr-td-rn {
+  padding: 0 4px;
+  height: 28px;
+  box-sizing: border-box;
+  border: 0.5px solid #1e1316;
+  color: var(--w-text-4);
+  font-size: 10px;
+  text-align: center;
+  width: 40px;
+  min-width: 40px;
+  background: #0e0b0c;
+  cursor: default;
+  user-select: none;
+}
+
+/* Cross-hair highlighting */
+.vr-td.selected {
+  background: #3a1f25 !important;
+  border: 1px solid #8b1a2a !important;
+  color: var(--w-text) !important;
+  position: relative;
+  z-index: 1;
+}
+.vr-td.selected-row { background: #1e1316 !important; }
+.vr-td.selected-col { background: #1a1316 !important; }
