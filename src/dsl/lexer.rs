@@ -79,6 +79,11 @@ impl<'a> Lexer<'a> {
             "LIKE"       => Token::Like,
             "COUNTIF"    => Token::CountIf,
             "SUMIF"      => Token::SumIf,
+            "RELATION"   => Token::Relation,
+            "IS_BLANK"   => Token::IsBlank,
+            "IS_NUMERIC" => Token::IsNumeric,
+            "IS_DATE"    => Token::IsDate,
+            "DUPLICATED" => Token::Duplicated,
             "COALESCE"   => Token::Coalesce,
             "NULLIF"     => Token::NullIf,
             "IIF"        => Token::Iif,
@@ -148,6 +153,10 @@ impl<'a> Lexer<'a> {
                     tokens.push((i, self.read_string_until(i, self.input.as_bytes()[i])?));
                 }
                 Some((i, '+')) => tokens.push((i, Token::Plus)),
+                Some((i, '-')) if self.peek_char() == Some('>') => {
+                    self.next_char(); // consume '>'
+                    tokens.push((i, Token::Arrow));
+                }
                 Some((i, '-')) => tokens.push((i, Token::Minus)),
                 Some((i, '*')) => tokens.push((i, Token::Star)),
                 Some((i, '/')) => tokens.push((i, Token::Slash)),

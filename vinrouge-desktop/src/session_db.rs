@@ -478,7 +478,7 @@ impl<'a> SessionDb<'a> {
         let profiler = DataProfiler::new(1000);
         let profile = profiler.profile_data(&ordered, &schema_cols);
 
-        let table_name = stem_from_source(&imp.source_name);
+        let table_name = table_name_from_source_name(&imp.source_name);
         let mut table =
             SchemaTable::new(table_name, imp.source_type.clone(), imp.source_name.clone());
         table.row_count = Some(imp.row_count);
@@ -495,141 +495,6 @@ impl<'a> SessionDb<'a> {
         }
 
         Ok(table)
-    }
-
-    // ── Master record builder ──────────────────────────────────────────────────
-
-    /// Hash-join the imports described by `joins` into a single "master" import.
-    /// The import with the most rows is used as the primary (left) table.
-    /// Returns the import_id of the new master record.
-    pub fn build_master_record(&self, joins: Vec<JoinSpec>) -> Result<String, String> {
-        if joins.is_empty() {
-            return Err("No joins specified".to_string());
-        }
-
-        let imports = self.list_imports()?;
-        let all_ids: std::collections::HashSet<String> = joins
-            .iter()
-            .flat_map(|j| [j.left_import_id.clone(), j.right_import_id.clone()])
-            .collect();
-        let relevant: Vec<&SessionImport> = imports
-            .iter()
-            .filter(|i| all_ids.contains(&i.id) && i.source_type != "master")
-            .collect();
-
-        if relevant.is_empty() {
-            return Err("No valid imports to join".to_string());
-        }
-
-        let primary = relevant
-            .iter()
-            .max_by_key(|i| i.row_count)
-            .copied()
-            .unwrap();
-
-        let tname: HashMap<String, String> = imports
-            .iter()
-            .map(|i| (i.id.clone(), stem_from_source(&i.source_name)))
-            .collect();
-
-        let mut all_rows: HashMap<String, Vec<HashMap<String, String>>> = HashMap::new();
-        for imp in &relevant {
-            all_rows.insert(imp.id.clone(), self.get_rows(&imp.id)?);
-        }
-
-        // Build lookup maps: secondary join-key value → row
-        struct Lookup {
-            primary_col: String,
-            secondary_col: String,
-            map: HashMap<String, HashMap<String, String>>,
-            prefix: String,
-        }
-
-        let mut lookups: Vec<Lookup> = Vec::new();
-        for join in &joins {
-            let (sec_id, sec_col, pri_col) = if join.left_import_id == primary.id {
-                (&join.right_import_id, &join.right_col, &join.left_col)
-            } else if join.right_import_id == primary.id {
-                (&join.left_import_id, &join.left_col, &join.right_col)
-            } else {
-                continue;
-            };
-
-            let sec_rows = all_rows.get(sec_id).cloned().unwrap_or_default();
-            let mut map: HashMap<String, HashMap<String, String>> = HashMap::new();
-            for row in sec_rows {
-                if let Some(k) = row.get(sec_col).cloned() {
-                    let k = k.trim().to_lowercase();
-                    if !k.is_empty() {
-                        map.entry(k).or_insert(row);
-                    }
-                }
-            }
-            let prefix = tname
-                .get(sec_id)
-                .cloned()
-                .unwrap_or_else(|| sec_id.chars().take(8).collect());
-            lookups.push(Lookup {
-                primary_col: pri_col.clone(),
-                secondary_col: sec_col.clone(),
-                map,
-                prefix,
-            });
-        }
-
-        let primary_rows = all_rows.remove(&primary.id).unwrap_or_default();
-        let mut merged: Vec<HashMap<String, String>> =
-            Vec::with_capacity(primary_rows.len());
-
-        for mut row in primary_rows {
-            for lookup in &lookups {
-                let key = row
-                    .get(&lookup.primary_col)
-                    .cloned()
-                    .unwrap_or_default()
-                    .trim()
-                    .to_lowercase();
-                if let Some(sec_row) = lookup.map.get(&key) {
-                    for (k, v) in sec_row {
-                        if k == &lookup.secondary_col {
-                            continue;
-                        }
-                        let dest = if row.contains_key(k.as_str()) {
-                            format!("{}_{}", lookup.prefix, k)
-                        } else {
-                            k.clone()
-                        };
-                        row.insert(dest, v.clone());
-                    }
-                }
-            }
-            merged.push(row);
-        }
-
-        // Apply primary table's PBC column mapping so master has standardised field names.
-        let pbc_map: HashMap<&str, &str> = primary.mappings
-            .iter()
-            .filter(|(src, tgt)| !src.is_empty() && !tgt.is_empty())
-            .map(|(src, tgt)| (src.as_str(), tgt.as_str()))
-            .collect();
-
-        let final_rows: Vec<HashMap<String, String>> = if pbc_map.is_empty() {
-            merged
-        } else {
-            merged.into_iter().map(|row| {
-                row.into_iter().map(|(k, v)| {
-                    let new_k = pbc_map.get(k.as_str()).copied().unwrap_or(k.as_str());
-                    (new_k.to_string(), v)
-                }).collect()
-            }).collect()
-        };
-
-        // Remove any previous master record
-        for imp in imports.iter().filter(|i| i.source_type == "master") {
-            self.delete_import(&imp.id)?;
-        }
-
-        self.write_import(None, "master", "Master Record", &[], final_rows)
     }
 
     pub fn delete_import(&self, import_id: &str) -> Result<(), String> {
@@ -652,16 +517,24 @@ impl<'a> SessionDb<'a> {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn sheets_count_is_one(sheet: Option<&str>, _name: &str) -> bool {
-    sheet.is_some() // if a specific sheet was requested, it's a single-sheet import
+    sheet.is_some()
 }
 
-fn stem_from_source(source_name: &str) -> String {
-    std::path::Path::new(source_name)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(source_name)
-        .to_lowercase()
+/// Derive a DSL table name from a source_name.
+/// "file.xlsx [SheetName]" → "sheetname"; "file.csv" → "file".
+fn table_name_from_source_name(source_name: &str) -> String {
+    let base = if let Some(start) = source_name.find('[') {
+        let sheet = &source_name[start + 1..];
+        sheet.trim_end_matches(']').trim()
+    } else {
+        std::path::Path::new(source_name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(source_name)
+    };
+    base.to_lowercase()
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
         .collect()
 }
+

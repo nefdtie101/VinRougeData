@@ -17,9 +17,7 @@ pub struct ScriptState {
 #[derive(Clone, PartialEq)]
 pub enum Phase {
     Loading,
-    Idle,               // schemas loaded, waiting for user to trigger AI
-    RelationshipReview, // user confirms how datasets connect
-    BuildingMaster,     // hash-joining in progress
+    Idle,      // schemas loaded, waiting for user to proceed
     Generating,
     Review,
     Running { done: usize, total: usize },

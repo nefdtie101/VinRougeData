@@ -100,7 +100,7 @@ pub struct SessionImport {
     pub imported_at: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SessionSchema {
     pub import_id: String,
     pub source_type: String,

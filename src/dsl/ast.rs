@@ -139,6 +139,35 @@ pub enum Expr {
     /// Math function  e.g.  ABS(table.col)  or  ROUND(table.col, 2)
     MathFn { func: MathFunc, expr: Box<Expr>, scale: Option<Box<Expr>> },
 
+    /// IS_BLANK(col) — true when value is NULL or the empty string
+    IsBlank { expr: Box<Expr>, negated: bool },
+
+    /// IS_NUMERIC(col) — true when value can be parsed as a decimal number
+    IsNumeric { expr: Box<Expr>, negated: bool },
+
+    /// IS_DATE(col) — true when value matches a recognisable date format
+    IsDate { expr: Box<Expr>, negated: bool },
+
+    /// DUPLICATED(col1, col2, …) — true when the composite key formed by the
+    /// given columns occurs more than once in the underlying table
+    Duplicated { exprs: Vec<Box<Expr>> },
+
+    /// col NOT IN table.column — cross-table membership test
+    InTableCol {
+        expr: Box<Expr>,
+        table: String,
+        column: String,
+        negated: bool,
+    },
+
+    /// RELATION table1.col -> table2.col — declarative FK mapping (metadata only)
+    RelationDecl {
+        from_table: String,
+        from_col: String,
+        to_table: String,
+        to_col: String,
+    },
+
     /// ASSERT  e.g.  ASSERT debtors_control = SUM(sub_ledger)
     Assert {
         label: Option<String>,

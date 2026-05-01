@@ -319,17 +319,17 @@ pub fn Step4View(
                                                         match &file_source {
                                                             FileSource::Saved(id) => {
                                                                 let id = id.clone();
+                                                                data_files.update(|v| v.retain(|d| d.local_id != lid));
+                                                                selected_id.update(|s| {
+                                                                    if s.as_deref() == Some(lid.as_str()) {
+                                                                        *s = None;
+                                                                    }
+                                                                });
                                                                 spawn_local(async move {
                                                                     let _ = tauri_invoke_args::<()>(
                                                                         "delete_project_file",
                                                                         serde_json::json!({ "fileId": id }),
                                                                     ).await;
-                                                                    data_files.update(|v| v.retain(|d| d.local_id != lid));
-                                                                    selected_id.update(|s| {
-                                                                        if s.as_deref() == Some(lid.as_str()) {
-                                                                            *s = None;
-                                                                        }
-                                                                    });
                                                                 });
                                                             }
                                                             FileSource::Browser(_) => {

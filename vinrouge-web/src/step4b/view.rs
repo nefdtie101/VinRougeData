@@ -4,14 +4,53 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
 
-use crate::components::{Banner, GhostButton, Spinner};
+use crate::components::{Banner, DataGrid, GhostButton, Spinner};
 use crate::ipc::tauri_invoke_args;
 use crate::ollama::{ask_ollama_wasm, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
-use crate::types::{AuditProcessWithControls, DslScript, JoinSpec, RelCandidate, SessionSchema};
+use crate::types::{AuditProcessWithControls, DslScript, SessionSchema};
 use crate::step4a::types::{Phase, ScriptStatus, ScriptState, RunResult, ChatMsg};
 use crate::step4a::helpers::{parse_run_result, extract_dsl_code};
 use crate::step4a::pipeline::do_load_or_generate;
 use vinrouge::dsl::{parse as dsl_parse, resolve, Schema};
+
+/// Load ALL rows for an import and populate the preview signals.
+async fn load_table_rows(
+    id: String,
+    rev_map: HashMap<String, String>,
+    fallback_cols: Vec<String>,
+    preview_cols: RwSignal<Vec<String>>,
+    preview_rows: RwSignal<Vec<Vec<String>>>,
+) {
+    match tauri_invoke_args::<Vec<HashMap<String, String>>>(
+        "get_session_rows",
+        serde_json::json!({ "importId": id }),
+    ).await {
+        Ok(raw) if raw.is_empty() => {
+            let disp: Vec<String> = fallback_cols.iter()
+                .map(|c| rev_map.get(c).cloned().unwrap_or_else(|| c.clone()))
+                .collect();
+            preview_cols.set(disp);
+            preview_rows.set(vec![]);
+        }
+        Ok(raw) => {
+            let mut pbc_cols: Vec<String> = raw[0].keys().cloned().collect();
+            pbc_cols.sort_by(|a, b| {
+                let da = rev_map.get(a).map(String::as_str).unwrap_or(a.as_str());
+                let db = rev_map.get(b).map(String::as_str).unwrap_or(b.as_str());
+                da.cmp(db)
+            });
+            let disp_cols: Vec<String> = pbc_cols.iter()
+                .map(|k| rev_map.get(k).cloned().unwrap_or_else(|| k.clone()))
+                .collect();
+            let rows = raw.into_iter().map(|row| {
+                pbc_cols.iter().map(|k| row.get(k).cloned().unwrap_or_default()).collect()
+            }).collect();
+            preview_cols.set(disp_cols);
+            preview_rows.set(rows);
+        }
+        Err(_) => {}
+    }
+}
 
 #[component]
 pub fn Step4bView(
@@ -26,9 +65,6 @@ pub fn Step4bView(
     let script_states: RwSignal<HashMap<String, ScriptState>>  = RwSignal::new(HashMap::new());
     let progress_msg: RwSignal<String>                        = RwSignal::new("Loading data…".to_string());
 
-    // ── Unused signals kept so do_load_or_generate signature matches ──────────
-    let join_candidates: RwSignal<Vec<RelCandidate>>          = RwSignal::new(vec![]);
-    let accepted_joins: RwSignal<Vec<bool>>                   = RwSignal::new(vec![]);
 
     // ── Three-zone signals ────────────────────────────────────────────────────
     let selected_id: RwSignal<Option<String>>                 = RwSignal::new(None);
@@ -48,100 +84,33 @@ pub fn Step4bView(
     let selected_cell: RwSignal<Option<(usize, usize)>>       = RwSignal::new(None);
     let hide_empty_cols: RwSignal<bool>                       = RwSignal::new(false);
 
-    // ── Active table tab + pagination ─────────────────────────────────────────
-    let selected_preview_id: RwSignal<Option<String>>         = RwSignal::new(None);
-    let page_offset: RwSignal<usize>                          = RwSignal::new(0);
-    let page_size: usize                                      = 200;
-    // Reverse map (pbc_name → original_name) for the currently displayed tab.
-    // Empty for master (no remapping needed). Non-master tabs use this to show
-    // original file column names instead of PBC aliases.
-    let active_rev_map: RwSignal<HashMap<String, String>>     = RwSignal::new(HashMap::new());
-    let total_rows: RwSignal<usize>                           = RwSignal::new(0);
+    // ── Active table tab ──────────────────────────────────────────────────────
+    let selected_preview_id: RwSignal<Option<String>>     = RwSignal::new(None);
+    let active_rev_map: RwSignal<HashMap<String, String>> = RwSignal::new(HashMap::new());
 
-    // ── Auto-select first/master tab when schemas load, and load its data ────
+    // ── Auto-select first tab when schemas load, and load its data ────────────
     Effect::new(move |_| {
         let schs = schemas.get();
         if selected_preview_id.get_untracked().is_none() && !schs.is_empty() {
-            let sel = schs.iter().find(|s| s.source_type == "master")
-                .or_else(|| schs.first())
-                .cloned();
+            let sel = schs.first().cloned();
             if let Some(s) = sel {
                 let id = s.import_id.clone();
                 selected_preview_id.set(Some(id.clone()));
-                total_rows.set(s.row_count);
-                preview_source.set(if s.source_type == "master" { "master".to_string() } else { s.table_name.clone() });
+                preview_source.set(s.table_name.clone());
                 preview_cols.set(vec![]);
                 preview_rows.set(vec![]);
-                // Build reverse map (pbc → original) for non-master tabs
                 let rev_map: HashMap<String, String> = s.col_map.iter()
                     .map(|(orig, pbc)| (pbc.clone(), orig.clone()))
                     .collect();
                 active_rev_map.set(rev_map.clone());
                 let fallback_cols = s.columns.clone();
                 spawn_local(async move {
-                    if let Ok(raw) = tauri_invoke_args::<Vec<HashMap<String, String>>>(
-                        "get_session_rows_paged",
-                        serde_json::json!({ "importId": id, "offset": 0, "limit": page_size }),
-                    ).await {
-                        if raw.is_empty() {
-                            // Show original names as fallback if available
-                            let disp: Vec<String> = fallback_cols.iter()
-                                .map(|c| rev_map.get(c).cloned().unwrap_or_else(|| c.clone()))
-                                .collect();
-                            preview_cols.set(disp);
-                            return;
-                        }
-                        // Sort PBC keys by their display name, then remap for display
-                        let mut pbc_cols: Vec<String> = raw[0].keys().cloned().collect();
-                        pbc_cols.sort_by(|a, b| {
-                            let da = rev_map.get(a).map(String::as_str).unwrap_or(a.as_str());
-                            let db = rev_map.get(b).map(String::as_str).unwrap_or(b.as_str());
-                            da.cmp(db)
-                        });
-                        let disp_cols: Vec<String> = pbc_cols.iter()
-                            .map(|k| rev_map.get(k).cloned().unwrap_or_else(|| k.clone()))
-                            .collect();
-                        let rows = raw.into_iter().map(|row| {
-                            pbc_cols.iter().map(|k| row.get(k).cloned().unwrap_or_default()).collect()
-                        }).collect();
-                        preview_cols.set(disp_cols);
-                        preview_rows.set(rows);
-                    }
+                    load_table_rows(id, rev_map, fallback_cols, preview_cols, preview_rows).await;
                 });
             }
         }
     });
 
-    // ── Keyboard navigation ───────────────────────────────────────────────────
-    use leptos::ev::KeyboardEvent;
-    let on_keydown = move |ev: KeyboardEvent| {
-        if let Some((row, col)) = selected_cell.get() {
-            let rows = preview_rows.get();
-            let cols = preview_cols.get();
-            let max_row = rows.len().saturating_sub(1);
-            let max_col = cols.len().saturating_sub(1);
-            let new_pos = match ev.key().as_str() {
-                "ArrowUp"    if row > 0       => { ev.prevent_default(); Some((row - 1, col)) }
-                "ArrowDown"  if row < max_row => { ev.prevent_default(); Some((row + 1, col)) }
-                "ArrowLeft"  if col > 0       => { ev.prevent_default(); Some((row, col - 1)) }
-                "ArrowRight" if col < max_col => { ev.prevent_default(); Some((row, col + 1)) }
-                _ => None,
-            };
-            if let Some((new_row, new_col)) = new_pos {
-                selected_cell.set(Some((new_row, new_col)));
-                if let Some(window) = web_sys::window() {
-                    if let Some(document) = window.document() {
-                        let sel = format!("tbody tr:nth-child({}) td:nth-child({})", new_row + 1, new_col + 2);
-                        if let Ok(Some(cell)) = document.query_selector(&sel) {
-                            if let Some(el) = cell.dyn_ref::<web_sys::HtmlElement>() {
-                                el.scroll_into_view_with_bool(false);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    };
 
     // ── Mount ─────────────────────────────────────────────────────────────────
     spawn_local(async move {
@@ -149,7 +118,6 @@ pub fn Step4bView(
             audit_plan, phase, schemas, scripts, script_states,
             progress_msg, status, selected_id,
             preview_cols, preview_rows, preview_source,
-            join_candidates, accepted_joins,
             false,
         ).await;
     });
@@ -199,7 +167,6 @@ pub fn Step4bView(
                 audit_plan, phase, schemas, scripts, script_states,
                 progress_msg, status, selected_id,
                 preview_cols, preview_rows, preview_source,
-                join_candidates, accepted_joins,
                 true,
             ).await;
         });
@@ -514,25 +481,15 @@ pub fn Step4bView(
                     <div style="display:flex;gap:0;border-bottom:1px solid #222;overflow-x:auto;flex-shrink:0">
                         {move || {
                             let mut tab_schemas = schemas.get();
-                            // Non-master tabs first (alphabetical), master tab last
-                            tab_schemas.sort_by(|a, b| {
-                                let a_master = a.source_type == "master";
-                                let b_master = b.source_type == "master";
-                                match (a_master, b_master) {
-                                    (true, false) => std::cmp::Ordering::Greater,
-                                    (false, true) => std::cmp::Ordering::Less,
-                                    _ => a.table_name.cmp(&b.table_name),
-                                }
-                            });
+                            tab_schemas.sort_by(|a, b| a.table_name.cmp(&b.table_name));
                             tab_schemas.into_iter().map(|s| {
                                 let import_id = s.import_id.clone();
                                 let name      = s.table_name.clone();
                                 let cols      = s.columns.clone();
-                                let is_master = s.source_type == "master";
                                 let tab_id    = import_id.clone();
-                                let tab_name  = if is_master { "master".to_string() } else { name.clone() };
+                                let tab_name  = name.clone();
                                 let tab_cols  = cols.clone();
-                                let label     = if is_master { "★ master".to_string() } else { name.clone() };
+                                let label     = name.clone();
                                 // Build reverse map for this tab (pbc → original)
                                 let tab_rev_map: HashMap<String, String> = s.col_map.iter()
                                     .map(|(orig, pbc)| (pbc.clone(), orig.clone()))
@@ -548,46 +505,11 @@ pub fn Step4bView(
                                             preview_rows.set(vec![]);
                                             hide_empty_cols.set(false);
                                             selected_cell.set(None);
-                                            page_offset.set(0);
-                                            let row_count = schemas.get_untracked()
-                                                .iter()
-                                                .find(|s| s.import_id == id)
-                                                .map(|s| s.row_count)
-                                                .unwrap_or(0);
-                                            total_rows.set(row_count);
                                             let fallback_cols = tab_cols.clone();
                                             let rev_map = tab_rev_map.clone();
                                             active_rev_map.set(rev_map.clone());
                                             spawn_local(async move {
-                                                if let Ok(raw) = tauri_invoke_args::<Vec<HashMap<String, String>>>(
-                                                    "get_session_rows_paged",
-                                                    serde_json::json!({ "importId": id, "offset": 0, "limit": page_size }),
-                                                ).await {
-                                                    if raw.is_empty() {
-                                                        let disp: Vec<String> = fallback_cols.iter()
-                                                            .map(|c| rev_map.get(c).cloned().unwrap_or_else(|| c.clone()))
-                                                            .collect();
-                                                        preview_cols.set(disp);
-                                                        preview_rows.set(vec![]);
-                                                        return;
-                                                    }
-                                                    // Sort PBC keys by display name then remap
-                                                    let mut pbc_cols: Vec<String> =
-                                                        raw[0].keys().cloned().collect();
-                                                    pbc_cols.sort_by(|a, b| {
-                                                        let da = rev_map.get(a).map(String::as_str).unwrap_or(a.as_str());
-                                                        let db = rev_map.get(b).map(String::as_str).unwrap_or(b.as_str());
-                                                        da.cmp(db)
-                                                    });
-                                                    let disp_cols: Vec<String> = pbc_cols.iter()
-                                                        .map(|k| rev_map.get(k).cloned().unwrap_or_else(|| k.clone()))
-                                                        .collect();
-                                                    let rows = raw.into_iter().map(|row| {
-                                                        pbc_cols.iter().map(|k| row.get(k).cloned().unwrap_or_default()).collect()
-                                                    }).collect();
-                                                    preview_cols.set(disp_cols);
-                                                    preview_rows.set(rows);
-                                                }
+                                                load_table_rows(id, rev_map, fallback_cols, preview_cols, preview_rows).await;
                                             });
                                         }
                                         style=move || {
@@ -598,7 +520,7 @@ pub fn Step4bView(
                                                 if active { "#6fa06f" } else { "transparent" },
                                                 if active { "#1e2a1e" } else { "transparent" },
                                                 if active { "#b0d4b0" } else { "#666" },
-                                                if is_master { "600" } else { "400" },
+                                                "400",
                                             )
                                         }
                                     >{label}</button>
@@ -610,87 +532,8 @@ pub fn Step4bView(
                     // ── Topbar ─────────────────────────────────────────────────
                     <div class="s4a-tbl-topbar">
                         <span class="s4a-tbl-pill">
-                            {move || {
-                                let total = total_rows.get();
-                                let off   = page_offset.get();
-                                let shown = preview_rows.get().len();
-                                if total > 0 {
-                                    format!("{}-{} of {} rows", off + 1, off + shown, total)
-                                } else {
-                                    format!("{} rows", shown)
-                                }
-                            }}
+                            {move || format!("{} rows", preview_rows.get().len())}
                         </span>
-                        // ── Pagination ──────────────────────────────────────
-                        {move || (total_rows.get() > page_size).then(|| {
-                            let off   = page_offset.get();
-                            let total = total_rows.get();
-                            let can_prev = off > 0;
-                            let can_next = off + page_size < total;
-                            view! {
-                                <div style="display:flex;align-items:center;gap:4px;margin-left:8px">
-                                    <button
-                                        disabled=Signal::derive(move || !can_prev)
-                                        on:click=move |_| {
-                                            let id  = match selected_preview_id.get_untracked() { Some(id) => id, None => return };
-                                            let disp_cols = preview_cols.get_untracked();
-                                            let rev = active_rev_map.get_untracked();
-                                            // Translate display names → PBC keys for DB lookup
-                                            let pbc_cols: Vec<String> = disp_cols.iter()
-                                                .map(|c| rev.iter().find(|(_, orig)| *orig == c)
-                                                    .map(|(pbc, _)| pbc.clone())
-                                                    .unwrap_or_else(|| c.clone()))
-                                                .collect();
-                                            let new_off = page_offset.get_untracked().saturating_sub(page_size);
-                                            page_offset.set(new_off);
-                                            spawn_local(async move {
-                                                if let Ok(raw) = tauri_invoke_args::<Vec<HashMap<String, String>>>(
-                                                    "get_session_rows_paged",
-                                                    serde_json::json!({ "importId": id, "offset": new_off, "limit": page_size }),
-                                                ).await {
-                                                    let rows = raw.into_iter().map(|row| {
-                                                        pbc_cols.iter().map(|k| row.get(k).cloned().unwrap_or_default()).collect()
-                                                    }).collect();
-                                                    preview_rows.set(rows);
-                                                    selected_cell.set(None);
-                                                }
-                                            });
-                                        }
-                                        style="padding:2px 8px;font-size:11px;background:#1a1a1a;\
-                                               border:0.5px solid #333;border-radius:3px;color:#aaa;cursor:pointer"
-                                    >"← Prev"</button>
-                                    <button
-                                        disabled=Signal::derive(move || !can_next)
-                                        on:click=move |_| {
-                                            let id  = match selected_preview_id.get_untracked() { Some(id) => id, None => return };
-                                            let disp_cols = preview_cols.get_untracked();
-                                            let rev = active_rev_map.get_untracked();
-                                            let pbc_cols: Vec<String> = disp_cols.iter()
-                                                .map(|c| rev.iter().find(|(_, orig)| *orig == c)
-                                                    .map(|(pbc, _)| pbc.clone())
-                                                    .unwrap_or_else(|| c.clone()))
-                                                .collect();
-                                            let new_off = page_offset.get_untracked() + page_size;
-                                            page_offset.set(new_off);
-                                            spawn_local(async move {
-                                                if let Ok(raw) = tauri_invoke_args::<Vec<HashMap<String, String>>>(
-                                                    "get_session_rows_paged",
-                                                    serde_json::json!({ "importId": id, "offset": new_off, "limit": page_size }),
-                                                ).await {
-                                                    let rows = raw.into_iter().map(|row| {
-                                                        pbc_cols.iter().map(|k| row.get(k).cloned().unwrap_or_default()).collect()
-                                                    }).collect();
-                                                    preview_rows.set(rows);
-                                                    selected_cell.set(None);
-                                                }
-                                            });
-                                        }
-                                        style="padding:2px 8px;font-size:11px;background:#1a1a1a;\
-                                               border:0.5px solid #333;border-radius:3px;color:#aaa;cursor:pointer"
-                                    >"Next →"</button>
-                                </div>
-                            }
-                        })}
                         <div style="display:flex;gap:6px;align-items:center;margin-left:auto">
                             <button
                                 title="Hide columns where all rows are empty"
@@ -716,70 +559,35 @@ pub fn Step4bView(
                         </div>
                     </div>
 
-                    <div class="s4a-tbl-wrap" tabindex="0" on:keydown=on_keydown>
-                        {move || {
-                            let all_cols = preview_cols.get();
-                            let all_rows = preview_rows.get();
-                            if all_cols.is_empty() {
-                                return view! {
-                                    <div class="s4a-no-data">
-                                        {move || if matches!(phase.get(), Phase::Loading | Phase::Generating) {
-                                            "Loading…"
-                                        } else {
-                                            "No data imported"
-                                        }}
-                                    </div>
-                                }.into_any();
-                            }
-                            let visible_indices: Vec<usize> = if hide_empty_cols.get() {
-                                (0..all_cols.len()).filter(|&ci| {
-                                    all_rows.iter().any(|row| row.get(ci).map(|v| !v.trim().is_empty()).unwrap_or(false))
-                                }).collect()
-                            } else {
-                                (0..all_cols.len()).collect()
-                            };
-                            let cols: Vec<String> = visible_indices.iter().map(|&i| all_cols[i].clone()).collect();
-                            let rows: Vec<Vec<String>> = all_rows.iter().map(|row| {
-                                visible_indices.iter().map(|&i| row.get(i).cloned().unwrap_or_default()).collect()
-                            }).collect();
-                            let letters: Vec<String> = (0..cols.len()).map(|i| {
-                                if i < 26 { ((b'A' + i as u8) as char).to_string() }
-                                else { format!("{}{}", (b'A' + (i / 26 - 1) as u8) as char, (b'A' + (i % 26) as u8) as char) }
-                            }).collect();
-                            let cols2 = cols.clone();
-                            let rows_view = rows.iter().enumerate().map(|(ri, row)| {
-                                let cells = row.iter().enumerate().map(|(ci, val)| {
-                                    let val_clone = val.clone();
-                                    let selected = selected_cell.get();
-                                    let is_selected     = selected == Some((ri, ci));
-                                    let is_selected_row = selected.map(|(r, _)| r == ri).unwrap_or(false);
-                                    let is_selected_col = selected.map(|(_, c)| c == ci).unwrap_or(false);
-                                    let class = if is_selected { "selected" } else if is_selected_row { "selected-row" } else if is_selected_col { "selected-col" } else { "" };
-                                    view! {
-                                        <td class=class on:click=move |_| { selected_cell.set(Some((ri, ci))); }>
-                                            {val_clone}
-                                        </td>
-                                    }
-                                }).collect_view();
-                                view! { <tr><td class="rn">{ri + 1}</td>{cells}</tr> }
-                            }).collect_view();
-                            view! {
-                                <table class="s4a-sheet-tbl">
-                                    <thead>
-                                        <tr>
-                                            <th class="s4a-th-lbl corner"></th>
-                                            {letters.iter().map(|l| { let l = l.clone(); view! { <th class="s4a-th-lbl">{l}</th> } }).collect_view()}
-                                        </tr>
-                                        <tr>
-                                            <th class="s4a-th-fld" style="background:#111"></th>
-                                            {cols2.iter().map(|c| { let c = c.clone(); view! { <th class="s4a-th-fld">{c}</th> } }).collect_view()}
-                                        </tr>
-                                    </thead>
-                                    <tbody>{rows_view}</tbody>
-                                </table>
-                            }.into_any()
-                        }}
-                    </div>
+                    {move || {
+                        let all_cols = preview_cols.get();
+                        let all_rows = preview_rows.get();
+                        if all_cols.is_empty() {
+                            return view! {
+                                <div class="s4a-no-data">
+                                    {move || if matches!(phase.get(), Phase::Loading | Phase::Generating) {
+                                        "Loading…"
+                                    } else {
+                                        "No data imported"
+                                    }}
+                                </div>
+                            }.into_any();
+                        }
+                        let visible_indices: Vec<usize> = if hide_empty_cols.get() {
+                            (0..all_cols.len()).filter(|&ci| {
+                                all_rows.iter().any(|row| row.get(ci).map(|v| !v.trim().is_empty()).unwrap_or(false))
+                            }).collect()
+                        } else {
+                            (0..all_cols.len()).collect()
+                        };
+                        let cols: Vec<String> = visible_indices.iter().map(|&i| all_cols[i].clone()).collect();
+                        let rows: Vec<Vec<String>> = all_rows.iter().map(|row| {
+                            visible_indices.iter().map(|&i| row.get(i).cloned().unwrap_or_default()).collect()
+                        }).collect();
+                        view! {
+                            <DataGrid cols=cols rows=rows selected_cell=selected_cell />
+                        }.into_any()
+                    }}
                 </div>
 
                 // ── Resize handle ──────────────────────────────────────────────

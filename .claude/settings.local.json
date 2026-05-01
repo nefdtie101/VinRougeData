@@ -19,7 +19,8 @@
       "Bash(trunk build:*)",
       "Bash(python3 *)",
       "Bash(cargo test *)",
-      "Bash(grep -E \"FAILED|ok$|error\\\\[\")"
+      "Bash(grep -E \"FAILED|ok$|error\\\\[\")",
+      "Bash(git stash *)"
     ]
   }
 }

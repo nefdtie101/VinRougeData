@@ -1,5 +1,6 @@
 mod aggregate;
 mod assert;
+mod helpers;
 mod result;
 mod sample;
 
@@ -60,6 +61,7 @@ impl<'ds> Evaluator<'ds> {
 
     /// Evaluate a scalar expression against a context row.
     pub fn eval(&self, expr: &Expr, row: &Row) -> EvalResult<Value> {
+        use helpers::{is_date_str, like_match, normalize_date};
         match expr {
             Expr::Number(d)  => Ok(Value::Decimal(*d)),
             Expr::Bool(b)    => Ok(Value::Bool(*b)),
@@ -208,6 +210,64 @@ impl<'ds> Evaluator<'ds> {
                 }
             }
 
+            Expr::IsBlank { expr, negated } => {
+                let v = self.eval(expr, row)?;
+                let blank = v == Value::Null || v.as_text().trim().is_empty();
+                Ok(Value::Bool(if *negated { !blank } else { blank }))
+            }
+
+            Expr::IsNumeric { expr, negated } => {
+                let v = self.eval(expr, row)?;
+                let s = v.as_text();
+                let numeric = v != Value::Null
+                    && rust_decimal::Decimal::from_str_exact(s.trim().replace(',', "").as_str()).is_ok();
+                Ok(Value::Bool(if *negated { !numeric } else { numeric }))
+            }
+
+            Expr::IsDate { expr, negated } => {
+                let v = self.eval(expr, row)?;
+                let is_date_val = v != Value::Null && is_date_str(v.as_text().trim());
+                Ok(Value::Bool(if *negated { !is_date_val } else { is_date_val }))
+            }
+
+            Expr::Duplicated { exprs } => {
+                let table = exprs.first()
+                    .and_then(|e| if let Expr::ColumnRef(n) = e.as_ref() { Some(n.as_str()) } else { None })
+                    .and_then(|n| n.find('.').map(|d| &n[..d]))
+                    .ok_or_else(|| EvalError::AggregateError(
+                        "DUPLICATED requires table.column references".into()
+                    ))?;
+                let all_rows = self.datasource.rows(table)?;
+
+                let make_key = |r: &Row| {
+                    exprs.iter().map(|e| {
+                        if let Expr::ColumnRef(n) = e.as_ref() {
+                            Self::resolve_column(n, r).map(|v| v.to_string()).unwrap_or_default()
+                        } else {
+                            String::new()
+                        }
+                    }).collect::<Vec<_>>().join("\x00")
+                };
+                let current_key = make_key(row);
+                let count = all_rows.iter().filter(|r| make_key(r) == current_key).count();
+                Ok(Value::Bool(count > 1))
+            }
+
+            Expr::InTableCol { expr, table, column, negated } => {
+                let v = self.eval(expr, row)?;
+                let all_rows = self.datasource.rows(table.as_str())?;
+                let col_lc = column.to_lowercase();
+                let found = all_rows.iter().any(|r| {
+                    let col_val = r.get(&col_lc)
+                        .or_else(|| r.iter().find(|(k, _)| k.eq_ignore_ascii_case(&col_lc)).map(|(_, v)| v));
+                    col_val.map(|cv| Value::sql_eq(&v, cv)).unwrap_or(false)
+                });
+                Ok(Value::Bool(if *negated { !found } else { found }))
+            }
+
+            // RELATION is metadata only — evaluates as a no-op
+            Expr::RelationDecl { .. } => Ok(Value::Bool(true)),
+
             Expr::Assert { label, lhs, rhs, op } => {
                 let result = self.eval_assert(label, lhs, rhs, op)?;
                 Ok(Value::Bool(result.passed))
@@ -216,71 +276,6 @@ impl<'ds> Evaluator<'ds> {
             Expr::Sample { .. } => Ok(Value::Null),
         }
     }
-}
-
-// ─────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────
-
-/// SQL LIKE matching: `%` = any sequence, `_` = any single char, case-insensitive.
-fn like_match(text: &str, pattern: &str) -> bool {
-    let t: Vec<char> = text.chars().collect();
-    let p: Vec<char> = pattern.chars().collect();
-    let (tn, pn) = (t.len(), p.len());
-    // DP table: dp[i][j] = t[..i] matches p[..j]
-    let mut dp = vec![vec![false; pn + 1]; tn + 1];
-    dp[0][0] = true;
-    for j in 1..=pn {
-        if p[j - 1] == '%' {
-            dp[0][j] = dp[0][j - 1];
-        }
-    }
-    for i in 1..=tn {
-        for j in 1..=pn {
-            dp[i][j] = match p[j - 1] {
-                '%' => dp[i - 1][j] || dp[i][j - 1],
-                '_' => dp[i - 1][j - 1],
-                c   => dp[i - 1][j - 1] && t[i - 1].to_ascii_lowercase() == c.to_ascii_lowercase(),
-            };
-        }
-    }
-    dp[tn][pn]
-}
-
-/// Normalise common date formats to ISO 8601 (YYYY-MM-DD) for consistent string ordering.
-/// Recognises: YYYY-MM-DD, YYYY/MM/DD, DD/MM/YYYY, DD-MM-YYYY, MM/DD/YYYY.
-/// Falls back to the original string if unrecognised.
-fn normalize_date(s: &str) -> String {
-    let s = s.trim();
-    // Already ISO: YYYY-MM-DD or YYYY/MM/DD
-    if s.len() == 10 {
-        let sep = s.as_bytes()[4];
-        if sep == b'-' || sep == b'/' {
-            let y = &s[0..4];
-            let m = &s[5..7];
-            let d = &s[8..10];
-            if y.chars().all(|c| c.is_ascii_digit()) {
-                return format!("{y}-{m}-{d}");
-            }
-        }
-        // DD/MM/YYYY or DD-MM-YYYY or MM/DD/YYYY — all have sep at positions 2 and 5
-        let sep2 = s.as_bytes()[2];
-        if sep2 == b'/' || sep2 == b'-' {
-            let a = &s[0..2];
-            let b = &s[3..5];
-            let y = &s[6..10];
-            if y.chars().all(|c| c.is_ascii_digit())
-                && a.chars().all(|c| c.is_ascii_digit())
-                && b.chars().all(|c| c.is_ascii_digit())
-            {
-                // Heuristic: if first part > 12 it must be DD/MM/YYYY
-                let first: u32 = a.parse().unwrap_or(0);
-                let (month, day) = if first > 12 { (b, a) } else { (a, b) };
-                return format!("{y}-{month}-{day}");
-            }
-        }
-    }
-    s.to_string()
 }
 
 // ─────────────────────────────────────────────
@@ -308,6 +303,12 @@ pub fn run_script(
                 match evaluator.eval_sample(method, population, value_column, size, filter) {
                     Ok(r)  => StatementResult::Sample(r),
                     Err(e) => StatementResult::Error(e.to_string()),
+                }
+            }
+            Expr::RelationDecl { from_table, from_col, to_table, to_col } => {
+                StatementResult::Relation {
+                    from: format!("{from_table}.{from_col}"),
+                    to:   format!("{to_table}.{to_col}"),
                 }
             }
             other => match evaluator.eval(other, &Row::new()) {

@@ -1085,6 +1085,15 @@ pub fn list_dsl_scripts(project_dir: &Path) -> Result<Vec<DslScript>, String> {
     Ok(rows)
 }
 
+pub fn delete_dsl_script(project_dir: &Path, script_id: &str) -> Result<(), String> {
+    let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
+    conn.execute_batch(&format!(
+        "DELETE FROM test_results WHERE script_id = '{script_id}';
+         DELETE FROM dsl_scripts WHERE id = '{script_id}';"
+    ))
+    .map_err(|e| format!("DB delete dsl_script: {e}"))
+}
+
 pub fn clear_dsl_scripts(project_dir: &Path) -> Result<(), String> {
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
     conn.execute_batch(
@@ -1104,6 +1113,20 @@ pub fn update_dsl_script(
         rusqlite::params![script_text, script_id],
     )
     .map_err(|e| format!("DB update dsl_script: {e}"))?;
+    Ok(())
+}
+
+pub fn rename_dsl_script(
+    project_dir: &Path,
+    script_id: &str,
+    label: &str,
+) -> Result<(), String> {
+    let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE dsl_scripts SET label = ?1 WHERE id = ?2",
+        rusqlite::params![label, script_id],
+    )
+    .map_err(|e| format!("DB rename dsl_script: {e}"))?;
     Ok(())
 }
 

@@ -3,8 +3,8 @@ use leptos::prelude::*;
 
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
 use crate::ollama::{ask_ollama_structured, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
-use crate::types::{AuditProcessWithControls, DslScript, PbcGroup, RelCandidate, SessionSchema};
-use vinrouge::audit_prompts::{dsl_script_schema, GENERATE_DSL};
+use crate::types::{AuditProcessWithControls, DslScript, PbcGroup, SessionSchema};
+use vinrouge::audit_prompts::{build_generate_dsl_prompt, dsl_script_schema, GENERATE_DSL_RULES};
 use vinrouge::dsl::{parse as dsl_parse, resolve, Schema};
 use super::types::{Phase, ScriptStatus, ScriptState};
 use super::prompts::{build_schema_section, build_table_names_section, build_plan_section, build_example_section};
@@ -13,20 +13,18 @@ use super::prompts::{build_schema_section, build_table_names_section, build_plan
 // This pipeline only contains do_load_or_generate (used by step4b).
 
 pub async fn do_load_or_generate(
-    audit_plan:      RwSignal<Vec<AuditProcessWithControls>>,
-    phase:           RwSignal<Phase>,
-    schemas:         RwSignal<Vec<SessionSchema>>,
-    scripts:         RwSignal<Vec<DslScript>>,
-    script_states:   RwSignal<HashMap<String, ScriptState>>,
-    progress_msg:    RwSignal<String>,
-    status:          RwSignal<String>,
-    selected_id:     RwSignal<Option<String>>,
-    preview_cols:    RwSignal<Vec<String>>,
-    preview_rows:    RwSignal<Vec<Vec<String>>>,
-    preview_source:  RwSignal<String>,
-    join_candidates: RwSignal<Vec<RelCandidate>>,
-    accepted_joins:  RwSignal<Vec<bool>>,
-    generate_new:    bool,
+    audit_plan:     RwSignal<Vec<AuditProcessWithControls>>,
+    phase:          RwSignal<Phase>,
+    schemas:        RwSignal<Vec<SessionSchema>>,
+    scripts:        RwSignal<Vec<DslScript>>,
+    script_states:  RwSignal<HashMap<String, ScriptState>>,
+    progress_msg:   RwSignal<String>,
+    status:         RwSignal<String>,
+    selected_id:    RwSignal<Option<String>>,
+    preview_cols:   RwSignal<Vec<String>>,
+    preview_rows:   RwSignal<Vec<Vec<String>>>,
+    preview_source: RwSignal<String>,
+    generate_new:   bool,
 ) {
     phase.set(Phase::Loading);
     progress_msg.set("Loading imported data…".to_string());
@@ -48,34 +46,7 @@ pub async fn do_load_or_generate(
     }
     schemas.set(session_schemas.clone());
 
-    // 2. Pick which import to preview (prefer master if present)
-    let master = session_schemas.iter().find(|s| s.source_type == "master");
-    let non_master_count = session_schemas.iter().filter(|s| s.source_type != "master").count();
-
-    // 2a. If no master exists AND 2+ raw imports: run relationship detection, pause for review
-    if master.is_none() && non_master_count >= 2 {
-        progress_msg.set("Detecting data relationships…".to_string());
-        match tauri_invoke::<Vec<RelCandidate>>("detect_data_relationships").await {
-            Ok(candidates) if !candidates.is_empty() => {
-                let n = candidates.len();
-                join_candidates.set(candidates);
-                accepted_joins.set(vec![true; n]); // accept all by default
-                phase.set(Phase::RelationshipReview);
-                return; // wait for user to confirm / skip
-            }
-            _ => {
-                // No auto-detected relationships → still show the panel so the user
-                // can define joins manually before building a master record.
-                phase.set(Phase::RelationshipReview);
-                return;
-            }
-        }
-    }
-
-    // 2b. Preview data is loaded by the tab-selection Effect in the view,
-    //     not here, to avoid a race where the pipeline overwrites a tab the
-    //     user has already clicked.  We just make sure selected_preview_id
-    //     is cleared so the Effect fires when schemas are set below.
+    // 2. Preview data is loaded by the tab-selection Effect in the view.
 
     // 3. Load PBC context
     let pbc_groups: Vec<PbcGroup> =
@@ -114,16 +85,32 @@ pub async fn do_load_or_generate(
     phase.set(Phase::Generating);
     progress_msg.set("Generating DSL algorithms via AI…".to_string());
 
-    let schema_section      = build_schema_section(&session_schemas);
-    let table_names_section = build_table_names_section(&session_schemas);
-    let example_section     = build_example_section(&session_schemas);
-    let plan_section        = build_plan_section(&audit_plan.get_untracked(), &pbc_groups, &session_schemas);
+    // Filter out master_record — it's a stale join artifact with pbc_test_data_* columns
+    // that confuse the AI. Keep it in dsl_schema for validation of existing scripts.
+    let prompt_schemas: Vec<&SessionSchema> = session_schemas.iter()
+        .filter(|s| s.source_type != "master" && s.table_name != "master_record")
+        .collect();
+    let prompt_schemas_owned: Vec<SessionSchema> = prompt_schemas.into_iter().cloned().collect();
+
+    let schema_section      = build_schema_section(&prompt_schemas_owned);
+    let table_names_section = build_table_names_section(&prompt_schemas_owned);
+    let example_section     = build_example_section(&prompt_schemas_owned);
+    let plan_section        = build_plan_section(&audit_plan.get_untracked(), &pbc_groups, &prompt_schemas_owned);
+    // Use prompt_schemas for fallback column selection too (avoids picking master_record)
+    let fallback_schemas = &prompt_schemas_owned;
+    let dsl_intro = build_generate_dsl_prompt();
     let prompt = format!(
-        "{GENERATE_DSL}\
+        "{dsl_intro}\
          AVAILABLE DATA:\n{schema_section}\
          {table_names_section}\
          {example_section}\
          AUDIT CONTROLS TO TEST:\n{plan_section}\n\
+         {GENERATE_DSL_RULES}\
+         DIFFERENTIATION REQUIREMENT:\n\
+         - Each control MUST have a UNIQUE script that tests data specific to THAT control.\n\
+         - NEVER copy the same ASSERT or SAMPLE statement across multiple controls.\n\
+         - If BEST MATCH TABLE or REQUIRED TABLES is specified, you MUST use those tables.\n\
+         - A script that is identical to another control's script is WRONG — vary the table, column, and condition.\n\n\
          Return ONLY a JSON object: \
          {{\"scripts\": [{{\"control_ref\": \"C-1\", \"label\": \"Test label\", \
          \"script\": \"DSL code here\"}}]}}"
@@ -148,6 +135,84 @@ pub async fn do_load_or_generate(
         return;
     }
 
+    // 6b. Deduplication guard — if the AI generated the same script body for multiple
+    //     controls (a common failure mode), add those duplicates to a targeted re-generation
+    //     list so they get a second, focused prompt.
+    {
+        use std::collections::HashMap as HM;
+        let mut seen: HM<String, String> = HM::new(); // body → first control_ref
+        let mut dup_refs: Vec<String> = vec![];
+        for (ctrl, _, body) in &script_dtos {
+            let norm = body.lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.starts_with("--") && !l.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n");
+            if let Some(first) = seen.get(&norm) {
+                if first != ctrl {
+                    dup_refs.push(ctrl.clone());
+                }
+            } else {
+                seen.insert(norm, ctrl.clone());
+            }
+        }
+        if !dup_refs.is_empty() {
+            progress_msg.set(format!(
+                "Re-generating {} duplicate script(s)…", dup_refs.len()
+            ));
+            let plan_snap = audit_plan.get_untracked();
+            let pbc_groups_dedup: Vec<crate::types::PbcGroup> =
+                tauri_invoke("list_pbc_groups").await.unwrap_or_default();
+            // Build a filtered plan containing only the duplicate controls
+            let mini_plan: Vec<AuditProcessWithControls> = plan_snap.iter()
+                .map(|p| {
+                    let mut p2 = p.clone();
+                    p2.controls.retain(|c| dup_refs.contains(&c.control_ref));
+                    p2
+                })
+                .filter(|p| !p.controls.is_empty())
+                .collect();
+            let mini_plan_section = build_plan_section(&mini_plan, &pbc_groups_dedup, &session_schemas);
+            let dup_prompt = format!(
+                "{dsl_intro}\
+                 AVAILABLE DATA:\n{schema_section}\
+                 {table_names_section}\
+                 {example_section}\
+                 {GENERATE_DSL_RULES}\
+                 IMPORTANT: The controls below were previously given IDENTICAL scripts. \
+                 You MUST write a DIFFERENT, control-specific script for each one.\n\
+                 Use the BEST MATCH TABLE or REQUIRED TABLES hint for each control.\n\
+                 AUDIT CONTROLS TO FIX:\n{mini_plan_section}\n\
+                 Return ONLY a JSON object: \
+                 {{\"scripts\": [{{\"control_ref\": \"C-1\", \"label\": \"Test label\", \
+                 \"script\": \"DSL code here\"}}]}}",
+                schema_section = schema_section,
+                table_names_section = table_names_section,
+                example_section = example_section,
+                mini_plan_section = mini_plan_section,
+            );
+            let dup_ollama_schema = dsl_script_schema();
+            if let Ok(dup_raw) = ask_ollama_structured(
+                OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &dup_prompt, dup_ollama_schema
+            ).await {
+                let fixed = parse_script_json(&dup_raw);
+                let fixed_map: std::collections::HashMap<String, (String, String)> = fixed.into_iter()
+                    .map(|(ctrl, label, script)| (ctrl, (label, script)))
+                    .collect();
+                for dto in script_dtos.iter_mut() {
+                    if dup_refs.contains(&dto.0) {
+                        if let Some((label, script)) = fixed_map.get(&dto.0) {
+                            if !script.trim().is_empty() {
+                                dto.1 = label.clone();
+                                dto.2 = script.clone();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 7. Validate + deterministically repair invented table names, then AI-fix remaining issues.
     progress_msg.set("Validating DSL scripts…".to_string());
     let dsl_schema = build_dsl_schema(&session_schemas);
@@ -161,7 +226,7 @@ pub async fn do_load_or_generate(
     //
     //   Pass 1: unknown table names — replace invented table with best-scoring real table.
     //   Pass 2: wrong table for column — if col exists in another real table, move the ref.
-    //           e.g. master_record.driver_age_band → c5_basepremium.driver_age_band
+    //           e.g. invented_table.col → real_table.col
     //
     // Both passes repeat until stable (max 3 iterations) so chained fixes work.
     for dto in script_dtos.iter_mut() {
@@ -244,15 +309,13 @@ pub async fn do_load_or_generate(
             if salvage_errors.is_empty() && !salvaged.trim().is_empty() {
                 (salvaged, ScriptStatus::Generated)
             } else if salvaged.trim().is_empty() {
-                // All statements were dropped — the required columns simply don't exist
-                // in any uploaded file.  A nonsensical SAMPLE from an unrelated column
-                // would produce misleading results, so emit a comment-only placeholder
-                // instead that tells the auditor exactly what data is missing.
+                // All statements were dropped — generate a real executable fallback
+                // using the best-matching available column so auditors have something runnable.
                 let mut missing: Vec<String> = final_errors.iter()
                     .filter_map(|e| {
                         let col_rest = e.strip_prefix("unknown column '")?;
                         let col = col_rest.split('\'').next()?.to_string();
-                        let exists_anywhere = session_schemas.iter()
+                        let exists_anywhere = fallback_schemas.iter()
                             .any(|s| s.columns.iter().any(|c| c.eq_ignore_ascii_case(&col)));
                         if exists_anywhere { None } else { Some(col) }
                     })
@@ -260,31 +323,32 @@ pub async fn do_load_or_generate(
                 missing.sort();
                 missing.dedup();
 
-                let available_hint: String = session_schemas.iter()
-                    .map(|s| format!("--   {} : {}", s.table_name, s.columns.join(", ")))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                let missing_lines = if missing.is_empty() {
-                    format!("-- Errors: {}", final_errors.join("; "))
+                let fallback_col = fallback_sample_col(&final_errors, &script_text, label, fallback_schemas);
+                let note = if missing.is_empty() {
+                    String::new()
                 } else {
-                    missing.iter()
-                        .map(|c| format!("--   {c}"))
-                        .collect::<Vec<_>>()
-                        .join("\n")
+                    format!("-- NOTE: Ideal columns ({}) not in uploads; using best available.\n",
+                        missing.join(", "))
                 };
-
-                let placeholder = format!(
-                    "-- Required columns not found in any uploaded data file:\n\
-                     {missing_lines}\n\
-                     --\n\
-                     -- AVAILABLE DATA:\n\
-                     {available_hint}\n\
-                     --\n\
-                     -- Upload the relevant data file, or rewrite this script\n\
-                     -- using the available columns listed above."
+                let real_script = format!(
+                    "{note}ASSERT COUNT({fallback_col}) > 0\nSAMPLE RANDOM FROM {fallback_col} SIZE 10"
                 );
-                (placeholder, ScriptStatus::ValidationError(final_errors.join("; ")))
+                let real_errors = validate_script(&real_script, &dsl_schema);
+                if real_errors.is_empty() {
+                    (real_script, ScriptStatus::Generated)
+                } else {
+                    // Truly nothing usable — last resort comment block
+                    let available_hint: String = fallback_schemas.iter()
+                        .map(|s| format!("--   {} : {}", s.table_name, s.columns.join(", ")))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let placeholder = format!(
+                        "-- Required columns not found in any uploaded data file:\n\
+                         {}\n--\n-- AVAILABLE DATA:\n{available_hint}",
+                        missing.iter().map(|c| format!("--   {c}")).collect::<Vec<_>>().join("\n")
+                    );
+                    (placeholder, ScriptStatus::ValidationError(final_errors.join("; ")))
+                }
             } else {
                 // Some statements remain but still have errors (e.g. a parse error that
                 // survived all repair passes). Fall back to a semantically-relevant SAMPLE.
@@ -297,6 +361,27 @@ pub async fn do_load_or_generate(
                 (placeholder, ScriptStatus::ValidationError(final_errors.join("; ")))
             }
         };
+        // Guard 4: sample-only scripts have no ASSERT so auditors can't see pass/fail
+        // counts.  Prepend ASSERT COUNT(tbl.col) > 0 using the same column being
+        // sampled — the simplest meaningful check on the same data.
+        let effective_script = {
+            let has_assert = effective_script.lines().any(|l| {
+                let t = l.trim();
+                !t.starts_with("--") && t.to_uppercase().starts_with("ASSERT")
+            });
+            if !has_assert && !effective_script.trim().starts_with("--") {
+                if let Some(col) = extract_sample_table_col(&effective_script) {
+                    let candidate = format!("ASSERT COUNT({col}) > 0\n{effective_script}");
+                    let g_errs = validate_script(&candidate, &dsl_schema);
+                    if g_errs.is_empty() { candidate } else { effective_script }
+                } else {
+                    effective_script
+                }
+            } else {
+                effective_script
+            }
+        };
+
         match tauri_invoke_args::<DslScript>(
             "save_dsl_script",
             serde_json::json!({
@@ -422,7 +507,11 @@ fn build_fix_prompt(
          - If a table does not exist, replace the entire script with:\n\
            SAMPLE RANDOM FROM <any_valid_table>.<any_valid_col> SIZE 10\n\
          - Never use != — use <> instead.\n\
-         - Always write table.column — never bare column names inside aggregates.\n\n\
+         - Always write table.column — never bare column names inside aggregates.\n\
+         - Valid predicate functions you may use in WHERE: IS_BLANK(t.col)  IS_NUMERIC(t.col)\n\
+           IS_DATE(t.col)  DUPLICATED(t.col1, t.col2, ...)  — do NOT remove these if present.\n\
+         - Cross-table IN: table.col NOT IN other_table.other_col  (no parentheses around the target).\n\
+         - RELATION t1.col -> t2.col is a valid top-level statement — do NOT remove it.\n\n\
          AVAILABLE DATA:\n{schema_section}\
          {table_names_section}\
          {example_section}\
@@ -688,6 +777,35 @@ fn normalize_dsl_syntax(script: &str) -> String {
             return format!("-- (removed: COUNT(*) not supported) {s}");
         }
 
+        // LIKE/NOT LIKE guard — a pattern with NO % or _ wildcard characters is
+        // almost certainly a specific value copied from the SOP/description text
+        // (e.g. LIKE 'SOP-INS-MVI-001').  It would never match real data and
+        // should instead be written as = or IN.  Comment out the whole line.
+        {
+            let upper = s.to_uppercase();
+            if upper.contains(" LIKE ") || upper.contains(" NOT LIKE ") {
+                // Extract the quoted string after LIKE / NOT LIKE
+                let like_pos = upper.find(" LIKE ").or_else(|| upper.find(" NOT LIKE "));
+                if let Some(pos) = like_pos {
+                    let after_like = &s[pos..].trim_start();
+                    // Skip "LIKE " or "NOT LIKE "
+                    let quote_start = after_like.find(|c| c == '\'' || c == '"');
+                    if let Some(qs) = quote_start {
+                        let q = after_like.chars().nth(qs).unwrap();
+                        let inner_start = qs + 1;
+                        if let Some(inner_end) = after_like[inner_start..].find(q) {
+                            let pattern = &after_like[inner_start..inner_start + inner_end];
+                            // Flag if: no % or _ wildcards, OR pattern is > 25 chars
+                            let has_wildcard = pattern.contains('%') || pattern.contains('_');
+                            if !has_wildcard || pattern.len() > 25 {
+                                return format!("-- (removed: LIKE pattern unsuitable for data matching) {s}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // ASSERT COUNT(tbl1.col) WHERE tbl2.col ... — strip the WHERE when it references
         // a different table than the COUNT argument (cross-table filter is not valid DSL).
         if let Some(where_pos) = s.to_uppercase().find(" WHERE ") {
@@ -716,8 +834,7 @@ fn normalize_dsl_syntax(script: &str) -> String {
 /// rewrite `tbl.col` → `that_table.col` in the script.  If multiple tables have
 /// it, prefer non-master tables; if still a tie, skip (let the AI fix pass handle it).
 ///
-/// This fixes the common case where the AI writes `master_record.driver_age_band`
-/// when `driver_age_band` actually lives in `c5_basepremium`.
+/// This fixes the common case where the AI writes the wrong table name for a column.
 fn repair_column_in_wrong_table(
     script:  &str,
     errors:  &[String],
@@ -749,14 +866,7 @@ fn repair_column_in_wrong_table(
         let target = match candidates.len() {
             0 => continue,   // column doesn't exist anywhere — leave for drop logic
             1 => candidates[0],
-            _ => {
-                // Prefer specific source tables over master (master joins everything,
-                // so the source table is more precise and less ambiguous).
-                candidates.iter()
-                    .find(|s| s.source_type != "master")
-                    .copied()
-                    .unwrap_or(candidates[0])
-            }
+            _ => candidates[0],
         };
 
         result = rewrite_col_ref(&result, bad_tbl, col, &target.table_name);
@@ -902,4 +1012,24 @@ fn fallback_sample_col(
         .flat_map(|s| s.columns.first().map(|c| format!("{}.{}", s.table_name, c)))
         .next()
         .unwrap_or_else(|| "data.id".to_string())
+}
+
+/// Extract the `table.col` reference from the first SAMPLE statement in a script.
+/// Returns `Some("tbl.col")` or `None` if no SAMPLE … FROM tbl.col line is found.
+fn extract_sample_table_col(script: &str) -> Option<String> {
+    for line in script.lines() {
+        let t = line.trim();
+        if t.starts_with("--") { continue; }
+        let upper = t.to_uppercase();
+        if !upper.starts_with("SAMPLE") { continue; }
+        if let Some(from_pos) = upper.find(" FROM ") {
+            let after = t[from_pos + 6..].trim_start();
+            let col_end = after.find(|c: char| c.is_whitespace()).unwrap_or(after.len());
+            let table_col = &after[..col_end];
+            if table_col.contains('.') {
+                return Some(table_col.to_string());
+            }
+        }
+    }
+    None
 }

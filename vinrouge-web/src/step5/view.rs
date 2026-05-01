@@ -5,6 +5,8 @@ use wasm_bindgen_futures::spawn_local;
 use crate::components::{GhostButton, StatCard};
 use crate::ipc::tauri_invoke;
 use crate::types::{DslScript, TestResult};
+use crate::step5a::chart::{EChart, RawChart, build_summary_option, pick_sample_column, sample_distribution};
+use crate::step5a::types::{ChartTab, DistPoint};
 
 fn export_debug(scripts: &[DslScript], results: &[TestResult]) {
     let rows: Vec<serde_json::Value> = scripts.iter().map(|s| {
@@ -103,6 +105,47 @@ pub fn Step5View(
                     </div>
                 })}
 
+                // ── Overview chart — pass/fail/error per control ───────────────
+                {move || {
+                    let s = scripts.get();
+                    let r = results.get();
+                    if s.is_empty() || r.is_empty() { return None; }
+
+                    let opt = {
+                        let items: Vec<(&str, i64, i64, i64)> = s.iter().filter_map(|sc| {
+                            let res = r.iter().find(|tr| tr.script_id == sc.id)?;
+                            Some((sc.control_ref.as_str(), res.passed_count, res.failed_count, res.error_count))
+                        }).collect();
+                        build_summary_option(&items)
+                    };
+
+                    // Snapshot into a signal so RawChart can be reactive
+                    let opt_sig = Signal::derive(move || {
+                        let s2 = scripts.get();
+                        let r2 = results.get();
+                        let items: Vec<(String, i64, i64, i64)> = s2.iter().filter_map(|sc| {
+                            let res = r2.iter().find(|tr| tr.script_id == sc.id)?;
+                            Some((sc.control_ref.clone(), res.passed_count, res.failed_count, res.error_count))
+                        }).collect();
+                        let refs: Vec<(&str, i64, i64, i64)> = items.iter()
+                            .map(|(r, p, f, e)| (r.as_str(), *p, *f, *e))
+                            .collect();
+                        build_summary_option(&refs)
+                    });
+
+                    Some(view! {
+                        <div style="background:var(--w-bg-2);border-radius:6px;\
+                                    padding:10px 12px;margin-bottom:14px">
+                            <div style="font-size:11px;font-weight:600;color:var(--w-text-3);\
+                                        text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">
+                                "Results overview"
+                            </div>
+                            <RawChart chart_id="vr-step5-overview".to_string()
+                                option_json=opt_sig height=160 />
+                        </div>
+                    })
+                }}
+
                 {move || {
                     let s = scripts.get();
                     let r = results.get();
@@ -198,13 +241,99 @@ pub fn Step5View(
                                             }
                                             "sample" => {
                                                 let method = stmt["method"].as_str().unwrap_or("Sample").to_string();
-                                                let pop = stmt["population_size"].as_u64().unwrap_or(0);
-                                                let sel = stmt["selected_count"].as_u64().unwrap_or(0);
+                                                let pop    = stmt["population_size"].as_u64().unwrap_or(0);
+                                                let rows: Vec<serde_json::Value> = stmt["selected_indices"]
+                                                    .as_array().cloned().unwrap_or_default();
+                                                let sel = rows.len();
+
+                                                // Build a distribution chart if we have rows
+                                                let chart_view = if !rows.is_empty() {
+                                                    let best_col = pick_sample_column(&rows);
+                                                    if let Some(col) = best_col {
+                                                        let dist_pts: Vec<DistPoint> = sample_distribution(&rows, &col);
+                                                        let col_label  = col.clone();
+                                                        let chart_id   = format!("vr-s5-smp-{}-{}", sid6, stmt["index"].as_u64().unwrap_or(0));
+                                                        let dist_sig   = Signal::derive({
+                                                            let pts = dist_pts.clone();
+                                                            move || pts.clone()
+                                                        });
+                                                        let tab_sig    = RwSignal::new(ChartTab::Bar);
+                                                        Some(view! {
+                                                            <div style="margin-top:8px;border:0.5px solid var(--w-border);\
+                                                                        border-radius:4px;padding:8px 10px">
+                                                                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                                                                    <span style="font-size:11px;color:var(--w-text-3)">
+                                                                        {format!("Distribution: {col_label}")}
+                                                                    </span>
+                                                                    <div style="margin-left:auto;display:flex;gap:4px">
+                                                                        {[ChartTab::Bar, ChartTab::Pie, ChartTab::Table].into_iter().map(|t| {
+                                                                            view! {
+                                                                                <button
+                                                                                    on:click=move |_| tab_sig.set(t)
+                                                                                    style=move || {
+                                                                                        let active = tab_sig.get() == t;
+                                                                                        format!(
+                                                                                            "font-size:10px;padding:2px 7px;\
+                                                                                             border-radius:3px;cursor:pointer;\
+                                                                                             border:1px solid var(--w-border);{}",
+                                                                                            if active { "background:var(--w-accent);color:#fff" }
+                                                                                            else      { "background:var(--w-bg);color:var(--w-text-3)" }
+                                                                                        )
+                                                                                    }>
+                                                                                    {t.label()}
+                                                                                </button>
+                                                                            }
+                                                                        }).collect_view()}
+                                                                    </div>
+                                                                </div>
+                                                                {move || {
+                                                                    if tab_sig.get() == ChartTab::Table {
+                                                                        let d = dist_sig.get();
+                                                                        let total: usize = d.iter().map(|p| p.count).sum();
+                                                                        view! {
+                                                                            <div style="overflow-x:auto;max-height:180px;overflow-y:auto">
+                                                                                <table style="width:100%;border-collapse:collapse;font-size:11px">
+                                                                                    <thead><tr>
+                                                                                        <th style="text-align:left;padding:3px 6px;border-bottom:1px solid var(--w-border);color:var(--w-text-3)">"Value"</th>
+                                                                                        <th style="text-align:right;padding:3px 6px;border-bottom:1px solid var(--w-border);color:var(--w-text-3)">"Count"</th>
+                                                                                        <th style="text-align:right;padding:3px 6px;border-bottom:1px solid var(--w-border);color:var(--w-text-3)">"%"</th>
+                                                                                    </tr></thead>
+                                                                                    <tbody>
+                                                                                        {d.into_iter().map(|pt| {
+                                                                                            let pct = if total > 0 { format!("{:.1}", pt.count as f64 / total as f64 * 100.0) } else { "0".into() };
+                                                                                            view! {
+                                                                                                <tr>
+                                                                                                    <td style="padding:3px 6px;border-bottom:0.5px solid var(--w-border);color:var(--w-text-2)">{pt.value}</td>
+                                                                                                    <td style="padding:3px 6px;text-align:right;font-family:monospace;border-bottom:0.5px solid var(--w-border)">{pt.count}</td>
+                                                                                                    <td style="padding:3px 6px;text-align:right;color:var(--w-text-3);border-bottom:0.5px solid var(--w-border)">{pct}"%"</td>
+                                                                                                </tr>
+                                                                                            }
+                                                                                        }).collect_view()}
+                                                                                    </tbody>
+                                                                                </table>
+                                                                            </div>
+                                                                        }.into_any()
+                                                                    } else {
+                                                                        view! {
+                                                                            <EChart chart_id=chart_id.clone()
+                                                                                tab=Signal::derive(move || tab_sig.get())
+                                                                                data=dist_sig />
+                                                                        }.into_any()
+                                                                    }
+                                                                }}
+                                                            </div>
+                                                        }.into_any())
+                                                    } else { None }
+                                                } else { None };
+
                                                 view! {
-                                                    <div class="s5-stmt-row s5-stmt-sample">
-                                                        <span class="s5-stmt-icon">"◎"</span>
-                                                        <span class="s5-stmt-label">{method}</span>
-                                                        <span class="s5-stmt-values">{format!("{sel} selected from {pop} items")}</span>
+                                                    <div>
+                                                        <div class="s5-stmt-row s5-stmt-sample">
+                                                            <span class="s5-stmt-icon">"◎"</span>
+                                                            <span class="s5-stmt-label">{method}</span>
+                                                            <span class="s5-stmt-values">{format!("{sel} selected from {pop} items")}</span>
+                                                        </div>
+                                                        {chart_view}
                                                     </div>
                                                 }.into_any()
                                             }

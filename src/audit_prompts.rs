@@ -478,10 +478,10 @@ fn normalize_control_ref(s: &str) -> String {
 
 // ── DSL test-script generation ────────────────────────────────────────────────
 
-pub const GENERATE_DSL: &str =
-"You are an expert audit DSL programmer. Generate executable VinRouge DSL test scripts.\n\
-\n\
-════════════════════════════════════════════════════════\n\
+/// Full VinRouge DSL language reference — injected into every LLM prompt that
+/// writes or edits DSL scripts. Keep this in sync with the parser/evaluator.
+pub const DSL_LANGUAGE_REFERENCE: &str =
+"════════════════════════════════════════════════════════\n\
  STATEMENT TYPES  (every script is a list of statements)\n\
 ════════════════════════════════════════════════════════\n\
 \n\
@@ -494,8 +494,8 @@ pub const GENERATE_DSL: &str =
      ASSERT COUNT(invoices.id) > 0\n\
      ASSERT SUM(ledger.amount) / COUNT(ledger.id) < 50000\n\
      coverage: ASSERT COUNT(policies.id) WHERE policies.status = \"active\" >= 100\n\
-     ASSERT c1_roles.authority_level IS NOT NULL\n\
-     ASSERT LENGTH(sop.sop_title) >= 5\n\
+     ASSERT personnel.role_level IS NOT NULL\n\
+     ASSERT LENGTH(documents.doc_title) >= 5\n\
 \n\
 2. SAMPLE  — draw an audit sample\n\
    SAMPLE <method> FROM <table.col> SIZE <n|pct%> [WHERE <condition>]\n\
@@ -508,6 +508,15 @@ pub const GENERATE_DSL: &str =
      SAMPLE MUS FROM invoices.amount SIZE 30\n\
      SAMPLE RANDOM FROM policies.id SIZE 10%\n\
      high_risk: SAMPLE STRATIFIED FROM ledger.amount SIZE 25 WHERE ledger.risk = \"High\"\n\
+\n\
+3. RELATION  — declare a foreign-key mapping (metadata; does not filter data)\n\
+   RELATION <from_table>.<from_col> -> <to_table>.<to_col>\n\
+\n\
+   Use RELATION when two tables share a key column that you will later test with NOT IN.\n\
+   Always write RELATION before the ASSERT statements that use it.\n\
+\n\
+   Example:\n\
+     RELATION payslips.employee_number -> employee_master.employee_number\n\
 \n\
 -- Comments begin with two dashes\n\
 \n\
@@ -540,12 +549,17 @@ Aggregate arithmetic inside ASSERT:\n\
   AND   OR   NOT\n\
   table.col IS NULL\n\
   table.col IS NOT NULL\n\
-  table.col IN (\"a\", \"b\", \"c\")\n\
-  table.col NOT IN (\"x\", \"y\")\n\
+  table.col IN (\"a\", \"b\", \"c\")             -- value list\n\
+  table.col NOT IN (\"x\", \"y\")              -- value list\n\
+  table.col NOT IN other_table.other_col  -- cross-table lookup (no parentheses)\n\
   table.col BETWEEN 1000 AND 50000\n\
   table.col NOT BETWEEN 0 AND 100\n\
   table.col LIKE \"INV-%\"          -- % = any chars, _ = one char\n\
   table.col NOT LIKE \"%draft%\"\n\
+\n\
+  Cross-table NOT IN example (ghost / orphan records):\n\
+    RELATION payslips.employee_number -> employee_master.employee_number\n\
+    ghost_emp: ASSERT COUNT(payslips.id) WHERE payslips.employee_number NOT IN employee_master.employee_number = 0\n\
 \n\
 ══════════════════════════════\n\
  SCALAR FUNCTIONS\n\
@@ -566,6 +580,31 @@ Aggregate arithmetic inside ASSERT:\n\
     COUNT(table.col) WHERE UPPER(table.status) = \"ACTIVE\"\n\
     ASSERT LENGTH(table.sop_title) >= 5\n\
     ASSERT DATE(table.eff_date) >= DATE(\"2024-01-01\")\n\
+\n\
+══════════════════════════════════════\n\
+ DATA QUALITY PREDICATE FUNCTIONS\n\
+══════════════════════════════════════\n\
+\n\
+These return TRUE/FALSE per row and are designed for WHERE clauses inside COUNT.\n\
+Always pair them with COUNT(...) WHERE ... = 0 (asserting zero failing rows).\n\
+\n\
+  IS_BLANK(table.col)            true when value is NULL or the empty string\n\
+  NOT IS_BLANK(table.col)        true when value is present (non-null, non-empty)\n\
+  IS_NUMERIC(table.col)          true when value can be parsed as a number\n\
+  NOT IS_NUMERIC(table.col)      true when value is not a valid number\n\
+  IS_DATE(table.col)             true when value matches a date format (YYYY-MM-DD, DD/MM/YYYY, etc.)\n\
+  NOT IS_DATE(table.col)         true when value is not a valid date\n\
+  DUPLICATED(table.col1, ...)    true when the composite key appears more than once\n\
+\n\
+  Examples — data quality checks:\n\
+    -- Mandatory field completeness\n\
+    blank_bu: ASSERT COUNT(payslips.id) WHERE IS_BLANK(payslips.business_unit) = 0\n\
+    -- Invalid numeric field\n\
+    bad_amt:  ASSERT COUNT(payslips.id) WHERE NOT IS_NUMERIC(payslips.amount) = 0\n\
+    -- Invalid date field\n\
+    bad_date: ASSERT COUNT(payslips.id) WHERE NOT IS_DATE(payslips.pay_date) = 0\n\
+    -- Duplicate payroll records\n\
+    dups:     ASSERT COUNT(payslips.id) WHERE DUPLICATED(payslips.employee_no, payslips.period) = 0\n\
 \n\
 ══════════════════════════════\n\
  CASE / WHEN\n\
@@ -593,11 +632,32 @@ Pattern → ASSERT:\n\
   No superseded active →  ASSERT COUNT(docs.id) WHERE docs.status = \"Superseded\" AND docs.active = \"Y\" = 0\n\
   Timeframe SLA        →  ASSERT MAX(t.days_to_decision) <= 10\n\
   Rating floor         →  ASSERT COUNT(reinsurers.id) WHERE reinsurers.rating < \"A-\" > 0\n\
+  Blank mandatory col  →  ASSERT COUNT(t.id) WHERE IS_BLANK(t.required_field) = 0\n\
+  Non-numeric amount   →  ASSERT COUNT(t.id) WHERE NOT IS_NUMERIC(t.amount) = 0\n\
+  Invalid date         →  ASSERT COUNT(t.id) WHERE NOT IS_DATE(t.transaction_date) = 0\n\
+  Orphan / ghost rows  →  RELATION source.fk -> master.pk\n\
+                          ASSERT COUNT(source.id) WHERE source.fk NOT IN master.pk = 0\n\
+  Duplicate key combo  →  ASSERT COUNT(t.id) WHERE DUPLICATED(t.col1, t.col2) = 0\n\
 \n\
 Rule: every named threshold or approved-value list in the control_description\n\
-MUST produce at least one ASSERT. These catch real violations in client data.\n\
-\n\
-══════════════════════════════════════════════════════════════\n\
+MUST produce at least one ASSERT. These catch real violations in client data.\n\n";
+
+pub const GENERATE_DSL: &str =
+"You are an expert audit DSL programmer. Generate executable VinRouge DSL test scripts.\n\n";
+
+// GENERATE_DSL is prepended with DSL_LANGUAGE_REFERENCE at call sites via
+// the build_generate_dsl_prompt() helper below.
+
+/// Combine the generation instruction with the full language reference.
+/// Use this instead of GENERATE_DSL directly so the LLM always has the
+/// complete function list available.
+pub fn build_generate_dsl_prompt() -> String {
+    format!("{}{}", GENERATE_DSL, DSL_LANGUAGE_REFERENCE)
+}
+
+/// Absolute rules appended after the schema/plan context at generation time.
+pub const GENERATE_DSL_RULES: &str =
+"══════════════════════════════════════════════════════════════\n\
  ABSOLUTE RULES — violating any of these breaks the script\n\
 ══════════════════════════════════════════════════════════════\n\
 \n\

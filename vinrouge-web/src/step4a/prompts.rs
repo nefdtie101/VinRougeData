@@ -38,19 +38,11 @@ pub fn build_example_section(schemas: &[SessionSchema]) -> String {
 }
 
 pub fn build_schema_section(schemas: &[SessionSchema]) -> String {
-    // List ALL tables (master and individual imports) so the LLM can generate
-    // tests against any imported table, not only the master joined record.
     let mut out = String::new();
-    // Master first (if present), then individual imports
-    let master_first: Vec<&SessionSchema> = schemas.iter()
-        .filter(|s| s.source_type == "master")
-        .chain(schemas.iter().filter(|s| s.source_type != "master"))
-        .collect();
-    for s in master_first {
-        let tag = if s.source_type == "master" { " [MASTER - joined record]" } else { "" };
+    for s in schemas {
         out.push_str(&format!(
-            "Table: {}{} ({} rows)\n  Columns: {}\n\n",
-            s.table_name, tag, s.row_count, s.columns.join(", ")
+            "Table: {} ({} rows)\n  Columns: {}\n\n",
+            s.table_name, s.row_count, s.columns.join(", ")
         ));
     }
     out
@@ -88,32 +80,74 @@ pub fn build_plan_section(
                 .flat_map(|g| g.items.iter())
                 .collect();
 
-            if !pbc_items.is_empty() {
-                // Collect distinct table names from PBC items that have uploaded data
-                let mut required_tables: Vec<String> = pbc_items.iter()
-                    .filter_map(|i| i.table_name.clone())
-                    .filter(|t| schemas.iter().any(|s| s.table_name.eq_ignore_ascii_case(t)))
-                    .collect();
-                required_tables.sort();
-                required_tables.dedup();
+            // Collect required tables from PBC items that have uploaded data
+            let mut required_tables: Vec<String> = pbc_items.iter()
+                .filter_map(|i| i.table_name.clone())
+                .filter(|t| schemas.iter().any(|s| s.table_name.eq_ignore_ascii_case(t)))
+                .collect();
+            required_tables.sort();
+            required_tables.dedup();
 
-                if !required_tables.is_empty() {
-                    // Hard directive: name the exact table(s) and their columns
-                    s.push_str(&format!(
-                        "    *** REQUIRED TABLES FOR THIS CONTROL (use these, NOT master_record): {}\n",
-                        required_tables.join(", ")
-                    ));
-                    for tbl in &required_tables {
-                        if let Some(schema) = schemas.iter().find(|sc| sc.table_name.eq_ignore_ascii_case(tbl)) {
-                            s.push_str(&format!(
-                                "    Exact columns in {}: {}\n",
-                                schema.table_name,
-                                schema.columns.join(", ")
-                            ));
-                        }
+            if !required_tables.is_empty() {
+                s.push_str(&format!(
+                    "    *** REQUIRED TABLES FOR THIS CONTROL: {}\n",
+                    required_tables.join(", ")
+                ));
+                for tbl in &required_tables {
+                    if let Some(schema) = schemas.iter().find(|sc| sc.table_name.eq_ignore_ascii_case(tbl)) {
+                        s.push_str(&format!(
+                            "    Exact columns in {}: {}\n",
+                            schema.table_name,
+                            schema.columns.join(", ")
+                        ));
                     }
                 }
+            } else if !schemas.is_empty() {
+                // No explicit PBC table link — pick best-matching table by keyword overlap
+                // so the AI doesn't default to whatever table it happens to remember.
+                let keywords: Vec<String> = format!(
+                    "{} {} {}",
+                    ctrl.control_objective, ctrl.control_description, ctrl.test_procedure
+                )
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w: &&str| w.len() >= 4)
+                .map(|w| w.to_lowercase())
+                .collect();
 
+                let best = schemas.iter()
+                    .filter_map(|schema| {
+                        let tbl_lower = schema.table_name.to_lowercase();
+                        let mut score = 0i32;
+                        for kw in &keywords {
+                            if tbl_lower.contains(kw.as_str()) { score += 10; }
+                            for col in &schema.columns {
+                                if col.to_lowercase().contains(kw.as_str()) { score += 3; }
+                            }
+                        }
+                        if score > 0 { Some((schema, score)) } else { None }
+                    })
+                    .max_by_key(|(_, sc)| *sc)
+                    .map(|(schema, _)| schema);
+
+                if let Some(best_schema) = best {
+                    s.push_str(&format!(
+                        "    BEST MATCH TABLE: {} — use this as the primary table.\n    Columns: {}\n",
+                        best_schema.table_name,
+                        best_schema.columns.join(", ")
+                    ));
+                } else {
+                    // No keyword match — tell the AI to pick the most relevant available table
+                    let table_list: Vec<String> = schemas.iter()
+                        .map(|sc| format!("{} ({})", sc.table_name, sc.columns.join(", ")))
+                        .collect();
+                    s.push_str(&format!(
+                        "    NO DIRECT TABLE MATCH — choose the most relevant table from: {}\n",
+                        table_list.join(" | ")
+                    ));
+                }
+            }
+
+            if !pbc_items.is_empty() {
                 let items_txt: Vec<String> = pbc_items.iter()
                     .map(|i| {
                         if let Some(tn) = &i.table_name {

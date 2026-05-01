@@ -47,6 +47,12 @@ pub enum Token {
     Round,      // ROUND(expr, scale) — decimal rounding
     CountIf,    // COUNTIF(col, criteria) — Excel-style conditional count
     SumIf,      // SUMIF(range, criteria, sum_col) — Excel-style conditional sum
+    Relation,   // RELATION keyword — declarative FK mapping
+    IsBlank,    // IS_BLANK(col) — true if null or empty string
+    IsNumeric,  // IS_NUMERIC(col) — true if value parses as a number
+    IsDate,     // IS_DATE(col) — true if value parses as a date
+    Duplicated, // DUPLICATED(col, ...) — true if row key appears more than once
+    Arrow,      // -> operator (used in RELATION a.col -> b.col)
 
     // Identifiers and literals
     Ident(String),      // table.column or plain name

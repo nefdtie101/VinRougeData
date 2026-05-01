@@ -1,6 +1,6 @@
-mod chart;
+pub mod chart;
 mod modal;
-mod types;
+pub mod types;
 mod view;
 
 pub use view::Step5aView;

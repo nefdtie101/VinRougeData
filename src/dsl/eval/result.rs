@@ -26,5 +26,7 @@ pub enum StatementResult {
     Value(String),
     Assert(AssertResult),
     Sample(SampleResult),
+    /// Produced by a RELATION declaration — carries the FK mapping as strings.
+    Relation { from: String, to: String },
     Error(String),
 }
