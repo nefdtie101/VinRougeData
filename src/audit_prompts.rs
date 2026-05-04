@@ -518,6 +518,23 @@ pub const DSL_LANGUAGE_REFERENCE: &str =
    Example:\n\
      RELATION payslips.employee_number -> employee_master.employee_number\n\
 \n\
+4. SECTION  — group statements under a titled, collapsible card\n\
+   SECTION \"Title\" {\n\
+     <statements>\n\
+   }\n\
+\n\
+   Sections can be nested. They do not change execution order; they only\n\
+   organise results visually and compute a pass/fail rollup per section.\n\
+\n\
+   Example:\n\
+     SECTION \"Reconciliation\" {\n\
+       acb_only:   ASSERT COUNT(payroll.id) WHERE payroll.id NOT IN master.id = 0\n\
+       match:      ASSERT COUNT(master.id) WHERE master.id = payroll.id = 1000\n\
+     }\n\
+     SECTION \"Payroll Overview\" {\n\
+       yearly_payroll: CHART line SUM(payroll.amount) BY payroll.month\n\
+     }\n\
+\n\
 -- Comments begin with two dashes\n\
 \n\
 ══════════════════════════════════════\n\

@@ -22,11 +22,37 @@ pub struct SampleResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChartResult {
+    pub label: Option<String>,
+    pub chart_type: String,
+    pub labels: Vec<String>,
+    pub values: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreenResult {
+    pub title: String,
+    pub charts: Vec<ChartResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SectionResult {
+    pub title: String,
+    pub results: Vec<StatementResult>,
+    pub passed: usize,
+    pub failed: usize,
+    pub errors: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StatementResult {
     Value(String),
     Assert(AssertResult),
     Sample(SampleResult),
     /// Produced by a RELATION declaration — carries the FK mapping as strings.
     Relation { from: String, to: String },
+    Chart(ChartResult),
+    Screen(ScreenResult),
+    Section(SectionResult),
     Error(String),
 }

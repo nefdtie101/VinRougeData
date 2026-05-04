@@ -14,6 +14,9 @@ use wasm_bindgen_futures::spawn_local;
 
 const EDITOR_ID: &str = "studio-dsl-editor";
 
+mod dsl_results;
+use dsl_results::{render_dsl_result, count_results};
+
 fn call_dsl(name: &str, args: &[&str]) {
     let Some(window) = web_sys::window() else { return };
     let Ok(f) = js_sys::Reflect::get(&window, &JsValue::from_str(name)) else { return };
@@ -1354,15 +1357,98 @@ pub fn StudioView() -> impl IntoView {
                                 })}
                             </div>
 
-                            // Output tab
-                            {move || (bottom_tab.get() == "output").then(|| view! {
-                                <pre class="ide-output">
-                                    {move || {
-                                        let out = dsl_output.get();
-                                        if out.is_empty() { "-- Run your script to see output here".to_string() }
-                                        else { out }
-                                    }}
-                                </pre>
+                            // Output tab — rich result rendering
+                            {move || (bottom_tab.get() == "output").then(|| {
+                                let raw = dsl_output.get();
+
+                                if raw.is_empty() {
+                                    return view! {
+                                        <div class="ide-output-empty">
+                                            "Run your script to see results here"
+                                        </div>
+                                    }.into_any();
+                                }
+
+                                // While saving/running show spinner line
+                                if dsl_running.get() || !raw.starts_with('[') {
+                                    return view! {
+                                        <pre class="ide-output">{raw}</pre>
+                                    }.into_any();
+                                }
+
+                                // Parse JSON result array
+                                let results: Vec<serde_json::Value> = match serde_json::from_str(&raw) {
+                                    Ok(v) => v,
+                                    Err(_) => return view! {
+                                        <pre class="ide-output">{raw}</pre>
+                                    }.into_any(),
+                                };
+
+                                let (passed, failed, errors, samples, charts, screens, sections) = count_results(&results);
+
+                                view! {
+                                    <div class="ide-results">
+                                        // Summary bar
+                                        <div class="ide-results-summary">
+                                            {(passed > 0 || failed > 0).then(|| view! {
+                                                <>
+                                                    {(passed > 0).then(|| view! {
+                                                        <span class="ide-sum ide-sum--pass">
+                                                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                                                <path d="M2 6l3 3 5-5" stroke="currentColor"
+                                                                    stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                                            </svg>
+                                                            {format!("{passed} passed")}
+                                                        </span>
+                                                    })}
+                                                    {(failed > 0).then(|| view! {
+                                                        <span class="ide-sum ide-sum--fail">
+                                                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                                                <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor"
+                                                                    stroke-width="1.5" stroke-linecap="round"/>
+                                                            </svg>
+                                                            {format!("{failed} failed")}
+                                                        </span>
+                                                    })}
+                                                </>
+                                            })}
+                                            {(errors > 0).then(|| view! {
+                                                <span class="ide-sum ide-sum--error">
+                                                    {format!("{errors} error{}", if errors == 1 { "" } else { "s" })}
+                                                </span>
+                                            })}
+                                            {(samples > 0).then(|| view! {
+                                                <span class="ide-sum ide-sum--sample">
+                                                    {format!("{samples} sample{}", if samples == 1 { "" } else { "s" })}
+                                                </span>
+                                            })}
+                                            {(charts > 0).then(|| view! {
+                                                <span class="ide-sum ide-sum--chart">
+                                                    {format!("{charts} chart{}", if charts == 1 { "" } else { "s" })}
+                                                </span>
+                                            })}
+                                            {(screens > 0).then(|| view! {
+                                                <span class="ide-sum ide-sum--screen">
+                                                    {format!("{screens} screen{}", if screens == 1 { "" } else { "s" })}
+                                                </span>
+                                            })}
+                                            {(sections > 0).then(|| view! {
+                                                <span class="ide-sum ide-sum--section">
+                                                    {format!("{sections} section{}", if sections == 1 { "" } else { "s" })}
+                                                </span>
+                                            })}
+                                        </div>
+
+                                        // Per-statement results
+                                        {results.into_iter().enumerate().map(|(idx, r)| render_dsl_result(idx, r)).collect::<Vec<_>>()}
+
+                                        // Raw JSON section
+                                        <div class="ide-raw-json-section">
+                                            <div class="ide-raw-json-label">"JSON"</div>
+                                            <pre class="ide-raw-json">{raw}</pre>
+                                        </div>
+                                    </div>
+                                }.into_any()
                             })}
 
                             // AI assistant tab

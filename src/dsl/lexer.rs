@@ -84,6 +84,10 @@ impl<'a> Lexer<'a> {
             "IS_NUMERIC" => Token::IsNumeric,
             "IS_DATE"    => Token::IsDate,
             "DUPLICATED" => Token::Duplicated,
+            "CHART"      => Token::Chart,
+            "SCREEN"     => Token::Screen,
+            "SECTION"    => Token::Section,
+            "BY"         => Token::By,
             "COALESCE"   => Token::Coalesce,
             "NULLIF"     => Token::NullIf,
             "IIF"        => Token::Iif,
@@ -165,6 +169,8 @@ impl<'a> Lexer<'a> {
                 Some((i, ')')) => tokens.push((i, Token::RParen)),
                 Some((i, ',')) => tokens.push((i, Token::Comma)),
                 Some((i, ':')) => tokens.push((i, Token::Colon)),
+                Some((i, '{')) => tokens.push((i, Token::LBrace)),
+                Some((i, '}')) => tokens.push((i, Token::RBrace)),
                 Some((i, '=')) => tokens.push((i, Token::Eq)),
                 Some((i, '>')) => {
                     if self.peek_char() == Some('=') {

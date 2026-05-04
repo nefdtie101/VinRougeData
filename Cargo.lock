@@ -4424,6 +4424,7 @@ dependencies = [
  "printpdf",
  "rand 0.8.5",
  "ratatui",
+ "rayon",
  "reqwest",
  "rten",
  "rusqlite",

@@ -14,6 +14,15 @@ impl super::Parser {
         if self.peek() == &Token::Relation {
             return self.parse_relation();
         }
+        if self.peek() == &Token::Chart {
+            return self.parse_chart();
+        }
+        if self.peek() == &Token::Screen {
+            return self.parse_screen();
+        }
+        if self.peek() == &Token::Section {
+            return self.parse_section();
+        }
         self.parse_or()
     }
 

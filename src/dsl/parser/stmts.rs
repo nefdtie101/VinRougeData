@@ -122,4 +122,144 @@ impl super::Parser {
 
         Ok(Expr::RelationDecl { from_table, from_col, to_table, to_col })
     }
+
+    pub(super) fn parse_chart(&mut self) -> ParseResult<Expr> {
+        self.advance(); // consume CHART
+
+        let chart_type = match self.peek().clone() {
+            Token::Ident(s) => { self.advance(); s }
+            other => return Err(ParseError::new(
+                self.peek_pos(),
+                format!("expected chart type identifier after CHART, got {other}"),
+            )),
+        };
+
+        let aggregate = Box::new(self.parse_or()?);
+
+        if self.peek() != &Token::By {
+            return Err(ParseError::new(
+                self.peek_pos(),
+                format!("expected BY after chart aggregate, got {}", self.peek()),
+            ));
+        }
+        self.advance(); // consume BY
+
+        let dimension = Box::new(self.parse_or()?);
+
+        Ok(Expr::Chart { chart_type, aggregate, dimension })
+    }
+
+    pub(super) fn parse_screen(&mut self) -> ParseResult<Expr> {
+        self.advance(); // consume SCREEN
+
+        let title = match self.peek().clone() {
+            Token::StringLit(s) => { self.advance(); s }
+            other => return Err(ParseError::new(
+                self.peek_pos(),
+                format!("expected title string after SCREEN, got {other}"),
+            )),
+        };
+
+        if self.peek() != &Token::LBrace {
+            return Err(ParseError::new(
+                self.peek_pos(),
+                format!("expected '{{' after SCREEN title, got {}", self.peek()),
+            ));
+        }
+        self.advance(); // consume {
+
+        let mut charts = Vec::new();
+        while self.peek() != &Token::RBrace && self.peek() != &Token::Eof {
+            // Optional label inside screen block
+            let label = if matches!(self.peek(), Token::Ident(_)) {
+                if self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1].1 == Token::Colon {
+                    let name = match self.advance().clone() {
+                        Token::Ident(s) => s,
+                        _ => unreachable!(),
+                    };
+                    self.advance(); // consume ':'
+                    Some(name)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if self.peek() != &Token::Chart {
+                return Err(ParseError::new(
+                    self.peek_pos(),
+                    format!("expected CHART inside SCREEN block, got {}", self.peek()),
+                ));
+            }
+            self.advance(); // consume CHART
+
+            let chart_type = match self.peek().clone() {
+                Token::Ident(s) => { self.advance(); s }
+                other => return Err(ParseError::new(
+                    self.peek_pos(),
+                    format!("expected chart type identifier after CHART, got {other}"),
+                )),
+            };
+
+            let aggregate = Box::new(self.parse_or()?);
+
+            if self.peek() != &Token::By {
+                return Err(ParseError::new(
+                    self.peek_pos(),
+                    format!("expected BY after chart aggregate, got {}", self.peek()),
+                ));
+            }
+            self.advance(); // consume BY
+
+            let dimension = Box::new(self.parse_or()?);
+
+            charts.push(ChartDef { label, chart_type, aggregate, dimension });
+        }
+
+        if self.peek() != &Token::RBrace {
+            return Err(ParseError::new(
+                self.peek_pos(),
+                "expected '}' to close SCREEN block".to_string(),
+            ));
+        }
+        self.advance(); // consume }
+
+        Ok(Expr::Screen { title, charts })
+    }
+
+    pub(super) fn parse_section(&mut self) -> ParseResult<Expr> {
+        self.advance(); // consume SECTION
+
+        let title = match self.peek().clone() {
+            Token::StringLit(s) => { self.advance(); s }
+            other => return Err(ParseError::new(
+                self.peek_pos(),
+                format!("expected title string after SECTION, got {other}"),
+            )),
+        };
+
+        if self.peek() != &Token::LBrace {
+            return Err(ParseError::new(
+                self.peek_pos(),
+                format!("expected '{{' after SECTION title, got {}", self.peek()),
+            ));
+        }
+        self.advance(); // consume {
+
+        let mut statements = Vec::new();
+        while self.peek() != &Token::RBrace && self.peek() != &Token::Eof {
+            statements.push(self.parse_statement()?);
+        }
+
+        if self.peek() != &Token::RBrace {
+            return Err(ParseError::new(
+                self.peek_pos(),
+                "expected '}' to close SECTION block".to_string(),
+            ));
+        }
+        self.advance(); // consume }
+
+        Ok(Expr::Section { title, statements })
+    }
 }

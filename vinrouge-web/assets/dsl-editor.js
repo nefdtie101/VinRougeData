@@ -19,7 +19,7 @@ const KEYWORDS = new Set([
   'ASSERT','SAMPLE','SUM','AVG','COUNT','MIN','MAX',
   'WHERE','FROM','SIZE','TOP','DISTINCT',
   'MUS','RANDOM','SYSTEMATIC','STRATIFIED',
-  'RELATION',
+  'RELATION','CHART','SCREEN','BY',
 ]);
 
 const BUILTINS = new Set([
@@ -57,6 +57,8 @@ const FN_SIGNATURES = {
   SUMIF:      { sig: 'SUMIF(range.column, criteria, sum.column)', doc: 'Sum rows matching a criteria.' },
   CASE:       { sig: 'CASE WHEN <cond> THEN <val> … ELSE <val> END', doc: 'Conditional expression.' },
   RELATION:   { sig: 'RELATION table1.col -> table2.col',        doc: 'Declare a foreign-key mapping between two columns.' },
+  CHART:      { sig: 'CHART <type> <aggregate> BY <dimension>',  doc: 'Define a chart output with grouped aggregate data.' },
+  SCREEN:     { sig: 'SCREEN "title" { CHART ... }',             doc: 'Group multiple charts into a dashboard screen.' },
   IS_BLANK:   { sig: 'IS_BLANK(table.column)',                   doc: 'True when value is null or empty string.' },
   IS_NUMERIC: { sig: 'IS_NUMERIC(table.column)',                 doc: 'True when value can be parsed as a number.' },
   IS_DATE:    { sig: 'IS_DATE(table.column)',                    doc: 'True when value matches a recognised date format.' },
@@ -169,18 +171,33 @@ const THEME_CSS = `
 
 /* ── Hint dropdown ── */
 .CodeMirror-hints {
-  background: #1e1316 !important;
-  border: 1px solid #522530 !important;
-  border-radius: 6px !important;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.55) !important;
-  font-family: ui-monospace, monospace;
+  background: #1a1014 !important;
+  border: 1px solid #3a1f25 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.65) !important;
+  font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
   font-size: 12px;
   z-index: 9999;
   padding: 4px 0 !important;
-  min-width: 220px;
+  min-width: 300px;
+  max-height: 280px !important;
+  overflow-y: auto !important;
 }
-.CodeMirror-hint { color: #c9a8ae !important; padding: 4px 14px !important; }
-li.CodeMirror-hint-active { background: #3a1f25 !important; color: #f0e6e8 !important; }
+.CodeMirror-hint {
+  color: #c9a8ae !important;
+  padding: 0 !important;
+  line-height: 1.4;
+}
+li.CodeMirror-hint-active {
+  background: #2d1620 !important;
+  color: #f0e6e8 !important;
+  outline: none !important;
+}
+li.CodeMirror-hint-active .vr-hint-name { color: #f0e6e8; }
+
+.vr-hint-icon { display: inline-flex; align-items: center; justify-content: center; }
+.vr-hint-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c9a8ae; }
+.vr-hint-meta { font-size: 10px; color: #4a3040; margin-left: auto; flex-shrink: 0; white-space: nowrap; }
 
 /* ── Signature tooltip ── */
 .vr-sig-tooltip {
@@ -216,20 +233,28 @@ function dslHint(cm) {
   const cur  = cm.getCursor();
   const line = cm.getLine(cur.line);
 
-  // ── Case 1: table.| — column completion ──────────────────────────────────
+  // ── Case 1: table.| — column completion (like SQL editor) ────────────────
   const dotMatch = line.slice(0, cur.ch).match(/([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z0-9_]*)$/);
   if (dotMatch) {
-    const tableName = dotMatch[1].toLowerCase();
+    const tableName = dotMatch[1];
     const colPrefix = dotMatch[2].toLowerCase();
     const colStart  = cur.ch - dotMatch[2].length;
 
     const tableSchema = _schema.find(s =>
-      s.table_name.toLowerCase() === tableName
+      s.table_name.toLowerCase() === tableName.toLowerCase()
     );
+
+    // No matching table — still return an empty result so CodeMirror knows
+    // we handled this position (prevents keyword list from bleeding in).
     const cols = tableSchema
       ? tableSchema.columns
-          .filter(c => c.toLowerCase().startsWith(colPrefix))
-          .map(c => ({ text: c, displayText: c, className: 'vr-hint-col' }))
+          .filter(c => !colPrefix || c.toLowerCase().startsWith(colPrefix))
+          .map(c => ({
+            text: c,
+            displayText: c,
+            _table: tableName,
+            className: 'vr-hint-col',
+          }))
       : [];
 
     return {
@@ -242,48 +267,34 @@ function dslHint(cm) {
   // ── Case 2: word completion ───────────────────────────────────────────────
   let start = cur.ch;
   while (start > 0 && /[A-Za-z_0-9]/.test(line[start - 1])) start--;
-  const word    = line.slice(start, cur.ch).toUpperCase();
-  const before  = line.slice(0, start).trimEnd().toUpperCase();
+  const word   = line.slice(start, cur.ch);
+  const wordUp = word.toUpperCase();
+  const wordLo = word.toLowerCase();
 
-  // After FROM or WHERE → suggest table names first, then keywords
-  const afterFromWhere = /\b(FROM|WHERE|SIZE)\s*$/.test(before);
+  // Tables always appear — exactly like a SQL editor.
+  // They appear at the top of the list, filtered by the current prefix.
+  const tables = _schema
+    .filter(s => !wordLo || s.table_name.toLowerCase().startsWith(wordLo))
+    .map(s => ({
+      text: s.table_name,
+      displayText: s.table_name,
+      _colCount: s.columns.length,
+      className: 'vr-hint-table',
+    }));
 
-  let list = [];
-
-  if (afterFromWhere && _schema.length > 0) {
-    const tables = _schema
-      .filter(s => s.table_name.toUpperCase().startsWith(word))
-      .map(s => ({
-        text: s.table_name,
-        displayText: `${s.table_name}  (${s.columns.length} cols)`,
-        className: 'vr-hint-table',
-      }));
-    list = [...tables];
-  }
-
-  // Keyword completions (always added)
+  // Keywords / builtins / atoms — filtered by prefix, deduped against tables.
+  const tableNames = new Set(tables.map(t => t.text.toUpperCase()));
   const kws = KW_COMPLETIONS
-    .filter(k => k.startsWith(word) && !list.find(l => l.text === k))
+    .filter(k => (!wordUp || k.startsWith(wordUp)) && !tableNames.has(k))
     .map(k => {
       const type = KEYWORDS.has(k) ? 'vr-hint-kw'
                  : BUILTINS.has(k) ? 'vr-hint-fn'
                  : 'vr-hint-atom';
       return { text: k, displayText: k, className: type };
     });
-  list = [...list, ...kws];
-
-  // If no prefix typed yet but schema exists, show all tables first
-  if (!word && _schema.length > 0 && !afterFromWhere) {
-    const tables = _schema.map(s => ({
-      text: s.table_name,
-      displayText: `${s.table_name}  (${s.columns.length} cols)`,
-      className: 'vr-hint-table',
-    }));
-    list = [...tables, ...kws];
-  }
 
   return {
-    list,
+    list: [...tables, ...kws],
     from: CodeMirror.Pos(cur.line, start),
     to:   CodeMirror.Pos(cur.line, cur.ch),
   };
@@ -343,20 +354,83 @@ function checkSignature(cm) {
   hideSig();
 }
 
-// ── Hint item renderer (icon prefix) ─────────────────────────────────────────
+// ── Hint item renderer — SQL-editor style ────────────────────────────────────
+
+const HINT_ICONS = {
+  'vr-hint-table': {
+    color: '#60a5fa',
+    svg: `<svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <rect x="1" y="1" width="11" height="11" rx="1.5" stroke="currentColor" stroke-width="1.1"/>
+      <path d="M1 4.5h11M4.5 4.5v7" stroke="currentColor" stroke-width="1.1"/>
+    </svg>`,
+  },
+  'vr-hint-col': {
+    color: '#86efac',
+    svg: `<svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path d="M2.5 3.5h8M2.5 6.5h5.5M2.5 9.5h7"
+        stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+    </svg>`,
+  },
+  'vr-hint-fn': {
+    color: '#60a5fa',
+    svg: `<svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <path d="M3 10c.5-3 1-5 2-7M5 5.5h4M6 8.5h3"
+        stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+    </svg>`,
+  },
+  'vr-hint-kw': {
+    color: '#c084fc',
+    svg: `<svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <rect x="1.5" y="3.5" width="10" height="6" rx="1.5"
+        stroke="currentColor" stroke-width="1.1"/>
+      <path d="M4 6.5h5M6.5 5v3"
+        stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+    </svg>`,
+  },
+  'vr-hint-atom': {
+    color: '#f472b6',
+    svg: `<svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+      <circle cx="6.5" cy="6.5" r="2" stroke="currentColor" stroke-width="1.1"/>
+      <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.1"
+        stroke-dasharray="3 2"/>
+    </svg>`,
+  },
+};
 
 function renderHintItem(elt, data, cur) {
-  const prefix = cur.className === 'vr-hint-table' ? '⊞ '
-               : cur.className === 'vr-hint-fn'    ? 'ƒ '
-               : cur.className === 'vr-hint-col'   ? '· '
-               : cur.className === 'vr-hint-atom'  ? '◇ '
-               : '⌨ ';
-  const span = document.createElement('span');
-  span.style.opacity = '0.5';
-  span.style.marginRight = '5px';
-  span.textContent = prefix;
-  elt.appendChild(span);
-  elt.appendChild(document.createTextNode(cur.displayText || cur.text));
+  elt.style.display = 'flex';
+  elt.style.alignItems = 'center';
+  elt.style.gap = '7px';
+  elt.style.padding = '4px 12px';
+
+  // Icon
+  const ico = document.createElement('span');
+  ico.className = 'vr-hint-icon';
+  const def = HINT_ICONS[cur.className] || HINT_ICONS['vr-hint-kw'];
+  ico.innerHTML = def.svg;
+  ico.style.color = def.color;
+  ico.style.flexShrink = '0';
+  ico.style.lineHeight = '0';
+  elt.appendChild(ico);
+
+  // Name
+  const name = document.createElement('span');
+  name.className = 'vr-hint-name';
+  name.textContent = cur.displayText || cur.text;
+  elt.appendChild(name);
+
+  // Right-side meta: column count for tables, table name for columns
+  if (cur.className === 'vr-hint-table' && cur._colCount != null) {
+    const badge = document.createElement('span');
+    badge.className = 'vr-hint-meta';
+    badge.textContent = `${cur._colCount} cols`;
+    elt.appendChild(badge);
+  } else if (cur.className === 'vr-hint-col' && cur._table) {
+    const badge = document.createElement('span');
+    badge.className = 'vr-hint-meta';
+    badge.textContent = cur._table;
+    elt.appendChild(badge);
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -398,6 +472,7 @@ window.vrDslInit = function(id, code) {
         CodeMirror.showHint(cm, dslHint, {
           completeSingle: false,
           hint: dslHint,
+          renderItem: renderHintItem,
         });
       },
       'Tab': cm => {
@@ -419,7 +494,7 @@ window.vrDslInit = function(id, code) {
       // Small delay so the character is committed first
       setTimeout(() => {
         if (!cm.state.completionActive) {
-          CodeMirror.showHint(cm, dslHint, { completeSingle: false });
+          CodeMirror.showHint(cm, dslHint, { completeSingle: false, renderItem: renderHintItem });
         }
       }, 80);
     }

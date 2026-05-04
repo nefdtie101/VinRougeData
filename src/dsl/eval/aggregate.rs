@@ -5,6 +5,9 @@ use crate::dsl::value::{EvalError, EvalResult, Row, Value};
 
 use super::Evaluator;
 
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
+
 impl<'ds> Evaluator<'ds> {
     pub(super) fn eval_aggregate(
         &self,
@@ -21,6 +24,22 @@ impl<'ds> Evaluator<'ds> {
 
         let all_rows = self.datasource.rows(table)?;
 
+        #[cfg(not(target_arch = "wasm32"))]
+        let rows: Vec<&Row> = all_rows
+            .par_iter()
+            .filter(|row| {
+                filter
+                    .as_ref()
+                    .map(|f| {
+                        self.eval(f, row)
+                            .map(|v| v.as_bool().unwrap_or(false))
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(true)
+            })
+            .collect();
+
+        #[cfg(target_arch = "wasm32")]
         let rows: Vec<&Row> = all_rows
             .iter()
             .filter(|row| {
@@ -35,6 +54,13 @@ impl<'ds> Evaluator<'ds> {
             })
             .collect();
 
+        #[cfg(not(target_arch = "wasm32"))]
+        let values: Vec<Value> = rows
+            .par_iter()
+            .map(|row| self.eval(expr, row))
+            .collect::<EvalResult<Vec<_>>>()?;
+
+        #[cfg(target_arch = "wasm32")]
         let values: Vec<Value> = rows
             .iter()
             .map(|row| self.eval(expr, row))

@@ -106,3 +106,15 @@ fn test_resolve_filter_unknown_column() {
     assert_eq!(errs.len(), 1);
     assert!(matches!(&errs[0], ResolveError::UnknownColumn { column, .. } if column == "nope"));
 }
+
+#[test]
+fn test_resolve_section() {
+    let s = schema();
+    let stmts = parse(r#"SECTION "Reconciliation" {
+        ASSERT SUM(invoices.amount) = SUM(sub_ledger.balance)
+        bad: SUM(invoices.nope)
+    }"#).unwrap();
+    let errs = resolve(&stmts, &s);
+    assert_eq!(errs.len(), 1);
+    assert!(matches!(&errs[0], ResolveError::UnknownColumn { column, .. } if column == "nope"));
+}

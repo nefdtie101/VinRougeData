@@ -171,6 +171,75 @@ pub fn pick_sample_column(rows: &[serde_json::Value]) -> Option<String> {
         .or_else(|| first.keys().next().cloned())
 }
 
+/// Build an ECharts option from DSL ChartResult data.
+pub fn build_dsl_chart_option(chart_type: &str, labels: &[String], values: &[String]) -> String {
+    let cats: Vec<String> = labels.iter()
+        .map(|l| format!("\"{}\"", l.replace('"', "\\\"")))
+        .collect();
+    let vals: Vec<String> = values.iter().map(|v| v.to_string()).collect();
+
+    match chart_type {
+        "pie" => {
+            let items: Vec<String> = labels.iter().zip(values.iter())
+                .map(|(l, v)| format!(
+                    "{{\"name\":\"{}\",\"value\":{}}}",
+                    l.replace('"', "\\\""),
+                    v
+                ))
+                .collect();
+            format!(
+                concat!(
+                    r##"{{"backgroundColor":"transparent","tooltip":{{"trigger":"item"}},"##,
+                    r##""legend":{{"orient":"vertical","left":"left","textStyle":{{"color":"#c9a8ae","fontSize":11}}}},"##,
+                    r##""series":[{{"type":"pie","radius":"60%","data":[{}],"##,
+                    r##""label":{{"color":"#f0e6e8","fontSize":11}}}}]}}"##
+                ),
+                items.join(",")
+            )
+        }
+        "line" => {
+            format!(
+                concat!(
+                    r##"{{"backgroundColor":"transparent","grid":{{"left":60,"right":20,"top":20,"bottom":60}},"##,
+                    r##""tooltip":{{"trigger":"axis"}},"##,
+                    r##""xAxis":{{"type":"category","data":[{}],"axisLabel":{{"rotate":30,"fontSize":10,"color":"#c9a8ae"}}}},"##,
+                    r##""yAxis":{{"type":"value","axisLabel":{{"color":"#c9a8ae"}}}},"##,
+                    r##""series":[{{"type":"line","data":[{}],"smooth":true,"itemStyle":{{"color":"#8b1a2a"}}}}]}}"##
+                ),
+                cats.join(","),
+                vals.join(",")
+            )
+        }
+        "scatter" => {
+            format!(
+                concat!(
+                    r##"{{"backgroundColor":"transparent","grid":{{"left":60,"right":20,"top":20,"bottom":60}},"##,
+                    r##""tooltip":{{"trigger":"item"}},"##,
+                    r##""xAxis":{{"type":"category","data":[{}],"axisLabel":{{"rotate":30,"fontSize":10,"color":"#c9a8ae"}}}},"##,
+                    r##""yAxis":{{"type":"value","axisLabel":{{"color":"#c9a8ae"}}}},"##,
+                    r##""series":[{{"type":"scatter","data":[{}],"itemStyle":{{"color":"#8b1a2a"}}}}]}}"##
+                ),
+                cats.join(","),
+                vals.join(",")
+            )
+        }
+        _ => {
+            // default to bar
+            format!(
+                concat!(
+                    r##"{{"backgroundColor":"transparent","grid":{{"left":60,"right":20,"top":20,"bottom":60}},"##,
+                    r##""tooltip":{{"trigger":"axis"}},"##,
+                    r##""xAxis":{{"type":"category","data":[{}],"axisLabel":{{"rotate":30,"fontSize":10,"color":"#c9a8ae"}}}},"##,
+                    r##""yAxis":{{"type":"value","axisLabel":{{"color":"#c9a8ae"}}}},"##,
+                    r##""series":[{{"type":"bar","data":[{}],"itemStyle":{{"color":"#8b1a2a"}}}}]}}"##
+                ),
+                cats.join(","),
+                vals.join(",")
+            )
+        }
+    }
+}
+
 /// Compute a value-count distribution for one column across sample rows.
 pub fn sample_distribution(rows: &[serde_json::Value], col: &str) -> Vec<super::types::DistPoint> {
     let mut counts: std::collections::HashMap<String, usize> = Default::default();

@@ -2,6 +2,8 @@ use crate::dsl::ast::*;
 use super::errors::ResolveError;
 use super::schema::Schema;
 
+const VALID_CHART_TYPES: &[&str] = &["bar", "line", "pie", "scatter"];
+
 /// Walks a parsed AST and validates every column reference against a [`Schema`].
 ///
 /// Returns a list of all errors found — the entire script is checked even if
@@ -159,6 +161,54 @@ impl<'s> Resolver<'s> {
                 self.check_sample_column(population, value_column);
                 if let Some(f) = filter {
                     self.check_expr(f);
+                }
+            }
+
+            Expr::Chart { chart_type, aggregate, dimension } => {
+                if !VALID_CHART_TYPES.contains(&chart_type.to_lowercase().as_str()) {
+                    self.errors.push(ResolveError::InvalidChartType(chart_type.clone()));
+                }
+                if !matches!(aggregate.as_ref(), Expr::Aggregate { .. }) {
+                    self.errors.push(ResolveError::InvalidChartAggregate(
+                        format!("{aggregate:?}")
+                    ));
+                }
+                if !matches!(dimension.as_ref(), Expr::ColumnRef(_)) {
+                    self.errors.push(ResolveError::InvalidChartDimension(
+                        format!("{dimension:?}")
+                    ));
+                }
+                self.check_expr(aggregate);
+                self.check_expr(dimension);
+            }
+
+            Expr::Screen { charts, .. } => {
+                for chart in charts {
+                    if let Some(label) = &chart.label {
+                        // label is just metadata, nothing to resolve
+                        let _ = label;
+                    }
+                    if !VALID_CHART_TYPES.contains(&chart.chart_type.to_lowercase().as_str()) {
+                        self.errors.push(ResolveError::InvalidChartType(chart.chart_type.clone()));
+                    }
+                    if !matches!(chart.aggregate.as_ref(), Expr::Aggregate { .. }) {
+                        self.errors.push(ResolveError::InvalidChartAggregate(
+                            format!("{:?}", chart.aggregate)
+                        ));
+                    }
+                    if !matches!(chart.dimension.as_ref(), Expr::ColumnRef(_)) {
+                        self.errors.push(ResolveError::InvalidChartDimension(
+                            format!("{:?}", chart.dimension)
+                        ));
+                    }
+                    self.check_expr(&chart.aggregate);
+                    self.check_expr(&chart.dimension);
+                }
+            }
+
+            Expr::Section { statements, .. } => {
+                for stmt in statements {
+                    self.check_expr(&stmt.expr);
                 }
             }
         }

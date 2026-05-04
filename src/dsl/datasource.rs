@@ -12,7 +12,7 @@ use super::value::{EvalError, Row};
 /// (e.g. from CSV, Excel, or an in-memory Vec).  The trait is
 /// intentionally synchronous so that `eval` can be called recursively
 /// without async overhead, and so it remains WASM-compatible.
-pub trait EvalDataSource {
+pub trait EvalDataSource: Send + Sync {
     /// Return all rows for the named table.
     ///
     /// Returns [`EvalError::UnknownTable`] if the table does not exist.

@@ -53,6 +53,10 @@ pub enum Token {
     IsDate,     // IS_DATE(col) — true if value parses as a date
     Duplicated, // DUPLICATED(col, ...) — true if row key appears more than once
     Arrow,      // -> operator (used in RELATION a.col -> b.col)
+    Chart,      // CHART keyword
+    Screen,     // SCREEN keyword
+    Section,    // SECTION keyword
+    By,         // BY keyword (grouping in charts)
 
     // Identifiers and literals
     Ident(String),      // table.column or plain name
@@ -80,6 +84,8 @@ pub enum Token {
     Comma,
     Dot,
     Colon,
+    LBrace,     // {
+    RBrace,     // }
 
     // End of input
     Eof,
@@ -103,6 +109,8 @@ impl fmt::Display for Token {
             Token::Lte          => write!(f, "'<='"),
             Token::LParen       => write!(f, "'('"),
             Token::RParen       => write!(f, "')'"),
+            Token::LBrace       => write!(f, "'{{'"),
+            Token::RBrace       => write!(f, "'}}'"),
             Token::Comma        => write!(f, "','"),
             Token::Eof          => write!(f, "end of input"),
             other               => write!(f, "{other:?}"),

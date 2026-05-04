@@ -4,6 +4,9 @@ use crate::dsl::value::{EvalError, EvalResult, Row, Value};
 use super::result::AssertResult;
 use super::Evaluator;
 
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
+
 pub(super) fn cmp_op_display(op: &CmpOp) -> &'static str {
     match op {
         CmpOp::Eq    => "=",
@@ -24,6 +27,28 @@ impl<'ds> Evaluator<'ds> {
         op: &CmpOp,
     ) -> EvalResult<AssertResult> {
         let empty = Row::new();
+
+        // Heuristic: if the user wrote `ASSERT expr1 > expr2` without an explicit
+        // `= true`, the parser produces `Assert { lhs: Compare{...}, rhs: true, op: Eq }`.
+        // Show the inner comparison values instead of the boolean result.
+        if *op == CmpOp::Eq {
+            if let Ok(Value::Bool(true)) = self.eval(rhs, &empty) {
+                if let Expr::Compare { op: inner_op, lhs: inner_lhs, rhs: inner_rhs } = lhs {
+                    let ilv = self.eval(inner_lhs, &empty)?;
+                    let irv = self.eval(inner_rhs, &empty)?;
+                    let passed = self.apply_cmp(inner_op, &ilv, &irv);
+                    return Ok(AssertResult {
+                        label:      label.clone(),
+                        passed,
+                        lhs_value:  ilv.to_string(),
+                        rhs_value:  irv.to_string(),
+                        op:         cmp_op_display(inner_op).to_string(),
+                        source_col: source_col_from_expr(inner_lhs)
+                            .or_else(|| source_col_from_expr(lhs)),
+                    });
+                }
+            }
+        }
 
         // Try aggregate-style evaluation (works for SUM/COUNT/AVG etc.)
         match self.eval(lhs, &empty) {
@@ -72,27 +97,53 @@ impl<'ds> Evaluator<'ds> {
 
         let is_bool_assert = rv == Value::Bool(true) && *op == CmpOp::Eq;
 
-        let mut pass_count = 0usize;
         let total = rows.len();
 
-        for row in rows {
-            let ok = if is_bool_assert {
-                match self.eval(lhs, row) {
-                    Ok(v)  => v.as_bool().unwrap_or(false),
-                    // Propagate missing-column immediately: it means the column does not
-                    // exist in the table at all, not that the assertion value is false.
-                    Err(EvalError::UnknownColumn(col)) => return Err(EvalError::UnknownColumn(col)),
-                    Err(_) => false,
-                }
-            } else {
-                match self.eval(lhs, row) {
-                    Ok(lv) => self.apply_cmp(op, &lv, &rv),
-                    Err(EvalError::UnknownColumn(col)) => return Err(EvalError::UnknownColumn(col)),
-                    Err(_) => false,
-                }
-            };
-            if ok { pass_count += 1; }
+        // Pre-check the first row so UnknownColumn errors surface immediately
+        // rather than being swallowed inside a parallel loop.
+        if let Some(first) = rows.first() {
+            if let Err(EvalError::UnknownColumn(col)) = self.eval(lhs, first) {
+                return Err(EvalError::UnknownColumn(col));
+            }
         }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let pass_count = rows
+            .par_iter()
+            .filter(|row| {
+                if is_bool_assert {
+                    self.eval(lhs, row)
+                        .map(|v| v.as_bool().unwrap_or(false))
+                        .unwrap_or(false)
+                } else {
+                    self.eval(lhs, row)
+                        .map(|lv| self.apply_cmp(op, &lv, &rv))
+                        .unwrap_or(false)
+                }
+            })
+            .count();
+
+        #[cfg(target_arch = "wasm32")]
+        let pass_count = {
+            let mut count = 0usize;
+            for row in rows {
+                let ok = if is_bool_assert {
+                    match self.eval(lhs, row) {
+                        Ok(v) => v.as_bool().unwrap_or(false),
+                        Err(EvalError::UnknownColumn(col)) => return Err(EvalError::UnknownColumn(col)),
+                        Err(_) => false,
+                    }
+                } else {
+                    match self.eval(lhs, row) {
+                        Ok(lv) => self.apply_cmp(op, &lv, &rv),
+                        Err(EvalError::UnknownColumn(col)) => return Err(EvalError::UnknownColumn(col)),
+                        Err(_) => false,
+                    }
+                };
+                if ok { count += 1; }
+            }
+            count
+        };
 
         let passed = pass_count == total;
         let lhs_value = format!("{pass_count}/{total} rows pass");

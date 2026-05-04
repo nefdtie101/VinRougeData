@@ -184,6 +184,34 @@ pub enum Expr {
         size: SampleSize,
         filter: Option<Box<Expr>>,
     },
+
+    /// CHART  e.g.  CHART bar SUM(invoices.amount) BY invoices.status
+    Chart {
+        chart_type: String,
+        aggregate: Box<Expr>,
+        dimension: Box<Expr>,
+    },
+
+    /// SCREEN  e.g.  SCREEN "Dashboard" { CHART bar SUM(a) BY b }
+    Screen {
+        title: String,
+        charts: Vec<ChartDef>,
+    },
+
+    /// SECTION  e.g.  SECTION "Reconciliation" { ASSERT ... CHART ... }
+    Section {
+        title: String,
+        statements: Vec<Statement>,
+    },
+}
+
+/// Chart definition used inside a SCREEN block.
+#[derive(Debug, PartialEq, Clone)]
+pub struct ChartDef {
+    pub label: Option<String>,
+    pub chart_type: String,
+    pub aggregate: Box<Expr>,
+    pub dimension: Box<Expr>,
 }
 
 /// A top-level statement — either an expression or a named assertion

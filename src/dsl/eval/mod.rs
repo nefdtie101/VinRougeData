@@ -1,10 +1,11 @@
 mod aggregate;
 mod assert;
+mod chart;
 mod helpers;
 mod result;
 mod sample;
 
-pub use result::{AssertResult, SampleResult, StatementResult};
+pub use result::{AssertResult, ChartResult, SampleResult, ScreenResult, SectionResult, StatementResult};
 
 use crate::dsl::ast::{self, *};
 use crate::dsl::datasource::EvalDataSource;
@@ -274,6 +275,12 @@ impl<'ds> Evaluator<'ds> {
             }
 
             Expr::Sample { .. } => Ok(Value::Null),
+
+            Expr::Chart { .. } => Ok(Value::Null),
+
+            Expr::Screen { .. } => Ok(Value::Null),
+
+            Expr::Section { .. } => Ok(Value::Null),
         }
     }
 }
@@ -294,7 +301,10 @@ pub fn run_script(
         .iter()
         .map(|stmt| match &stmt.expr {
             Expr::Assert { label, lhs, rhs, op } => {
-                match evaluator.eval_assert(label, lhs, rhs, op) {
+                // Merge the statement-level label (e.g. `acb_only:`) into the result
+                // when the Assert expression itself has no quoted label.
+                let merged_label = label.clone().or_else(|| stmt.label.clone());
+                match evaluator.eval_assert(&merged_label, lhs, rhs, op) {
                     Ok(r)  => StatementResult::Assert(r),
                     Err(e) => StatementResult::Error(e.to_string()),
                 }
@@ -310,6 +320,33 @@ pub fn run_script(
                     from: format!("{from_table}.{from_col}"),
                     to:   format!("{to_table}.{to_col}"),
                 }
+            }
+            Expr::Chart { chart_type, aggregate, dimension } => {
+                match evaluator.eval_chart(chart_type, aggregate, dimension, stmt.label.clone()) {
+                    Ok(r)  => StatementResult::Chart(r),
+                    Err(e) => StatementResult::Error(e.to_string()),
+                }
+            }
+            Expr::Screen { title, charts } => {
+                match evaluator.eval_screen(title, charts) {
+                    Ok(r)  => StatementResult::Screen(r),
+                    Err(e) => StatementResult::Error(e.to_string()),
+                }
+            }
+            Expr::Section { title, statements } => {
+                let inner = run_script(statements, datasource);
+                let (passed, failed, errors) = inner.iter().fold((0, 0, 0), |(p, f, e), r| match r {
+                    StatementResult::Assert(a) if a.passed => (p + 1, f, e),
+                    StatementResult::Assert(_) => (p, f + 1, e),
+                    StatementResult::Error(_) => (p, f, e + 1),
+                    StatementResult::Section(s) => (p + s.passed, f + s.failed, e + s.errors),
+                    _ => (p, f, e),
+                });
+                StatementResult::Section(SectionResult {
+                    title: title.clone(),
+                    results: inner,
+                    passed, failed, errors,
+                })
             }
             other => match evaluator.eval(other, &Row::new()) {
                 Ok(v)  => StatementResult::Value(v.to_string()),

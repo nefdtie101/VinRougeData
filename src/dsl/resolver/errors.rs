@@ -11,4 +11,13 @@ pub enum ResolveError {
 
     #[error("column reference '{0}' has no table prefix — cannot resolve without a context table")]
     AmbiguousColumn(String),
+
+    #[error("invalid chart type '{0}' — expected one of: bar, line, pie, scatter")]
+    InvalidChartType(String),
+
+    #[error("chart aggregate must be an aggregate function (SUM, AVG, COUNT, MIN, MAX), got {0}")]
+    InvalidChartAggregate(String),
+
+    #[error("chart dimension must be a table.column reference, got {0}")]
+    InvalidChartDimension(String),
 }

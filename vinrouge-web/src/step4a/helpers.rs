@@ -50,6 +50,26 @@ pub fn parse_run_result(results: &[serde_json::Value], dt_ms: f64) -> RunResult 
                 duration_ms: dt_ms,
             };
         }
+        if r["kind"] == "chart" {
+            let labels = r["labels"].as_array().map(|a| a.len()).unwrap_or(0);
+            return RunResult {
+                expr_type: "CHART".to_string(),
+                expected:  "—".to_string(),
+                actual:    format!("{} points", labels),
+                passed:    true,
+                duration_ms: dt_ms,
+            };
+        }
+        if r["kind"] == "screen" {
+            let charts = r["charts"].as_array().map(|a| a.len()).unwrap_or(0);
+            return RunResult {
+                expr_type: "SCREEN".to_string(),
+                expected:  "—".to_string(),
+                actual:    format!("{} charts", charts),
+                passed:    true,
+                duration_ms: dt_ms,
+            };
+        }
     }
     RunResult {
         expr_type: "RUN".to_string(),
@@ -64,7 +84,7 @@ pub fn parse_run_result(results: &[serde_json::Value], dt_ms: f64) -> RunResult 
 pub fn extract_dsl_code(text: &str) -> Option<String> {
     const KWS: &[&str] = &[
         "EXCEPTIONS", "RECONCILE", "SAMPLE", "TOTAL", "COUNT",
-        "AVERAGE", "FLAG", "ASSERT", "MATH",
+        "AVERAGE", "FLAG", "ASSERT", "MATH", "CHART", "SCREEN",
     ];
 
     // Try ``` code fences first.

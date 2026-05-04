@@ -7,6 +7,9 @@ use crate::dsl::value::{EvalError, EvalResult, Row, Value};
 use super::result::SampleResult;
 use super::Evaluator;
 
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
+
 impl<'ds> Evaluator<'ds> {
     pub fn eval_sample(
         &self,
@@ -18,6 +21,22 @@ impl<'ds> Evaluator<'ds> {
     ) -> EvalResult<SampleResult> {
         let all_rows = self.datasource.rows(population)?;
 
+        #[cfg(not(target_arch = "wasm32"))]
+        let filtered: Vec<&Row> = all_rows
+            .par_iter()
+            .filter(|row| {
+                filter
+                    .as_ref()
+                    .map(|f| {
+                        self.eval(f, row)
+                            .map(|v| v.as_bool().unwrap_or(false))
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(true)
+            })
+            .collect();
+
+        #[cfg(target_arch = "wasm32")]
         let filtered: Vec<&Row> = all_rows
             .iter()
             .filter(|row| {

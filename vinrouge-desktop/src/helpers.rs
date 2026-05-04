@@ -125,13 +125,11 @@ pub fn run_dsl_script_blocking(
     let raw_results = dsl::run_script(&statements, &datasource);
 
     // Serialise results to JSON
-    let json_results: Vec<serde_json::Value> = raw_results
-        .iter()
-        .enumerate()
-        .map(|(i, r)| match r {
+    fn result_to_json(index: usize, r: &StatementResult) -> serde_json::Value {
+        match r {
             StatementResult::Assert(a) => serde_json::json!({
                 "kind": "assert",
-                "index": i,
+                "index": index,
                 "label": a.label,
                 "passed": a.passed,
                 "lhs_value": a.lhs_value,
@@ -140,7 +138,7 @@ pub fn run_dsl_script_blocking(
             }),
             StatementResult::Sample(s) => serde_json::json!({
                 "kind": "sample",
-                "index": i,
+                "index": index,
                 "method": format!("{:?}", s.method),
                 "population_size": s.population_size,
                 "selected_count": s.selected.len(),
@@ -148,21 +146,55 @@ pub fn run_dsl_script_blocking(
             }),
             StatementResult::Relation { from, to } => serde_json::json!({
                 "kind": "relation",
-                "index": i,
+                "index": index,
                 "from": from,
                 "to": to,
             }),
             StatementResult::Value(v) => serde_json::json!({
                 "kind": "value",
-                "index": i,
+                "index": index,
                 "value": v,
             }),
             StatementResult::Error(e) => serde_json::json!({
                 "kind": "error",
-                "index": i,
+                "index": index,
                 "error": e,
             }),
-        })
+            StatementResult::Chart(c) => serde_json::json!({
+                "kind": "chart",
+                "index": index,
+                "label": c.label,
+                "chart_type": c.chart_type,
+                "labels": c.labels,
+                "values": c.values,
+            }),
+            StatementResult::Screen(s) => serde_json::json!({
+                "kind": "screen",
+                "index": index,
+                "title": s.title,
+                "charts": s.charts.iter().map(|c| serde_json::json!({
+                    "label": c.label,
+                    "chart_type": c.chart_type,
+                    "labels": c.labels,
+                    "values": c.values,
+                })).collect::<Vec<_>>(),
+            }),
+            StatementResult::Section(s) => serde_json::json!({
+                "kind": "section",
+                "index": index,
+                "title": s.title,
+                "passed": s.passed,
+                "failed": s.failed,
+                "errors": s.errors,
+                "results": s.results.iter().enumerate().map(|(j, inner)| result_to_json(j, inner)).collect::<Vec<_>>(),
+            }),
+        }
+    }
+
+    let json_results: Vec<serde_json::Value> = raw_results
+        .iter()
+        .enumerate()
+        .map(|(i, r)| result_to_json(i, r))
         .collect();
 
     // Count outcomes

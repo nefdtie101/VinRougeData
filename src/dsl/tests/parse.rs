@@ -97,3 +97,68 @@ fn test_error_missing_paren() {
     let err = parse("SUM(invoices.amount").unwrap_err();
     assert!(err.message.contains("expected ')'"));
 }
+
+#[test]
+fn test_parse_chart_simple() {
+    let stmts = parse("CHART bar SUM(invoices.amount) BY invoices.status").unwrap();
+    assert_eq!(stmts.len(), 1);
+    let Expr::Chart { chart_type, aggregate, dimension } = &stmts[0].expr else { panic!("expected Chart") };
+    assert_eq!(chart_type, "bar");
+    assert!(matches!(aggregate.as_ref(), Expr::Aggregate { func: AggFunc::Sum, .. }));
+    assert!(matches!(dimension.as_ref(), Expr::ColumnRef(s) if s == "invoices.status"));
+}
+
+#[test]
+fn test_parse_chart_with_label() {
+    let stmts = parse("revenue: CHART pie SUM(invoices.amount) BY invoices.category").unwrap();
+    assert_eq!(stmts[0].label.as_deref(), Some("revenue"));
+    let Expr::Chart { chart_type, .. } = &stmts[0].expr else { panic!("expected Chart") };
+    assert_eq!(chart_type, "pie");
+}
+
+#[test]
+fn test_parse_screen_block() {
+    let stmts = parse(r#"SCREEN "Dashboard" {
+        revenue: CHART bar SUM(invoices.amount) BY invoices.status
+        breakdown: CHART pie COUNT(invoices.id) BY invoices.category
+    }"#).unwrap();
+    assert_eq!(stmts.len(), 1);
+    let Expr::Screen { title, charts } = &stmts[0].expr else { panic!("expected Screen") };
+    assert_eq!(title, "Dashboard");
+    assert_eq!(charts.len(), 2);
+    assert_eq!(charts[0].label.as_deref(), Some("revenue"));
+    assert_eq!(charts[0].chart_type, "bar");
+    assert_eq!(charts[1].label.as_deref(), Some("breakdown"));
+    assert_eq!(charts[1].chart_type, "pie");
+}
+
+#[test]
+fn test_parse_section_block() {
+    let stmts = parse(r#"SECTION "Reconciliation" {
+        acb_only: ASSERT SUM(invoices.amount) = 1500
+        total: SUM(invoices.amount)
+    }"#).unwrap();
+    assert_eq!(stmts.len(), 1);
+    let Expr::Section { title, statements } = &stmts[0].expr else { panic!("expected Section") };
+    assert_eq!(title, "Reconciliation");
+    assert_eq!(statements.len(), 2);
+    assert_eq!(statements[0].label.as_deref(), Some("acb_only"));
+    assert!(matches!(&statements[0].expr, Expr::Assert { .. }));
+    assert_eq!(statements[1].label.as_deref(), Some("total"));
+    assert!(matches!(&statements[1].expr, Expr::Aggregate { .. }));
+}
+
+#[test]
+fn test_parse_nested_section() {
+    let stmts = parse(r#"SECTION "Outer" {
+        SECTION "Inner" {
+            ASSERT SUM(invoices.amount) = 1500
+        }
+    }"#).unwrap();
+    assert_eq!(stmts.len(), 1);
+    let Expr::Section { title, statements } = &stmts[0].expr else { panic!("expected Section") };
+    assert_eq!(title, "Outer");
+    assert_eq!(statements.len(), 1);
+    let Expr::Section { title: inner_title, .. } = &statements[0].expr else { panic!("expected nested Section") };
+    assert_eq!(inner_title, "Inner");
+}
