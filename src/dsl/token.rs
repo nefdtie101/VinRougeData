@@ -52,11 +52,13 @@ pub enum Token {
     IsNumeric,  // IS_NUMERIC(col) — true if value parses as a number
     IsDate,     // IS_DATE(col) — true if value parses as a date
     Duplicated, // DUPLICATED(col, ...) — true if row key appears more than once
+    SaIdValid,  // SA_ID_VALID(col) — true when value is a valid SA ID number (Luhn)
     Arrow,      // -> operator (used in RELATION a.col -> b.col)
     Chart,      // CHART keyword
     Screen,     // SCREEN keyword
     Section,    // SECTION keyword
     By,         // BY keyword (grouping in charts)
+    Schema,     // SCHEMA — prints all imported table schemas
 
     // Identifiers and literals
     Ident(String),      // table.column or plain name

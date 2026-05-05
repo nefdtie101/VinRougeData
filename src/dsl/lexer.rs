@@ -84,10 +84,12 @@ impl<'a> Lexer<'a> {
             "IS_NUMERIC" => Token::IsNumeric,
             "IS_DATE"    => Token::IsDate,
             "DUPLICATED" => Token::Duplicated,
+            "SA_ID_VALID" => Token::SaIdValid,
             "CHART"      => Token::Chart,
             "SCREEN"     => Token::Screen,
             "SECTION"    => Token::Section,
             "BY"         => Token::By,
+            "SCHEMA"     => Token::Schema,
             "COALESCE"   => Token::Coalesce,
             "NULLIF"     => Token::NullIf,
             "IIF"        => Token::Iif,
@@ -151,7 +153,23 @@ impl<'a> Lexer<'a> {
                     tokens.push((i, self.read_ident_or_keyword(i)));
                 }
                 Some((i, c)) if c.is_ascii_digit() => {
-                    tokens.push((i, self.read_number(i)?));
+                    // Peek ahead: if digits are immediately followed by an alphabetic char
+                    // or underscore (no dot in between), treat the whole token as an
+                    // identifier (e.g. 13th_Cheque_Provision) rather than a number.
+                    let mut is_ident = false;
+                    for c2 in self.input[i + c.len_utf8()..].chars() {
+                        if c2.is_ascii_digit() {
+                            continue;
+                        } else if c2.is_alphabetic() || c2 == '_' {
+                            is_ident = true;
+                        }
+                        break;
+                    }
+                    if is_ident {
+                        tokens.push((i, self.read_ident_or_keyword(i)));
+                    } else {
+                        tokens.push((i, self.read_number(i)?));
+                    }
                 }
                 Some((i, '"')) | Some((i, '\'')) => {
                     tokens.push((i, self.read_string_until(i, self.input.as_bytes()[i])?));

@@ -152,6 +152,10 @@ pub enum Expr {
     /// given columns occurs more than once in the underlying table
     Duplicated { exprs: Vec<Box<Expr>> },
 
+    /// SA_ID_VALID(col) — true when value is a valid 13-digit South African
+    /// ID number (passes Luhn checksum)
+    SaIdValid { expr: Box<Expr> },
+
     /// col NOT IN table.column — cross-table membership test
     InTableCol {
         expr: Box<Expr>,
@@ -203,6 +207,9 @@ pub enum Expr {
         title: String,
         statements: Vec<Statement>,
     },
+
+    /// SCHEMA — prints the names and columns of every imported table
+    Schema,
 }
 
 /// Chart definition used inside a SCREEN block.

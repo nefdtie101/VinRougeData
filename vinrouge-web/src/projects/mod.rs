@@ -1,5 +1,5 @@
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{ask_ollama_json, ask_ollama_wasm, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::ollama::{ask_ollama_json, ask_ai, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::step1;
 use crate::step2;
 use crate::step3;
@@ -351,7 +351,7 @@ pub fn ProjectsView() -> impl IntoView {
             )
             .await;
             let reply =
-                match ask_ollama_wasm(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, "", &q).await {
+                match ask_ai("", &q).await {
                     Ok(r) => r,
                     Err(e) => format!("Error: {e}"),
                 };

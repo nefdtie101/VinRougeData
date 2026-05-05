@@ -76,6 +76,14 @@ impl Parser {
             } else {
                 None
             }
+        } else if let Token::StringLit(s) = self.peek().clone() {
+            if self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1].1 == Token::Colon {
+                self.advance(); // consume string
+                self.advance(); // consume ':'
+                Some(s)
+            } else {
+                None
+            }
         } else {
             None
         };

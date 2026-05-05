@@ -23,6 +23,10 @@ impl super::Parser {
         if self.peek() == &Token::Section {
             return self.parse_section();
         }
+        if self.peek() == &Token::Schema {
+            self.advance();
+            return Ok(Expr::Schema);
+        }
         self.parse_or()
     }
 
@@ -214,6 +218,7 @@ impl super::Parser {
             Token::IsNumeric  => self.parse_pred_fn(|expr| Expr::IsNumeric { expr, negated: false }),
             Token::IsDate     => self.parse_pred_fn(|expr| Expr::IsDate    { expr, negated: false }),
             Token::Duplicated => self.parse_duplicated(),
+            Token::SaIdValid  => self.parse_pred_fn(|expr| Expr::SaIdValid { expr }),
 
             Token::LParen => {
                 self.advance();
@@ -229,7 +234,7 @@ impl super::Parser {
                          SUM COUNT AVG MIN MAX COUNTIF SUMIF  \
                          UPPER LOWER TRIM LENGTH DATE  \
                          COALESCE NULLIF IIF ABS ROUND CASE  \
-                         IS_BLANK IS_NUMERIC IS_DATE DUPLICATED"
+                         IS_BLANK IS_NUMERIC IS_DATE DUPLICATED SA_ID_VALID"
                     )));
                 }
                 self.advance();

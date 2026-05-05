@@ -22,6 +22,16 @@ impl<'ds> Evaluator<'ds> {
             )
         })?;
 
+        // Ask the datasource to handle the aggregate itself (e.g. push down to DuckDB).
+        let col = if let Expr::ColumnRef(name) = expr {
+            name.find('.').map(|d| &name[d + 1..]).unwrap_or(name.as_str())
+        } else {
+            ""
+        };
+        if let Some(result) = self.datasource.try_aggregate(func, distinct, table, col, filter) {
+            return result;
+        }
+
         let all_rows = self.datasource.rows(table)?;
 
         #[cfg(not(target_arch = "wasm32"))]

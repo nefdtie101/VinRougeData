@@ -1,4 +1,4 @@
-use crate::ollama::{ask_ollama_wasm, build_web_summary, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::ollama::{ask_ai, build_web_summary};
 use crate::types::AnalysisResult;
 use leptos::prelude::*;
 use vinrouge::analysis::Workflow;
@@ -182,7 +182,6 @@ where
     let response: RwSignal<Option<String>> = RwSignal::new(None);
     let loading: RwSignal<bool> = RwSignal::new(false);
     let error: RwSignal<Option<String>> = RwSignal::new(None);
-    let url: RwSignal<String> = RwSignal::new(OLLAMA_DEFAULT_URL.to_string());
 
     let on_submit = move |_| {
         let q = question.get();
@@ -190,15 +189,13 @@ where
             return;
         }
         let ctx = summary();
-        let ollama_url = url.get();
-        let ollama_model = OLLAMA_DEFAULT_MODEL.to_string();
 
         loading.set(true);
         error.set(None);
         response.set(None);
 
         spawn_local(async move {
-            match ask_ollama_wasm(&ollama_url, &ollama_model, &ctx, &q).await {
+            match ask_ai(&ctx, &q).await {
                 Ok(ans) => response.set(Some(ans)),
                 Err(e) => error.set(Some(e)),
             }
@@ -208,26 +205,10 @@ where
 
     view! {
         <section class="ollama-section">
-            <h2>"Ask Ollama"</h2>
+            <h2>"Ask AI"</h2>
             <p class="ollama-hint">
-                "Ask questions about your data schema using a locally-running Ollama model. "
-                "Requires Ollama to be running with "
-                <code>"OLLAMA_ORIGINS=*"</code>
-                " (for browser CORS)."
+                "Ask questions about your data schema. Configure your AI provider in Settings."
             </p>
-
-            <div class="ollama-config">
-                <label>
-                    "Endpoint: "
-                    <input
-                        type="text"
-                        class="ollama-input"
-                        prop:value=move || url.get()
-                        on:input=move |ev| url.set(event_target_value(&ev))
-                        placeholder=OLLAMA_DEFAULT_URL
-                    />
-                </label>
-            </div>
 
             <div class="ollama-query-row">
                 <textarea

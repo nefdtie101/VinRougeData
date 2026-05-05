@@ -1,6 +1,6 @@
 use crate::helpers::table_name_from_source;
 use crate::session_db::SessionDb;
-use crate::state::ProjectsState;
+use crate::state::{DslCacheState, ProjectsState};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -22,8 +22,11 @@ pub async fn import_data_file(
     mappings: Vec<(String, String)>,
     sheet: Option<String>,
     state: State<'_, ProjectsState>,
+    cache: State<'_, DslCacheState>,
 ) -> Result<String, String> {
     let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    // Invalidate the DSL datasource cache — new data means it must be rebuilt.
+    cache.0.lock().unwrap().datasource = None;
     tokio::task::spawn_blocking(move || {
         let path = vinrouge::projects::get_file_path(&project_dir, &file_id)?;
         let bytes = std::fs::read(&path).map_err(|e| format!("Read error: {e}"))?;

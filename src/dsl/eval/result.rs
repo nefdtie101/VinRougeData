@@ -45,6 +45,19 @@ pub struct SectionResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchemaColumn {
+    pub name: String,
+    pub col_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchemaTable {
+    pub name: String,
+    pub columns: Vec<SchemaColumn>,
+    pub row_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StatementResult {
     Value(String),
     Assert(AssertResult),
@@ -54,5 +67,6 @@ pub enum StatementResult {
     Chart(ChartResult),
     Screen(ScreenResult),
     Section(SectionResult),
+    Schema(Vec<SchemaTable>),
     Error(String),
 }

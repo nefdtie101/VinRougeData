@@ -67,6 +67,7 @@ impl<'s> Resolver<'s> {
             Expr::IsBlank  { expr, .. } => self.check_expr(expr),
             Expr::IsNumeric{ expr, .. } => self.check_expr(expr),
             Expr::IsDate   { expr, .. } => self.check_expr(expr),
+            Expr::SaIdValid{ expr }     => self.check_expr(expr),
 
             Expr::Duplicated { exprs } => {
                 for e in exprs { self.check_expr(e); }
@@ -211,6 +212,8 @@ impl<'s> Resolver<'s> {
                     self.check_expr(&stmt.expr);
                 }
             }
+
+            Expr::Schema => {}
         }
     }
 

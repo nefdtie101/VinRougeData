@@ -289,6 +289,77 @@ pub fn render_dsl_result(idx: usize, r: serde_json::Value) -> AnyView {
             }.into_any()
         }
 
+        "schema" => {
+            let tables: Vec<serde_json::Value> = r["tables"].as_array()
+                .map(|a| a.iter().cloned().collect())
+                .unwrap_or_default();
+            let table_count = tables.len();
+            let expanded = RwSignal::new(true);
+
+            view! {
+                <div class="ide-result ide-result--schema">
+                    <div class="ide-section-header" on:click=move |_| expanded.update(|e| *e = !*e)>
+                        <span class="ide-result-icon">
+                            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                                <rect x="1.5" y="1.5" width="10" height="10" rx="1.5"
+                                    stroke="currentColor" stroke-width="1.1"/>
+                                <path d="M1.5 5h10M5 1.5v10"
+                                    stroke="currentColor" stroke-width="1.1"/>
+                            </svg>
+                        </span>
+                        <span class="ide-result-label">
+                            {format!("Schema — {} table{}", table_count, if table_count == 1 { "" } else { "s" })}
+                        </span>
+                        <span class="ide-section-chevron">
+                            {move || if expanded.get() {
+                                view! { <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4.5l4 4 4-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> }.into_any()
+                            } else {
+                                view! { <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M4.5 2l4 4-4 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> }.into_any()
+                            }}
+                        </span>
+                    </div>
+                    {move || expanded.get().then({
+                        let tables = tables.clone();
+                        move || view! {
+                            <div class="ide-section-body">
+                                {tables.into_iter().map(|t| {
+                                    let name      = t["name"].as_str().unwrap_or("").to_string();
+                                    let row_count = t["row_count"].as_u64().unwrap_or(0);
+                                    let cols: Vec<(String, String)> = t["columns"].as_array()
+                                        .map(|a| a.iter().map(|c| (
+                                            c["name"].as_str().unwrap_or("").to_string(),
+                                            c["type"].as_str().unwrap_or("text").to_string(),
+                                        )).collect())
+                                        .unwrap_or_default();
+                                    view! {
+                                        <div class="ide-schema-table">
+                                            <div class="ide-schema-table-header">
+                                                <span class="ide-schema-table-name">{name}</span>
+                                                <span class="ide-schema-table-rows">
+                                                    {format!("{} row{}", row_count, if row_count == 1 { "" } else { "s" })}
+                                                </span>
+                                            </div>
+                                            <div class="ide-schema-cols">
+                                                {cols.into_iter().map(|(col, ty)| {
+                                                    let ty2 = ty.clone();
+                                                    view! {
+                                                        <span class="ide-schema-col">
+                                                            <span class="ide-schema-col-name">{col}</span>
+                                                            <span class=format!("ide-schema-col-type ide-schema-col-type--{ty2}")>{ty}</span>
+                                                        </span>
+                                                    }
+                                                }).collect::<Vec<_>>()}
+                                            </div>
+                                        </div>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </div>
+                        }
+                    })}
+                </div>
+            }.into_any()
+        }
+
         _ => view! { <div /> }.into_any()
     }
 }

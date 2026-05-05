@@ -581,3 +581,70 @@ pub fn build_web_summary(result: &AnalysisResult) -> String {
 
     s
 }
+
+// ── Claude API client ─────────────────────────────────────────────────────────
+
+use crate::storage::AppSettings;
+
+/// Send a chat request to Anthropic's Claude Messages API.
+pub async fn ask_claude(
+    api_key: &str,
+    model: &str,
+    system: &str,
+    question: &str,
+) -> Result<String, String> {
+    use gloo_net::http::Request;
+    use serde_json::json;
+
+    if api_key.trim().is_empty() {
+        return Err("Claude API key is empty. Add your API key in Settings.".to_string());
+    }
+
+    let body = json!({
+        "model": model,
+        "max_tokens": 4096,
+        "system": system,
+        "messages": [{"role": "user", "content": question}],
+    });
+
+    let resp = Request::post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .json(&body)
+        .map_err(|e| format!("Failed to build request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+
+    if !resp.ok() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("Claude returned HTTP {status}: {text}"));
+    }
+
+    let val: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+    val["content"]
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|first| first["text"].as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("Unexpected response shape: {}", serde_json::to_string(&val).unwrap_or_default()))
+}
+
+/// Unified AI call — routes to Ollama or Claude based on saved settings.
+pub async fn ask_ai(system: &str, question: &str) -> Result<String, String> {
+    let settings = AppSettings::load();
+    match settings.provider {
+        crate::storage::AiProvider::Ollama => {
+            ask_ollama_wasm(&settings.ollama_url, &settings.ollama_model, system, question).await
+        }
+        crate::storage::AiProvider::Claude => {
+            ask_claude(&settings.claude_api_key, &settings.claude_model, system, question).await
+        }
+    }
+}

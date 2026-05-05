@@ -7,13 +7,14 @@ pub mod eval;
 mod lexer;
 mod parser;
 mod resolver;
+mod south_africa;
 mod token;
 mod value;
 
 pub use ast::{AggFunc, ArithOp, ChartDef, CmpOp, Expr, LogicOp, SampleMethod, SampleSize, Statement};
-pub use datasource::{EvalDataSource, InMemoryDataSource};
+pub use datasource::{expr_to_sql, EvalDataSource, InMemoryDataSource};
 pub use error::{ParseError, ParseResult};
-pub use eval::{run_script, AssertResult, ChartResult, Evaluator, SampleResult, ScreenResult, StatementResult};
+pub use eval::{run_script, AssertResult, ChartResult, Evaluator, SampleResult, SchemaColumn, SchemaTable, ScreenResult, StatementResult};
 pub use resolver::{resolve, ResolveError, Resolver, Schema};
 pub use lexer::Lexer;
 pub use parser::Parser;

@@ -9,6 +9,9 @@ pub mod sources;
 pub mod ollama;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod settings;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub mod projects;
 
 #[cfg(not(target_arch = "wasm32"))]

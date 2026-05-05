@@ -133,6 +133,20 @@ fn test_parse_screen_block() {
 }
 
 #[test]
+fn test_parse_screen_block_with_string_labels() {
+    let stmts = parse(r#"SCREEN "Dashboard" {
+        "Revenue Trend": CHART bar SUM(invoices.amount) BY invoices.status
+        "Category Breakdown": CHART pie COUNT(invoices.id) BY invoices.category
+    }"#).unwrap();
+    assert_eq!(stmts.len(), 1);
+    let Expr::Screen { title, charts } = &stmts[0].expr else { panic!("expected Screen") };
+    assert_eq!(title, "Dashboard");
+    assert_eq!(charts.len(), 2);
+    assert_eq!(charts[0].label.as_deref(), Some("Revenue Trend"));
+    assert_eq!(charts[1].label.as_deref(), Some("Category Breakdown"));
+}
+
+#[test]
 fn test_parse_section_block() {
     let stmts = parse(r#"SECTION "Reconciliation" {
         acb_only: ASSERT SUM(invoices.amount) = 1500
@@ -149,6 +163,19 @@ fn test_parse_section_block() {
 }
 
 #[test]
+fn test_parse_section_with_string_literal_labels() {
+    let stmts = parse(r#"SECTION "Reconciliation" {
+        "Check 1": ASSERT SUM(a) = 10
+        "Check 2": ASSERT b > 5
+    }"#).unwrap();
+    assert_eq!(stmts.len(), 1);
+    let Expr::Section { statements, .. } = &stmts[0].expr else { panic!("expected Section") };
+    assert_eq!(statements.len(), 2);
+    assert_eq!(statements[0].label.as_deref(), Some("Check 1"));
+    assert_eq!(statements[1].label.as_deref(), Some("Check 2"));
+}
+
+#[test]
 fn test_parse_nested_section() {
     let stmts = parse(r#"SECTION "Outer" {
         SECTION "Inner" {
@@ -161,4 +188,43 @@ fn test_parse_nested_section() {
     assert_eq!(statements.len(), 1);
     let Expr::Section { title: inner_title, .. } = &statements[0].expr else { panic!("expected nested Section") };
     assert_eq!(inner_title, "Inner");
+}
+
+// ── Identifier starting with a digit (e.g. 13th_Cheque_Provision) ──────────
+
+#[test]
+fn test_parse_sa_id_valid() {
+    let stmts = parse("SA_ID_VALID(employee.SA_ID_Number)").unwrap();
+    assert_eq!(stmts.len(), 1);
+    assert!(matches!(&stmts[0].expr, Expr::SaIdValid { .. }));
+}
+
+#[test]
+fn test_parse_not_sa_id_valid() {
+    let stmts = parse("NOT SA_ID_VALID(employee.SA_ID_Number)").unwrap();
+    assert_eq!(stmts.len(), 1);
+    assert!(matches!(&stmts[0].expr, Expr::Not(inner) if matches!(inner.as_ref(), Expr::SaIdValid { .. })));
+}
+
+#[test]
+fn test_ident_starting_with_digit() {
+    let stmts = parse("SUM(employee.13th_Cheque_Provision)").unwrap();
+    assert_eq!(stmts.len(), 1);
+    let Expr::Aggregate { expr, .. } = &stmts[0].expr else { panic!("expected Aggregate") };
+    assert!(matches!(expr.as_ref(), Expr::ColumnRef(s) if s == "employee.13th_Cheque_Provision"));
+}
+
+#[test]
+fn test_number_not_confused_with_ident() {
+    // Pure numbers should still parse as numbers
+    let stmts = parse("value = 13").unwrap();
+    let Expr::Compare { rhs, .. } = &stmts[0].expr else { panic!("expected Compare") };
+    assert!(matches!(rhs.as_ref(), Expr::Number(n) if *n == dec!(13)));
+}
+
+#[test]
+fn test_decimal_not_confused_with_ident() {
+    let stmts = parse("value = 13.5").unwrap();
+    let Expr::Compare { rhs, .. } = &stmts[0].expr else { panic!("expected Compare") };
+    assert!(matches!(rhs.as_ref(), Expr::Number(n) if *n == dec!(13.5)));
 }

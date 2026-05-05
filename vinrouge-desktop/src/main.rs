@@ -2,12 +2,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod duckdb_source;
 mod helpers;
 mod session_db;
 mod state;
 
 use tauri::Manager;
-use state::*;
+use state::{DslCacheState, OllamaState, ProjectsState};
 use commands::*;
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -16,6 +17,7 @@ fn main() {
     tauri::Builder::default()
         .manage(OllamaState(std::sync::Mutex::new(None)))
         .manage(ProjectsState(std::sync::Mutex::new(None)))
+        .manage(DslCacheState::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             pick_and_analyze,
@@ -72,6 +74,7 @@ fn main() {
             list_dsl_scripts,
             clear_dsl_scripts,
             run_dsl_script,
+            invalidate_dsl_cache,
             list_test_results,
             get_column_distribution,
             update_dsl_script,
@@ -79,6 +82,10 @@ fn main() {
             delete_dsl_script,
             open_data_preview_window,
             open_dsl_results_window,
+            get_settings,
+            save_settings,
+            open_settings_window,
+            close_settings_window,
         ])
         .setup(|app| {
             // Auto-start Ollama when the desktop app launches.

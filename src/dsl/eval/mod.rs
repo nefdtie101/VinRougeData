@@ -5,7 +5,7 @@ mod helpers;
 mod result;
 mod sample;
 
-pub use result::{AssertResult, ChartResult, SampleResult, ScreenResult, SectionResult, StatementResult};
+pub use result::{AssertResult, ChartResult, SampleResult, SchemaColumn, SchemaTable, ScreenResult, SectionResult, StatementResult};
 
 use crate::dsl::ast::{self, *};
 use crate::dsl::datasource::EvalDataSource;
@@ -231,6 +231,12 @@ impl<'ds> Evaluator<'ds> {
                 Ok(Value::Bool(if *negated { !is_date_val } else { is_date_val }))
             }
 
+            Expr::SaIdValid { expr } => {
+                let v = self.eval(expr, row)?;
+                let valid = v != Value::Null && crate::dsl::south_africa::validate_sa_id(v.as_text().trim());
+                Ok(Value::Bool(valid))
+            }
+
             Expr::Duplicated { exprs } => {
                 let table = exprs.first()
                     .and_then(|e| if let Expr::ColumnRef(n) = e.as_ref() { Some(n.as_str()) } else { None })
@@ -281,6 +287,8 @@ impl<'ds> Evaluator<'ds> {
             Expr::Screen { .. } => Ok(Value::Null),
 
             Expr::Section { .. } => Ok(Value::Null),
+
+            Expr::Schema => Ok(Value::Null),
         }
     }
 }
@@ -348,6 +356,8 @@ pub fn run_script(
                     passed, failed, errors,
                 })
             }
+            Expr::Schema => StatementResult::Schema(datasource.schema_tables()),
+
             other => match evaluator.eval(other, &Row::new()) {
                 Ok(v)  => StatementResult::Value(v.to_string()),
                 Err(e) => StatementResult::Error(e.to_string()),

@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::components::DataGrid;
+use crate::components::{DataGrid, SettingsModal};
 use crate::components::data_grid::open_data_window;
 use crate::file_analysis::{analyze_bytes, read_file_bytes};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{ask_ollama_wasm, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::ollama::ask_ai;
+use crate::storage::sync_settings_from_tauri;
 use vinrouge::audit_prompts::DSL_LANGUAGE_REFERENCE;
 use crate::types::{DslScript, Project, ProjectFile, SessionSchema};
 use leptos::prelude::*;
@@ -136,6 +137,9 @@ pub fn StudioView() -> impl IntoView {
     let ai_input: RwSignal<String> = RwSignal::new(String::new());
     let ai_loading: RwSignal<bool> = RwSignal::new(false);
 
+    // ── Settings modal state ──────────────────────────────────────────────────
+    let settings_open: RwSignal<bool> = RwSignal::new(false);
+
     // ── Data panel state ──────────────────────────────────────────────────────
     let data_open: RwSignal<bool> = RwSignal::new(false);
     let popout_loading: RwSignal<bool> = RwSignal::new(false);
@@ -249,6 +253,9 @@ pub fn StudioView() -> impl IntoView {
 
     // ── Load projects on mount ────────────────────────────────────────────────
     spawn_local(async move {
+        // Sync desktop settings from Tauri backend into localStorage cache
+        sync_settings_from_tauri().await;
+
         match tauri_invoke::<Vec<Project>>("list_projects").await {
             Ok(list) => projects.set(list),
             Err(e) => status.set(format!("Failed to load projects: {e}")),
@@ -261,6 +268,17 @@ pub fn StudioView() -> impl IntoView {
             }
         }
     });
+
+    // ── Listen for settings changes from native settings window ───────────────
+    if crate::ipc::is_tauri() {
+        spawn_local(async move {
+            let _ = crate::ipc::tauri_listen_settings_changed(|| {
+                spawn_local(async move {
+                    sync_settings_from_tauri().await;
+                });
+            }).await;
+        });
+    }
 
     // ── Load scripts for active project ───────────────────────────────────────
     let load_scripts = move || {
@@ -500,7 +518,7 @@ pub fn StudioView() -> impl IntoView {
         ai_messages.update(|v| v.push(AiMsg { role: "user", text: q.clone() }));
 
         spawn_local(async move {
-            let reply = match ask_ollama_wasm(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &ctx, &q).await {
+            let reply = match ask_ai(&ctx, &q).await {
                 Ok(r) => r,
                 Err(e) => format!("Error: {e}"),
             };
@@ -555,6 +573,24 @@ pub fn StudioView() -> impl IntoView {
                             }.into_any()
                         }
                     })}
+                    <button
+                        class="studio-collapse-btn"
+                        title="Settings"
+                        on:click=move |_| {
+                            if crate::ipc::is_tauri() {
+                                spawn_local(async move {
+                                    let _ = crate::ipc::tauri_invoke::<()>("open_settings_window").await;
+                                });
+                            } else {
+                                settings_open.set(true);
+                            }
+                        }
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                    </button>
                     <button
                         class="studio-collapse-btn"
                         title=move || if sidebar_collapsed.get() { "Expand" } else { "Collapse" }
@@ -1163,6 +1199,26 @@ pub fn StudioView() -> impl IntoView {
                                     {move || if popout_loading.get() { "Opening…" } else { "Pop out" }}
                                 </button>
 
+                                // Refresh cache button
+                                {move || if crate::ipc::is_tauri() { view! {
+                                    <button
+                                        class="ide-data-upload-btn"
+                                        title="Refresh data cache — forces DuckDB to reload from storage on next script run"
+                                        on:click=move |_| {
+                                            leptos::task::spawn_local(async move {
+                                                let _ = crate::ipc::tauri_invoke::<serde_json::Value>("invalidate_dsl_cache").await;
+                                            });
+                                        }
+                                    >
+                                        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+                                            <path d="M10 6A4 4 0 1 1 6 2a4 4 0 0 1 2.83 1.17L10 2v4H6"
+                                                stroke="currentColor" stroke-width="1.1"
+                                                stroke-linecap="round" stroke-linejoin="round"/>
+                                        </svg>
+                                        "Refresh"
+                                    </button>
+                                }.into_any() } else { view! { <span></span> }.into_any() }}
+
                                 // Upload button (always visible)
                                 <label class="ide-data-upload-btn" title="Upload CSV or Excel file">
                                     <input
@@ -1589,6 +1645,10 @@ pub fn StudioView() -> impl IntoView {
                 })}
 
             </div> // studio-main
+
+            {move || settings_open.get().then(|| view! {
+                <SettingsModal on_close=Callback::new(move |_| settings_open.set(false)) />
+            })}
         </div> // studio-shell
     }
 }

@@ -19,7 +19,7 @@ const KEYWORDS = new Set([
   'ASSERT','SAMPLE','SUM','AVG','COUNT','MIN','MAX',
   'WHERE','FROM','SIZE','TOP','DISTINCT',
   'MUS','RANDOM','SYSTEMATIC','STRATIFIED',
-  'RELATION','CHART','SCREEN','BY',
+  'RELATION','CHART','SCREEN','BY','SCHEMA',
 ]);
 
 const BUILTINS = new Set([
@@ -57,6 +57,7 @@ const FN_SIGNATURES = {
   SUMIF:      { sig: 'SUMIF(range.column, criteria, sum.column)', doc: 'Sum rows matching a criteria.' },
   CASE:       { sig: 'CASE WHEN <cond> THEN <val> … ELSE <val> END', doc: 'Conditional expression.' },
   RELATION:   { sig: 'RELATION table1.col -> table2.col',        doc: 'Declare a foreign-key mapping between two columns.' },
+  SCHEMA:     { sig: 'SCHEMA',                                    doc: 'Print the name, columns and row count of every imported table.' },
   CHART:      { sig: 'CHART <type> <aggregate> BY <dimension>',  doc: 'Define a chart output with grouped aggregate data.' },
   SCREEN:     { sig: 'SCREEN "title" { CHART ... }',             doc: 'Group multiple charts into a dashboard screen.' },
   IS_BLANK:   { sig: 'IS_BLANK(table.column)',                   doc: 'True when value is null or empty string.' },

@@ -6,7 +6,7 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::components::{Banner, DataGrid, GhostButton, Spinner};
 use crate::ipc::tauri_invoke_args;
-use crate::ollama::{ask_ollama_wasm, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::ollama::ask_ai;
 use crate::types::{AuditProcessWithControls, DslScript, SessionSchema};
 use crate::step4a::types::{Phase, ScriptStatus, ScriptState, RunResult, ChatMsg};
 use crate::step4a::helpers::{parse_run_result, extract_dsl_code};
@@ -278,7 +278,7 @@ pub fn Step4bView(
         let sid_for_update = sid.clone();
 
         spawn_local(async move {
-            match ask_ollama_wasm(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &context, &msg).await {
+            match ask_ai(&context, &msg).await {
                 Ok(resp) => {
                     let code = extract_dsl_code(&resp);
 

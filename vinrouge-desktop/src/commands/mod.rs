@@ -7,6 +7,7 @@ pub mod export;
 pub mod files;
 pub mod ollama;
 pub mod projects;
+pub mod settings;
 pub mod session;
 
 pub use analysis::*;
@@ -18,4 +19,5 @@ pub use export::*;
 pub use files::*;
 pub use ollama::*;
 pub use projects::*;
+pub use settings::*;
 pub use session::*;

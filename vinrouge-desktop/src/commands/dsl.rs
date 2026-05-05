@@ -1,6 +1,14 @@
-use crate::helpers::run_dsl_script_blocking;
-use crate::state::ProjectsState;
+use crate::helpers::{build_datasource, run_dsl_script_blocking};
+use crate::state::{DslCacheState, ProjectsState};
+use std::sync::Arc;
 use tauri::State;
+
+/// Drop the cached DuckDB datasource so the next script run rebuilds from SQLite.
+/// Useful when the user knows data has changed outside the normal import flow.
+#[tauri::command]
+pub fn invalidate_dsl_cache(cache: State<'_, DslCacheState>) {
+    cache.0.lock().unwrap().datasource = None;
+}
 
 #[tauri::command]
 pub fn save_dsl_script(
@@ -29,15 +37,43 @@ pub fn clear_dsl_scripts(state: State<ProjectsState>) -> Result<(), String> {
 }
 
 /// Execute a saved DSL script against all session rows and save the results.
+/// The DuckDB datasource is cached in [`DslCacheState`] — the slow SQLite →
+/// JSON → DuckDB build only runs on the first call after an import.
 #[tauri::command]
 pub async fn run_dsl_script(
     script_id: String,
     state: State<'_, ProjectsState>,
+    cache: State<'_, DslCacheState>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    tokio::task::spawn_blocking(move || run_dsl_script_blocking(script_id, project_dir))
-        .await
-        .map_err(|e| e.to_string())?
+    let cache_arc = cache.0.clone();
+
+    tokio::task::spawn_blocking(move || {
+        // Get or build the datasource — the expensive SQLite read only happens
+        // on a cache miss (first run after an import or project change).
+        let datasource = {
+            let mut guard = cache_arc.lock().unwrap();
+            let same_project = guard.project_dir.as_ref() == Some(&project_dir);
+            if same_project {
+                if let Some(ds) = guard.datasource.clone() {
+                    ds
+                } else {
+                    let ds = Arc::new(build_datasource(&project_dir)?);
+                    guard.datasource = Some(ds.clone());
+                    ds
+                }
+            } else {
+                let ds = Arc::new(build_datasource(&project_dir)?);
+                guard.project_dir = Some(project_dir.clone());
+                guard.datasource = Some(ds.clone());
+                ds
+            }
+        };
+
+        run_dsl_script_blocking(script_id, project_dir, datasource)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

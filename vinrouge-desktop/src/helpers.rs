@@ -1,7 +1,9 @@
+use crate::duckdb_source::DuckDbDataSource;
 use crate::state::AnalysisOutput;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use vinrouge::analysis::{RelationshipDetector, WorkflowDetector};
-use vinrouge::dsl::{self, parse_value, InMemoryDataSource, StatementResult};
+use vinrouge::dsl::{self, parse_value, StatementResult};
 use vinrouge::schema::Table;
 use vinrouge::sources::{CsvSource, DataSource, ExcelSource};
 
@@ -85,12 +87,33 @@ pub fn table_name_from_source(source_name: &str) -> String {
         .join("_")
 }
 
+/// Build a [`DuckDbDataSource`] from all session imports in the given project.
+/// This is the slow step (SQLite → JSON decode → DuckDB insert) — call once
+/// and cache the result in [`crate::state::DslCacheState`].
+pub fn build_datasource(project_dir: &Path) -> Result<DuckDbDataSource, String> {
+    let conn = vinrouge::projects::db::open_project(project_dir).map_err(|e| e.to_string())?;
+    let db = crate::session_db::SessionDb::new(&conn);
+    let imports = db.list_imports()?;
+    let mut datasource = DuckDbDataSource::new()?;
+
+    for imp in &imports {
+        let raw_rows = db.get_rows(&imp.id)?;
+        let table_name = table_name_from_source(&imp.source_name);
+        let rows: Vec<vinrouge::dsl::Row> = raw_rows
+            .into_iter()
+            .map(|map| map.into_iter().map(|(k, v)| (k, parse_value(v))).collect())
+            .collect();
+        datasource.insert_table(table_name, rows)?;
+    }
+
+    Ok(datasource)
+}
+
 pub fn run_dsl_script_blocking(
     script_id: String,
     project_dir: PathBuf,
+    datasource: Arc<DuckDbDataSource>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
-
     // Load the script text
     let script: vinrouge::projects::DslScript = {
         let scripts = vinrouge::projects::list_dsl_scripts(&project_dir)?;
@@ -100,29 +123,10 @@ pub fn run_dsl_script_blocking(
             .ok_or_else(|| format!("Script {script_id} not found"))?
     };
 
-    // Load all session imports and build an InMemoryDataSource
-    let db = crate::session_db::SessionDb::new(&conn);
-    let imports = db.list_imports()?;
-    let mut datasource = InMemoryDataSource::new();
-
-    for imp in &imports {
-        let raw_rows = db.get_rows(&imp.id)?;
-        let table_name = table_name_from_source(&imp.source_name);
-        let rows: Vec<vinrouge::dsl::Row> = raw_rows
-            .into_iter()
-            .map(|map| {
-                map.into_iter()
-                    .map(|(k, v)| (k, parse_value(v)))
-                    .collect()
-            })
-            .collect();
-        datasource.insert_table(table_name, rows);
-    }
-
     // Parse and run the script
     let statements = dsl::parse(&script.script_text)
         .map_err(|e| format!("DSL parse error: {}", e.message))?;
-    let raw_results = dsl::run_script(&statements, &datasource);
+    let raw_results = dsl::run_script(&statements, datasource.as_ref());
 
     // Serialise results to JSON
     fn result_to_json(index: usize, r: &StatementResult) -> serde_json::Value {
@@ -187,6 +191,18 @@ pub fn run_dsl_script_blocking(
                 "failed": s.failed,
                 "errors": s.errors,
                 "results": s.results.iter().enumerate().map(|(j, inner)| result_to_json(j, inner)).collect::<Vec<_>>(),
+            }),
+            StatementResult::Schema(tables) => serde_json::json!({
+                "kind": "schema",
+                "index": index,
+                "tables": tables.iter().map(|t| serde_json::json!({
+                    "name": t.name,
+                    "row_count": t.row_count,
+                    "columns": t.columns.iter().map(|c| serde_json::json!({
+                        "name": c.name,
+                        "type": c.col_type,
+                    })).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
             }),
         }
     }
