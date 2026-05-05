@@ -34,18 +34,25 @@ impl<'ds> Evaluator<'ds> {
         if *op == CmpOp::Eq {
             if let Ok(Value::Bool(true)) = self.eval(rhs, &empty) {
                 if let Expr::Compare { op: inner_op, lhs: inner_lhs, rhs: inner_rhs } = lhs {
-                    let ilv = self.eval(inner_lhs, &empty)?;
-                    let irv = self.eval(inner_rhs, &empty)?;
-                    let passed = self.apply_cmp(inner_op, &ilv, &irv);
-                    return Ok(AssertResult {
-                        label:      label.clone(),
-                        passed,
-                        lhs_value:  ilv.to_string(),
-                        rhs_value:  irv.to_string(),
-                        op:         cmp_op_display(inner_op).to_string(),
-                        source_col: source_col_from_expr(inner_lhs)
-                            .or_else(|| source_col_from_expr(lhs)),
-                    });
+                    // Only take the aggregate-display shortcut when both sides
+                    // resolve without a row context (i.e. they are aggregates or
+                    // literals). If either side needs row data, fall through to
+                    // the row-level evaluator below.
+                    match (self.eval(inner_lhs, &empty), self.eval(inner_rhs, &empty)) {
+                        (Ok(ilv), Ok(irv)) => {
+                            let passed = self.apply_cmp(inner_op, &ilv, &irv);
+                            return Ok(AssertResult {
+                                label:      label.clone(),
+                                passed,
+                                lhs_value:  ilv.to_string(),
+                                rhs_value:  irv.to_string(),
+                                op:         cmp_op_display(inner_op).to_string(),
+                                source_col: source_col_from_expr(inner_lhs)
+                                    .or_else(|| source_col_from_expr(lhs)),
+                            });
+                        }
+                        _ => {} // fall through to row-level eval
+                    }
                 }
             }
         }
