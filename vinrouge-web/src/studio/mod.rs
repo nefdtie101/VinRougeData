@@ -1439,6 +1439,29 @@ pub fn StudioView() -> impl IntoView {
                                             })}
                                         </div>
 
+                                        // Pop-out button for testing
+                                        {
+                                            let results_for_popout = results.clone();
+                                            view! {
+                                                <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+                                                    <button
+                                                        class="ide-data-upload-btn"
+                                                        title="Open results in new window for testing"
+                                                        on:click=move |_| {
+                                                            dsl_results::open_results_window_async(results_for_popout.clone());
+                                                        }
+                                                        style="padding:4px 10px;font-size:11px;"
+                                                    >
+                                                        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+                                                            <path d="M5 2H2a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+                                                            <path d="M8 1h3v3M11 1L6 6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+                                                        </svg>
+                                                        "Pop out"
+                                                    </button>
+                                                </div>
+                                            }.into_any()
+                                        }
+
                                         // Per-statement results
                                         {results.into_iter().enumerate().map(|(idx, r)| render_dsl_result(idx, r)).collect::<Vec<_>>()}
 

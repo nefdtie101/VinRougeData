@@ -78,6 +78,7 @@ fn main() {
             rename_dsl_script,
             delete_dsl_script,
             open_data_preview_window,
+            open_dsl_results_window,
         ])
         .setup(|app| {
             // Auto-start Ollama when the desktop app launches.
