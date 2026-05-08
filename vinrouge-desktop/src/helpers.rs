@@ -109,103 +109,83 @@ pub fn build_datasource(project_dir: &Path) -> Result<DuckDbDataSource, String> 
     Ok(datasource)
 }
 
-pub fn run_dsl_script_blocking(
-    script_id: String,
-    project_dir: PathBuf,
-    datasource: Arc<DuckDbDataSource>,
-) -> Result<Vec<serde_json::Value>, String> {
-    // Load the script text
-    let script: vinrouge::projects::DslScript = {
-        let scripts = vinrouge::projects::list_dsl_scripts(&project_dir)?;
-        scripts
-            .into_iter()
-            .find(|s| s.id == script_id)
-            .ok_or_else(|| format!("Script {script_id} not found"))?
-    };
+pub fn result_to_json(index: usize, r: &StatementResult) -> serde_json::Value {
+    match r {
+        StatementResult::Assert(a) => serde_json::json!({
+            "kind": "assert",
+            "index": index,
+            "label": a.label,
+            "passed": a.passed,
+            "lhs_value": a.lhs_value,
+            "rhs_value": a.rhs_value,
+            "op": a.op,
+        }),
+        StatementResult::Sample(s) => serde_json::json!({
+            "kind": "sample",
+            "index": index,
+            "method": format!("{:?}", s.method),
+            "population_size": s.population_size,
+            "selected_count": s.selected.len(),
+            "selected_indices": s.selected,
+        }),
+        StatementResult::Relation { from, to } => serde_json::json!({
+            "kind": "relation",
+            "index": index,
+            "from": from,
+            "to": to,
+        }),
+        StatementResult::Value(v) => serde_json::json!({
+            "kind": "value",
+            "index": index,
+            "value": v,
+        }),
+        StatementResult::Error(e) => serde_json::json!({
+            "kind": "error",
+            "index": index,
+            "error": e,
+        }),
+        StatementResult::Chart(c) => serde_json::json!({
+            "kind": "chart",
+            "index": index,
+            "label": c.label,
+            "chart_type": c.chart_type,
+            "labels": c.labels,
+            "values": c.values,
+        }),
+        StatementResult::Section(s) => serde_json::json!({
+            "kind": "section",
+            "index": index,
+            "title": s.title,
+            "passed": s.passed,
+            "failed": s.failed,
+            "errors": s.errors,
+            "results": s.results.iter().enumerate().map(|(j, inner)| result_to_json(j, inner)).collect::<Vec<_>>(),
+        }),
+        StatementResult::Schema(tables) => serde_json::json!({
+            "kind": "schema",
+            "index": index,
+            "tables": tables.iter().map(|t| serde_json::json!({
+                "name": t.name,
+                "row_count": t.row_count,
+                "columns": t.columns.iter().map(|c| serde_json::json!({
+                    "name": c.name,
+                    "type": c.col_type,
+                })).collect::<Vec<_>>(),
+            })).collect::<Vec<_>>(),
+        }),
+    }
+}
 
-    // Parse and run the script
-    let statements = dsl::parse(&script.script_text)
+/// Run a DSL script from raw text, optionally saving the test result.
+pub fn run_dsl_script_text_blocking(
+    script_text: &str,
+    project_dir: &Path,
+    datasource: Arc<DuckDbDataSource>,
+    script_id: Option<&str>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let statements = dsl::parse(script_text)
         .map_err(|e| format!("DSL parse error: {}", e.message))?;
     let raw_results = dsl::run_script(&statements, datasource.as_ref());
-
-    // Serialise results to JSON
-    fn result_to_json(index: usize, r: &StatementResult) -> serde_json::Value {
-        match r {
-            StatementResult::Assert(a) => serde_json::json!({
-                "kind": "assert",
-                "index": index,
-                "label": a.label,
-                "passed": a.passed,
-                "lhs_value": a.lhs_value,
-                "rhs_value": a.rhs_value,
-                "op": a.op,
-            }),
-            StatementResult::Sample(s) => serde_json::json!({
-                "kind": "sample",
-                "index": index,
-                "method": format!("{:?}", s.method),
-                "population_size": s.population_size,
-                "selected_count": s.selected.len(),
-                "selected_indices": s.selected,
-            }),
-            StatementResult::Relation { from, to } => serde_json::json!({
-                "kind": "relation",
-                "index": index,
-                "from": from,
-                "to": to,
-            }),
-            StatementResult::Value(v) => serde_json::json!({
-                "kind": "value",
-                "index": index,
-                "value": v,
-            }),
-            StatementResult::Error(e) => serde_json::json!({
-                "kind": "error",
-                "index": index,
-                "error": e,
-            }),
-            StatementResult::Chart(c) => serde_json::json!({
-                "kind": "chart",
-                "index": index,
-                "label": c.label,
-                "chart_type": c.chart_type,
-                "labels": c.labels,
-                "values": c.values,
-            }),
-            StatementResult::Screen(s) => serde_json::json!({
-                "kind": "screen",
-                "index": index,
-                "title": s.title,
-                "charts": s.charts.iter().map(|c| serde_json::json!({
-                    "label": c.label,
-                    "chart_type": c.chart_type,
-                    "labels": c.labels,
-                    "values": c.values,
-                })).collect::<Vec<_>>(),
-            }),
-            StatementResult::Section(s) => serde_json::json!({
-                "kind": "section",
-                "index": index,
-                "title": s.title,
-                "passed": s.passed,
-                "failed": s.failed,
-                "errors": s.errors,
-                "results": s.results.iter().enumerate().map(|(j, inner)| result_to_json(j, inner)).collect::<Vec<_>>(),
-            }),
-            StatementResult::Schema(tables) => serde_json::json!({
-                "kind": "schema",
-                "index": index,
-                "tables": tables.iter().map(|t| serde_json::json!({
-                    "name": t.name,
-                    "row_count": t.row_count,
-                    "columns": t.columns.iter().map(|c| serde_json::json!({
-                        "name": c.name,
-                        "type": c.col_type,
-                    })).collect::<Vec<_>>(),
-                })).collect::<Vec<_>>(),
-            }),
-        }
-    }
 
     let json_results: Vec<serde_json::Value> = raw_results
         .iter()
@@ -213,7 +193,6 @@ pub fn run_dsl_script_blocking(
         .map(|(i, r)| result_to_json(i, r))
         .collect();
 
-    // Count outcomes
     let passed = json_results
         .iter()
         .filter(|r| r["kind"] == "assert" && r["passed"] == true)
@@ -227,16 +206,34 @@ pub fn run_dsl_script_blocking(
         .filter(|r| r["kind"] == "error")
         .count() as i64;
 
-    let result_json = serde_json::to_string(&json_results)
-        .map_err(|e| format!("Serialise error: {e}"))?;
-    vinrouge::projects::save_test_result(
-        &project_dir,
-        &script_id,
-        &result_json,
-        passed,
-        failed,
-        errors,
-    )?;
+    if let Some(id) = script_id {
+        let result_json = serde_json::to_string(&json_results)
+            .map_err(|e| format!("Serialise error: {e}"))?;
+        vinrouge::projects::save_test_result(
+            project_dir,
+            id,
+            &result_json,
+            passed,
+            failed,
+            errors,
+        )?;
+    }
 
     Ok(json_results)
+}
+
+pub fn run_dsl_script_blocking(
+    script_id: String,
+    project_dir: PathBuf,
+    datasource: Arc<DuckDbDataSource>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let script: vinrouge::projects::DslScript = {
+        let scripts = vinrouge::projects::list_dsl_scripts(&project_dir)?;
+        scripts
+            .into_iter()
+            .find(|s| s.id == script_id)
+            .ok_or_else(|| format!("Script {script_id} not found"))?
+    };
+
+    run_dsl_script_text_blocking(&script.script_text, &project_dir, datasource, Some(&script_id))
 }

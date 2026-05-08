@@ -174,6 +174,10 @@ fn contains_aggregate(expr: &Expr) -> bool {
         Expr::IsNull   { expr, .. }         => contains_aggregate(expr),
         Expr::Like     { expr, .. }         => contains_aggregate(expr),
         Expr::StringFn { expr, .. }         => contains_aggregate(expr),
+        Expr::SubStr   { expr, start, length } => {
+            contains_aggregate(expr) || contains_aggregate(start) || length.as_deref().map(contains_aggregate).unwrap_or(false)
+        }
+        Expr::Concat   { exprs }            => exprs.iter().any(|e| contains_aggregate(e)),
         Expr::DateFn   { expr }             => contains_aggregate(expr),
         Expr::MathFn   { expr, .. }         => contains_aggregate(expr),
         Expr::NullIf   { expr, .. }         => contains_aggregate(expr),
@@ -203,6 +207,12 @@ fn source_col_from_expr(expr: &Expr) -> Option<String> {
         Expr::IsDate    { expr, .. }     => source_col_from_expr(expr),
         Expr::Like      { expr, .. }     => source_col_from_expr(expr),
         Expr::StringFn  { expr, .. }     => source_col_from_expr(expr),
+        Expr::SubStr    { expr, start, length } => {
+            source_col_from_expr(expr)
+                .or_else(|| source_col_from_expr(start))
+                .or_else(|| length.as_deref().and_then(source_col_from_expr))
+        }
+        Expr::Concat    { exprs }        => exprs.iter().find_map(|e| source_col_from_expr(e)),
         Expr::DateFn    { expr }         => source_col_from_expr(expr),
         Expr::MathFn    { expr, .. }     => source_col_from_expr(expr),
         Expr::NullIf    { expr, .. }     => source_col_from_expr(expr),
@@ -237,6 +247,12 @@ fn table_from_expr(expr: &Expr) -> Option<&str> {
         Expr::IsDate      { expr, .. }         => table_from_expr(expr),
         Expr::Like        { expr, .. }         => table_from_expr(expr),
         Expr::StringFn    { expr, .. }         => table_from_expr(expr),
+        Expr::SubStr      { expr, start, length } => {
+            table_from_expr(expr)
+                .or_else(|| table_from_expr(start))
+                .or_else(|| length.as_deref().and_then(table_from_expr))
+        }
+        Expr::Concat      { exprs }            => exprs.iter().find_map(|e| table_from_expr(e)),
         Expr::DateFn      { expr }             => table_from_expr(expr),
         Expr::MathFn      { expr, .. }         => table_from_expr(expr),
         Expr::NullIf      { expr, .. }         => table_from_expr(expr),

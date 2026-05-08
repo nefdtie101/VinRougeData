@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}VinRouge Worker{% endblock %}</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <link rel="stylesheet" href="/assets/worker.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="vr-header">
+    <a class="vr-logo" href="/">VinRouge Worker</a>
+  </header>
+  <main class="vr-main">
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      document.querySelectorAll('[data-option]').forEach(function(el) {
+        var optStr = el.getAttribute('data-option');
+        if (!optStr) return;
+        try {
+          var opt = JSON.parse(optStr.replace(/&quot;/g,'\"').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));
+          var chart = echarts.init(el, 'dark', { renderer: 'canvas' });
+          chart.setOption(opt);
+        } catch(e) {
+          el.textContent = 'Chart error: ' + e.message;
+        }
+      });
+    });
+  </script>
+</body>
+</html>

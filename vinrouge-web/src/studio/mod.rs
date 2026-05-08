@@ -487,6 +487,33 @@ pub fn StudioView() -> impl IntoView {
         }
     };
 
+    // ── Run ALL DSL scripts ───────────────────────────────────────────────────
+    let on_run_all = move |_: web_sys::MouseEvent| {
+        if dsl_running.get() { return; }
+        dsl_running.set(true);
+        dsl_output.set("Saving & running all scripts…".into());
+        // If a script is open, persist its latest text first
+        let save_fut = if let Some(s) = active_script.get() {
+            let code = dsl_get_value();
+            let save_args = serde_json::json!({ "scriptId": s.id, "scriptText": code });
+            Some(tauri_invoke_args::<()>("update_dsl_script", save_args))
+        } else {
+            None
+        };
+        spawn_local(async move {
+            if let Some(f) = save_fut {
+                let _ = f.await;
+            }
+            match tauri_invoke_args::<serde_json::Value>("run_all_dsl_scripts", serde_json::json!({})).await {
+                Ok(v) => dsl_output.set(
+                    serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()),
+                ),
+                Err(e) => dsl_output.set(format!("Error: {e}")),
+            }
+            dsl_running.set(false);
+        });
+    };
+
     // ── AI send ───────────────────────────────────────────────────────────────
     let do_ai_send = move || {
         let q = ai_input.get();
@@ -1095,6 +1122,19 @@ pub fn StudioView() -> impl IntoView {
                                     </svg>
                                     {move || if dsl_running.get() { "Running…" } else { "Run" }}
                                 </button>
+                                <button
+                                    class="ide-run-btn"
+                                    disabled=move || dsl_running.get()
+                                    on:click=on_run_all
+                                    title="Run all scripts in this project"
+                                >
+                                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                        <path d="M2 2l4 4-4 4V2zM7 2l4 4-4 4V2z"
+                                            fill="currentColor" stroke="currentColor"
+                                            stroke-width="0.4" stroke-linejoin="round"/>
+                                    </svg>
+                                    {move || if dsl_running.get() { "Running…" } else { "Run All" }}
+                                </button>
                             </div>
                         </div>
 
@@ -1501,12 +1541,11 @@ pub fn StudioView() -> impl IntoView {
                                             view! {
                                                 <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
                                                     <button
-                                                        class="ide-data-upload-btn"
-                                                        title="Open results in new window for testing"
+                                                        class="ide-popout-btn"
+                                                        title="Open results in new window"
                                                         on:click=move |_| {
                                                             dsl_results::open_results_window_async(results_for_popout.clone());
                                                         }
-                                                        style="padding:4px 10px;font-size:11px;"
                                                     >
                                                         <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                                                             <path d="M5 2H2a1 1 0 00-1 1v7a1 1 0 001 1h7a1 1 0 001-1V7" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>

@@ -36,6 +36,7 @@ pub fn ProjectsView() -> impl IntoView {
     let right_panel: RwSignal<RightPanel> = RwSignal::new(RightPanel::Empty);
     let status: RwSignal<String> = RwSignal::new(String::new());
     let last_created: RwSignal<Option<Project>> = RwSignal::new(None);
+    let vrd_busy: RwSignal<bool> = RwSignal::new(false);
     let search: RwSignal<String> = RwSignal::new(String::new());
 
     // ── Wizard state (3 steps) ────────────────────────────────────────────────
@@ -337,6 +338,70 @@ pub fn ProjectsView() -> impl IntoView {
         });
     };
 
+    // ── Save to current .vrd (Ctrl+S equivalent) ──────────────────────────────
+    let on_save_vrd = move |_: web_sys::MouseEvent| {
+        if vrd_busy.get() { return; }
+        vrd_busy.set(true);
+        spawn_local(async move {
+            status.set("Saving…".to_string());
+            match tauri_invoke::<String>("save_project_vrd").await {
+                Ok(path) => status.set(if path.is_empty() {
+                    "Saved to .vrd".to_string()
+                } else {
+                    format!("Saved → {path}")
+                }),
+                Err(e) => status.set(format!("Save failed: {e}")),
+            }
+            vrd_busy.set(false);
+        });
+    };
+
+    // ── Export active project as .vrd (Save As) ───────────────────────────────
+    let on_export_vrd = move |_: web_sys::MouseEvent| {
+        if vrd_busy.get() { return; }
+        vrd_busy.set(true);
+        spawn_local(async move {
+            status.set("Saving .vrd…".to_string());
+            match tauri_invoke::<String>("export_project_vrd").await {
+                Ok(p) if !p.is_empty() => {
+                    // Update active project's vrd_path so the Save button appears
+                    active_project.update(|ap| {
+                        if let Some(proj) = ap {
+                            proj.vrd_path = Some(p.clone());
+                        }
+                    });
+                    status.set("Saved as .vrd".to_string());
+                }
+                Ok(_)  => status.set(String::new()), // cancelled
+                Err(e) => status.set(format!("Export failed: {e}")),
+            }
+            vrd_busy.set(false);
+        });
+    };
+
+    // ── Open a .vrd file (pick → extract → activate) ──────────────────────────
+    let on_import_vrd = move |_: web_sys::MouseEvent| {
+        if vrd_busy.get() { return; }
+        vrd_busy.set(true);
+        spawn_local(async move {
+            status.set("Opening .vrd…".to_string());
+            match tauri_invoke::<Option<Project>>("pick_and_open_vrd").await {
+                Ok(Some(p)) => {
+                    status.set(format!("Opened \"{}\"", p.name));
+                    active_project.set(Some(p));
+                    right_panel.set(RightPanel::ActiveProject);
+                    refresh_project_data();
+                    if let Ok(list) = tauri_invoke::<Vec<Project>>("list_projects").await {
+                        projects.set(list);
+                    }
+                }
+                Ok(None)   => status.set(String::new()),
+                Err(e)     => status.set(format!("Open failed: {e}")),
+            }
+            vrd_busy.set(false);
+        });
+    };
+
     // ── Chat send ─────────────────────────────────────────────────────────────
     let on_chat_send = move |_: web_sys::MouseEvent| {
         let q = chat_input.get();
@@ -399,11 +464,18 @@ pub fn ProjectsView() -> impl IntoView {
             >
                 <div class="proj-sidebar-header">
                     <span class="proj-sidebar-title">"PROJECTS"</span>
-                    <button class="proj-add-btn" title="New project" on:click=move |_| open_wiz()>
-                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                            <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                        </svg>
-                    </button>
+                    <div style="display:flex;gap:4px">
+                        <button class="proj-add-btn" title="Open .vrd file…" on:click=on_import_vrd>
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M6 1v7M3 5.5l3 3 3-3M1 10h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
+                        <button class="proj-add-btn" title="New project" on:click=move |_| open_wiz()>
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="proj-search-box">
@@ -426,12 +498,13 @@ pub fn ProjectsView() -> impl IntoView {
                         projects.get().into_iter()
                             .filter(|p| q.is_empty() || p.name.to_lowercase().contains(&q))
                             .map(|p| {
-                                let path      = p.path.clone();
-                                let path_del  = p.path.clone();
-                                let name      = p.name.clone();
-                                let date      = p.created_at.get(..10).unwrap_or("").to_string();
-                                let p_id      = p.id.clone();
-                                let p_id_del  = p.id.clone();
+                                let path          = p.path.clone();
+                                let path_del      = p.path.clone();
+                                let path_exp      = p.path.clone();
+                                let name          = p.name.clone();
+                                let date          = p.created_at.get(..10).unwrap_or("").to_string();
+                                let p_id          = p.id.clone();
+                                let p_id_del      = p.id.clone();
                                 view! {
                                     <div
                                         class=move || {
@@ -444,6 +517,32 @@ pub fn ProjectsView() -> impl IntoView {
                                     >
                                         <div class="proj-item-row1">
                                             <span class="proj-item-name">{name}</span>
+                                            <div style="display:flex;gap:2px">
+                                            <button
+                                                class="proj-delete-btn"
+                                                title="Export as .vrd"
+                                                on:click=move |ev| {
+                                                    ev.stop_propagation();
+                                                    // Open this project first, then export
+                                                    let path_e = path_exp.clone();
+                                                    spawn_local(async move {
+                                                        if let Ok(_) = tauri_invoke_args::<Project>(
+                                                            "open_project",
+                                                            serde_json::json!({ "path": path_e }),
+                                                        ).await {
+                                                            status.set("Saving .vrd…".to_string());
+                                                            match tauri_invoke::<()>("export_project_vrd").await {
+                                                                Ok(_)  => status.set("Project exported as .vrd".to_string()),
+                                                                Err(e) => status.set(format!("Export failed: {e}")),
+                                                            }
+                                                        }
+                                                    });
+                                                }
+                                            >
+                                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                                    <path d="M6 8V1M3 5.5l3 3 3-3M1 10h10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+                                                </svg>
+                                            </button>
                                             <button
                                                 class="proj-delete-btn"
                                                 title="Delete project"
@@ -474,6 +573,7 @@ pub fn ProjectsView() -> impl IntoView {
                                                         stroke-linecap="round" stroke-linejoin="round"/>
                                                 </svg>
                                             </button>
+                                            </div> // flex wrapper for action buttons
                                         </div>
                                         <div class="proj-item-meta">{date}</div>
                                     </div>
@@ -972,6 +1072,25 @@ pub fn ProjectsView() -> impl IntoView {
 
                             // ── Step trail ────────────────────────────────────
                             <div class="audit-top-bar">
+                                // Save button — only visible when project has a .vrd source
+                                {move || active_project.get().and_then(|p| p.vrd_path).map(|_| view! {
+                                    <button
+                                        class="proj-add-btn"
+                                        title="Save to .vrd"
+                                        style="margin-right:8px;flex-shrink:0"
+                                        on:click=on_save_vrd
+                                        disabled=move || vrd_busy.get()
+                                    >
+                                        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                                            <path d="M2 2h7l2 2v7a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"
+                                                stroke="currentColor" stroke-width="1.2"/>
+                                            <rect x="4" y="2" width="4" height="3" rx=".5"
+                                                stroke="currentColor" stroke-width="1.2"/>
+                                            <rect x="3" y="7" width="7" height="4" rx=".5"
+                                                stroke="currentColor" stroke-width="1.2"/>
+                                        </svg>
+                                    </button>
+                                })}
                                 <div class="audit-step-trail">
                                     <div class="audit-step-crumb" style="cursor:pointer" on:click=move |_| { audit_ui_step.set(1); }>
                                         <div class=move || { let s = audit_ui_step.get(); if s != 1 { "audit-step-num done" } else { "audit-step-num active" } }>

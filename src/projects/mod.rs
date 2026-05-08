@@ -1,6 +1,7 @@
 pub mod db;
 pub mod ocr;
 pub mod prompts;
+pub mod vrd;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -13,8 +14,15 @@ use uuid::Uuid;
 pub struct Project {
     pub id: String,
     pub name: String,
+    /// Working folder path on disk.  When the project has not yet been
+    /// extracted from a `.vrd`, this equals the `.vrd` file path so that
+    /// `open_project` can detect it and extract automatically.
     pub path: String,
     pub created_at: String,
+    /// Set when the project lives inside a `.vrd` archive.
+    /// `open_project` uses this to re-pack on save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vrd_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +150,7 @@ pub fn create_project(name: &str, parent_dir: &Path) -> Result<Project, String> 
         name: name.to_string(),
         path: project_dir.to_string_lossy().to_string(),
         created_at: Utc::now().to_rfc3339(),
+        vrd_path: None,
     };
 
     global_conn
@@ -167,11 +176,59 @@ pub fn list_projects(home: &Path) -> Result<Vec<Project>, String> {
                 name: row.get(1)?,
                 path: row.get(2)?,
                 created_at: row.get(3)?,
+                vrd_path: None,
             })
         })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
+
+    Ok(projects)
+}
+
+/// Returns all projects visible to the app:
+/// - Projects from the global DB whose working folder exists → shown as-is.
+/// - Projects from the global DB whose folder is **missing** → resolved to
+///   their matching `.vrd` in `~/VinRouge/vrd/` (if one exists), so clicking
+///   them auto-extracts without the user having to do anything.
+/// - `.vrd` files in `~/VinRouge/vrd/` with no DB entry at all → appended.
+pub fn list_projects_with_vrd(home: &Path) -> Result<Vec<Project>, String> {
+    let mut projects = list_projects(home)?;
+
+    // Build an id→vrd map from everything in ~/VinRouge/vrd/
+    let vrd_dir = home.join("vrd");
+    let mut id_to_vrd: std::collections::HashMap<String, Project> =
+        std::collections::HashMap::new();
+    if let Ok(entries) = std::fs::read_dir(&vrd_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("vrd") {
+                continue;
+            }
+            if let Ok(p) = vrd::peek_vrd_project(&path) {
+                id_to_vrd.insert(p.id.clone(), p);
+            }
+        }
+    }
+
+    // Fix stale DB entries: if the working folder is gone, point at the .vrd
+    for p in &mut projects {
+        if !std::path::Path::new(&p.path).exists() {
+            if let Some(vrd_proj) = id_to_vrd.get(&p.id) {
+                p.path = vrd_proj.path.clone();
+                p.vrd_path = vrd_proj.vrd_path.clone();
+            }
+        }
+    }
+
+    // Append .vrd files whose ID isn't in the DB at all
+    let registered_ids: std::collections::HashSet<String> =
+        projects.iter().map(|p| p.id.clone()).collect();
+    for (id, vrd_proj) in id_to_vrd {
+        if !registered_ids.contains(&id) {
+            projects.push(vrd_proj);
+        }
+    }
 
     Ok(projects)
 }
@@ -210,6 +267,7 @@ pub fn load_project(project_path: &Path) -> Result<Project, String> {
                 name: row.get(1)?,
                 path: row.get(2)?,
                 created_at: row.get(3)?,
+                vrd_path: None,
             })
         },
     )

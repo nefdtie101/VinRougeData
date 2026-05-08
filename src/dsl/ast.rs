@@ -119,6 +119,18 @@ pub enum Expr {
         expr: Box<Expr>,
     },
 
+    /// SUBSTR() extraction  e.g.  SUBSTR(table.col, 1, 3)
+    SubStr {
+        expr: Box<Expr>,
+        start: Box<Expr>,
+        length: Option<Box<Expr>>,
+    },
+
+    /// CONCAT() concatenation  e.g.  CONCAT("20", SUBSTR(table.col, 1, 2))
+    Concat {
+        exprs: Vec<Box<Expr>>,
+    },
+
     /// DATE() normalisation  e.g.  DATE(table.col) >= DATE("2024-01-01")
     DateFn {
         expr: Box<Expr>,
@@ -196,12 +208,6 @@ pub enum Expr {
         dimension: Box<Expr>,
     },
 
-    /// SCREEN  e.g.  SCREEN "Dashboard" { CHART bar SUM(a) BY b }
-    Screen {
-        title: String,
-        charts: Vec<ChartDef>,
-    },
-
     /// SECTION  e.g.  SECTION "Reconciliation" { ASSERT ... CHART ... }
     Section {
         title: String,
@@ -210,15 +216,6 @@ pub enum Expr {
 
     /// SCHEMA — prints the names and columns of every imported table
     Schema,
-}
-
-/// Chart definition used inside a SCREEN block.
-#[derive(Debug, PartialEq, Clone)]
-pub struct ChartDef {
-    pub label: Option<String>,
-    pub chart_type: String,
-    pub aggregate: Box<Expr>,
-    pub dimension: Box<Expr>,
 }
 
 /// A top-level statement — either an expression or a named assertion

@@ -1,0 +1,30 @@
+# Isolated workspace — build with: cargo build (from vinrouge-worker/)
+[workspace]
+
+[package]
+name = "vinrouge-worker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vinrouge = { path = ".." }
+
+axum         = "0.7"
+tokio        = { version = "1", features = ["full"] }
+tower-http   = { version = "0.5", features = ["fs", "cors"] }
+
+minijinja    = "2"
+
+serde        = { version = "1.0", features = ["derive"] }
+serde_json   = "1.0"
+anyhow       = "1.0"
+tracing      = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+config       = "0.14"
+toml         = "0.8"
+
+rusqlite     = { version = "0.31", features = ["bundled"] }
+rust_decimal = "1"
+uuid         = { version = "1",    features = ["v4"] }
+chrono       = { version = "0.4",  features = ["serde"] }

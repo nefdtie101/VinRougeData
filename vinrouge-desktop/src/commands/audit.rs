@@ -8,7 +8,7 @@ pub fn save_audit_plan(
     processes_json: String,
     state: State<ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
 
     #[derive(serde::Deserialize)]
     struct ControlDto {
@@ -36,19 +36,11 @@ pub fn save_audit_plan(
     }
     #[derive(serde::Deserialize)]
     struct PlanDto {
-        #[serde(
-            alias = "plan",
-            alias = "audit_plan",
-            alias = "auditPlan",
-            alias = "processList",
-            alias = "process_list",
-            alias = "items"
-        )]
+        #[serde(alias = "plan", alias = "audit_plan", alias = "auditPlan",
+                alias = "processList", alias = "process_list", alias = "items")]
         processes: Vec<ProcessDto>,
     }
 
-    // Normalise the JSON: Ollama sometimes returns a bare array or wraps the
-    // list under a key other than "processes" (e.g. "plan", "audit_plan").
     let plan: PlanDto = {
         if let Ok(p) = serde_json::from_str::<PlanDto>(&processes_json) {
             p
@@ -78,7 +70,7 @@ pub fn save_audit_plan(
                 None => {
                     let preview: String = processes_json.chars().take(500).collect();
                     return Err(format!(
-                        "Invalid plan JSON: could not find a valid processes array. Raw output (first 500 chars): {preview}"
+                        "Invalid plan JSON: could not find a valid processes array. Raw (first 500 chars): {preview}"
                     ));
                 }
             }
@@ -93,7 +85,6 @@ pub fn save_audit_plan(
         }
     };
 
-    // Normalise control_ref values to C-1, C-2, ... across all processes.
     let mut ctrl_counter = 1usize;
     let batch: Vec<(String, String, Vec<(String, String, String, String, String, bool)>)> = plan
         .processes
@@ -102,28 +93,21 @@ pub fn save_audit_plan(
             let controls = p.controls.into_iter().map(|c| {
                 let normalised_ref = format!("C-{}", ctrl_counter);
                 ctrl_counter += 1;
-                (
-                    normalised_ref,
-                    c.control_objective,
-                    c.control_description,
-                    c.test_procedure,
-                    c.risk_level,
-                    c.sop_gap,
-                )
+                (normalised_ref, c.control_objective, c.control_description, c.test_procedure, c.risk_level, c.sop_gap)
             }).collect();
             (p.process_name, p.description, controls)
         })
         .collect();
 
-    vinrouge::projects::replace_audit_plan(&project_dir, &sop_file_id, &batch)
+    vinrouge::projects::replace_audit_plan(&project_dir, &sop_file_id, &batch)?;
+    state.sync_vrd()
 }
 
 #[tauri::command]
 pub fn list_audit_plan(
     state: State<ProjectsState>,
 ) -> Result<Vec<vinrouge::projects::AuditProcessWithControls>, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::list_audit_plan(&project_dir)
+    vinrouge::projects::list_audit_plan(&state.dir()?)
 }
 
 #[tauri::command]
@@ -136,16 +120,13 @@ pub fn add_control(
     risk_level: String,
     state: State<ProjectsState>,
 ) -> Result<vinrouge::projects::Control, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::add_control(
-        &project_dir,
-        &process_id,
-        &control_ref,
-        &control_objective,
-        &control_description,
-        &test_procedure,
-        &risk_level,
-    )
+    let project_dir = state.dir()?;
+    let ctrl = vinrouge::projects::add_control(
+        &project_dir, &process_id, &control_ref,
+        &control_objective, &control_description, &test_procedure, &risk_level,
+    )?;
+    state.sync_vrd()?;
+    Ok(ctrl)
 }
 
 #[tauri::command]
@@ -153,11 +134,11 @@ pub fn delete_control(
     control_id: String,
     state: State<ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::delete_control(&project_dir, &control_id)
+    let project_dir = state.dir()?;
+    vinrouge::projects::delete_control(&project_dir, &control_id)?;
+    state.sync_vrd()
 }
 
-/// Patch a single field on a control row.
 #[tauri::command]
 pub fn update_control_field(
     control_id: String,
@@ -165,11 +146,9 @@ pub fn update_control_field(
     value: String,
     state: State<ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::update_control_field(&project_dir, &control_id, &field, &value)
+    vinrouge::projects::update_control_field(&state.dir()?, &control_id, &field, &value)
 }
 
-/// Patch a single field on a process row.
 #[tauri::command]
 pub fn update_process_field(
     process_id: String,
@@ -177,8 +156,7 @@ pub fn update_process_field(
     value: String,
     state: State<ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::update_process_field(&project_dir, &process_id, &field, &value)
+    vinrouge::projects::update_process_field(&state.dir()?, &process_id, &field, &value)
 }
 
 // ── PBC items ─────────────────────────────────────────────────────────────────
@@ -187,8 +165,7 @@ pub fn update_process_field(
 pub fn list_pbc_groups(
     state: State<ProjectsState>,
 ) -> Result<Vec<vinrouge::projects::PbcGroup>, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::list_pbc_groups(&project_dir)
+    vinrouge::projects::list_pbc_groups(&state.dir()?)
 }
 
 #[tauri::command]
@@ -203,18 +180,13 @@ pub fn save_pbc_item(
     scope_format: String,
     state: State<ProjectsState>,
 ) -> Result<vinrouge::projects::PbcItem, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::save_pbc_item(
-        &project_dir,
-        &control_id,
-        &control_ref,
-        &name,
-        &item_type,
-        table_name.as_deref(),
-        &fields,
-        &purpose,
-        &scope_format,
-    )
+    let project_dir = state.dir()?;
+    let item = vinrouge::projects::save_pbc_item(
+        &project_dir, &control_id, &control_ref, &name, &item_type,
+        table_name.as_deref(), &fields, &purpose, &scope_format,
+    )?;
+    state.sync_vrd()?;
+    Ok(item)
 }
 
 #[tauri::command]
@@ -222,14 +194,16 @@ pub fn delete_pbc_item(
     item_id: String,
     state: State<ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::delete_pbc_item(&project_dir, &item_id)
+    let project_dir = state.dir()?;
+    vinrouge::projects::delete_pbc_item(&project_dir, &item_id)?;
+    state.sync_vrd()
 }
 
 #[tauri::command]
 pub fn clear_pbc_items(state: State<ProjectsState>) -> Result<(), String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::clear_pbc_items(&project_dir)
+    let project_dir = state.dir()?;
+    vinrouge::projects::clear_pbc_items(&project_dir)?;
+    state.sync_vrd()
 }
 
 #[tauri::command]
@@ -243,17 +217,12 @@ pub fn update_pbc_item(
     scope_format: String,
     state: State<ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     vinrouge::projects::update_pbc_item(
-        &project_dir,
-        &item_id,
-        &name,
-        &item_type,
-        table_name.as_deref(),
-        &fields,
-        &purpose,
-        &scope_format,
-    )
+        &project_dir, &item_id, &name, &item_type,
+        table_name.as_deref(), &fields, &purpose, &scope_format,
+    )?;
+    state.sync_vrd()
 }
 
 #[tauri::command]
@@ -262,8 +231,7 @@ pub fn update_pbc_item_fields(
     fields: Vec<String>,
     state: State<ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::update_pbc_item_fields(&project_dir, &item_id, &fields)
+    vinrouge::projects::update_pbc_item_fields(&state.dir()?, &item_id, &fields)
 }
 
 #[tauri::command]
@@ -271,14 +239,12 @@ pub fn toggle_pbc_item_approved(
     item_id: String,
     state: State<ProjectsState>,
 ) -> Result<bool, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::toggle_pbc_item_approved(&project_dir, &item_id)
+    vinrouge::projects::toggle_pbc_item_approved(&state.dir()?, &item_id)
 }
 
 #[tauri::command]
 pub fn get_pbc_list_approved(state: State<ProjectsState>) -> Result<bool, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::get_pbc_list_approved(&project_dir)
+    vinrouge::projects::get_pbc_list_approved(&state.dir()?)
 }
 
 #[tauri::command]
@@ -286,6 +252,5 @@ pub fn set_pbc_list_approved(
     approved: bool,
     state: State<ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
-    vinrouge::projects::set_pbc_list_approved(&project_dir, approved)
+    vinrouge::projects::set_pbc_list_approved(&state.dir()?, approved)
 }

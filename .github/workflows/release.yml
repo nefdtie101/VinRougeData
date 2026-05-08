@@ -100,9 +100,83 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  build-worker:
+    name: Build Worker ${{ matrix.asset_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            artifact_name: vinrouge-worker
+            asset_name: vinrouge-worker-linux-x86_64
+            archive_ext: tar.gz
+
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+            artifact_name: vinrouge-worker.exe
+            asset_name: vinrouge-worker-windows-x86_64
+            archive_ext: zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install OpenSSL dev headers (Linux only)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}-worker
+
+      - name: Build release worker binary
+        working-directory: vinrouge-worker
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: strip vinrouge-worker/target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+
+      - name: Package archive (Linux)
+        if: matrix.archive_ext == 'tar.gz'
+        run: |
+          mkdir -p dist
+          cp vinrouge-worker/target/${{ matrix.target }}/release/${{ matrix.artifact_name }} dist/
+          cp README.md dist/
+          cp LLM_GUIDE.md dist/
+          tar -czf ${{ matrix.asset_name }}.tar.gz -C dist .
+
+      - name: Package archive (Windows)
+        if: matrix.archive_ext == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "vinrouge-worker\target\${{ matrix.target }}\release\${{ matrix.artifact_name }}" dist\
+          Copy-Item README.md dist\
+          Copy-Item LLM_GUIDE.md dist\
+          Compress-Archive -Path dist\* -DestinationPath "${{ matrix.asset_name }}.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}.${{ matrix.archive_ext }}
+          if-no-files-found: error
+          retention-days: 1
+
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build, build-worker]
     runs-on: ubuntu-22.04
     if: success()
 

@@ -98,6 +98,32 @@ impl super::Parser {
         Ok(Expr::StringFn { func, expr: Box::new(expr) })
     }
 
+    pub(super) fn parse_substr(&mut self) -> ParseResult<Expr> {
+        self.advance();
+        self.expect(&Token::LParen)?;
+        let expr = self.parse_expr()?;
+        self.expect(&Token::Comma)?;
+        let start = self.parse_expr()?;
+        let length = if self.eat(&Token::Comma) {
+            Some(Box::new(self.parse_expr()?))
+        } else {
+            None
+        };
+        self.expect(&Token::RParen)?;
+        Ok(Expr::SubStr { expr: Box::new(expr), start: Box::new(start), length })
+    }
+
+    pub(super) fn parse_concat(&mut self) -> ParseResult<Expr> {
+        self.advance();
+        self.expect(&Token::LParen)?;
+        let mut exprs = vec![Box::new(self.parse_expr()?)];
+        while self.eat(&Token::Comma) {
+            exprs.push(Box::new(self.parse_expr()?));
+        }
+        self.expect(&Token::RParen)?;
+        Ok(Expr::Concat { exprs })
+    }
+
     pub(super) fn parse_date_fn(&mut self) -> ParseResult<Expr> {
         self.advance();
         self.expect(&Token::LParen)?;

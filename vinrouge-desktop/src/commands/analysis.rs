@@ -46,10 +46,7 @@ pub async fn pick_analyze_and_save(
     app: AppHandle,
     state: State<'_, ProjectsState>,
 ) -> Result<Option<AnalysisOutput>, String> {
-    let project_dir = {
-        let guard = state.0.lock().unwrap();
-        guard.clone().ok_or("No active project")?
-    };
+    let project_dir = state.dir()?;
 
     let (dialog_tx, dialog_rx) = tokio::sync::oneshot::channel();
     app.dialog()

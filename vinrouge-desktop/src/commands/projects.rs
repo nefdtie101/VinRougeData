@@ -53,14 +53,11 @@ pub async fn pick_project_folder(app: tauri::AppHandle) -> Result<Option<String>
         .ok();
 
     let (tx, rx) = tokio::sync::oneshot::channel();
-
     let mut dialog = app.dialog().file();
     if let Some(dir) = default_dir {
         dialog = dialog.set_directory(dir);
     }
-    dialog.pick_folder(move |fp| {
-        let _ = tx.send(fp);
-    });
+    dialog.pick_folder(move |fp| { let _ = tx.send(fp); });
 
     let picked = rx.await.map_err(|e| e.to_string())?;
     Ok(picked.map(|fp| match fp {
@@ -73,7 +70,7 @@ pub async fn pick_project_folder(app: tauri::AppHandle) -> Result<Option<String>
 pub fn list_projects() -> Result<Vec<vinrouge::projects::Project>, String> {
     let home = vinrouge::projects::vinrouge_home()?;
     std::fs::create_dir_all(&home).map_err(|e| e.to_string())?;
-    vinrouge::projects::list_projects(&home)
+    vinrouge::projects::list_projects_with_vrd(&home)
 }
 
 #[tauri::command]
@@ -86,9 +83,23 @@ pub fn open_project(
     path: String,
     state: State<ProjectsState>,
 ) -> Result<vinrouge::projects::Project, String> {
-    let project_path = PathBuf::from(&path);
-    let project = vinrouge::projects::load_project(&project_path)?;
-    *state.0.lock().unwrap() = Some(project_path);
+    let is_vrd = path.ends_with(".vrd");
+
+    let (project_dir, vrd_file) = if is_vrd {
+        let vrd_path = PathBuf::from(&path);
+        let home = vinrouge::projects::vinrouge_home()?;
+        let parent = home.join("projects");
+        std::fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
+        let extracted = vinrouge::projects::vrd::import_project_vrd(&vrd_path, &parent)?;
+        (PathBuf::from(&extracted.path), Some(vrd_path))
+    } else {
+        (PathBuf::from(&path), None)
+    };
+
+    let mut project = vinrouge::projects::load_project(&project_dir)?;
+    project.vrd_path = vrd_file.as_ref().map(|p| p.to_string_lossy().to_string());
+
+    state.activate(project_dir, vrd_file);
     Ok(project)
 }
 
@@ -96,17 +107,14 @@ pub fn open_project(
 pub fn load_project_details(
     state: State<ProjectsState>,
 ) -> Result<Option<vinrouge::projects::ProjectDetails>, String> {
-    let project_dir = {
-        let guard = state.0.lock().unwrap();
-        guard.clone().ok_or("No active project")?
-    };
-    vinrouge::projects::load_project_details(&project_dir)
+    vinrouge::projects::load_project_details(&state.dir()?)
 }
 
 #[tauri::command]
 pub fn get_active_project(state: State<ProjectsState>) -> Result<Option<String>, String> {
-    let guard = state.0.lock().unwrap();
-    Ok(guard.as_ref().map(|p| p.to_string_lossy().to_string()))
+    Ok(state.get_vrd()
+        .map(|p| p.to_string_lossy().to_string())
+        .or_else(|| state.dir().ok().map(|d| d.to_string_lossy().to_string())))
 }
 
 #[tauri::command]
@@ -115,20 +123,15 @@ pub fn save_ai_message(
     content: String,
     state: State<ProjectsState>,
 ) -> Result<vinrouge::projects::AiMessage, String> {
-    let project_dir = {
-        let guard = state.0.lock().unwrap();
-        guard.clone().ok_or("No active project")?
-    };
-    vinrouge::projects::save_ai_message(&project_dir, &role, &content)
+    let project_dir = state.dir()?;
+    let msg = vinrouge::projects::save_ai_message(&project_dir, &role, &content)?;
+    state.sync_vrd()?;
+    Ok(msg)
 }
 
 #[tauri::command]
 pub fn list_ai_messages(
     state: State<ProjectsState>,
 ) -> Result<Vec<vinrouge::projects::AiMessage>, String> {
-    let project_dir = {
-        let guard = state.0.lock().unwrap();
-        guard.clone().ok_or("No active project")?
-    };
-    vinrouge::projects::list_ai_messages(&project_dir)
+    vinrouge::projects::list_ai_messages(&state.dir()?)
 }

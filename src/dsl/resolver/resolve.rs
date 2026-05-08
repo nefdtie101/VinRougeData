@@ -141,6 +141,16 @@ impl<'s> Resolver<'s> {
 
             Expr::StringFn { expr, .. } => self.check_expr(expr),
 
+            Expr::SubStr { expr, start, length } => {
+                self.check_expr(expr);
+                self.check_expr(start);
+                if let Some(l) = length { self.check_expr(l); }
+            }
+
+            Expr::Concat { exprs } => {
+                for e in exprs { self.check_expr(e); }
+            }
+
             Expr::DateFn { expr } => self.check_expr(expr),
 
             Expr::Case { branches, else_expr } => {
@@ -174,37 +184,8 @@ impl<'s> Resolver<'s> {
                         format!("{aggregate:?}")
                     ));
                 }
-                if !matches!(dimension.as_ref(), Expr::ColumnRef(_)) {
-                    self.errors.push(ResolveError::InvalidChartDimension(
-                        format!("{dimension:?}")
-                    ));
-                }
                 self.check_expr(aggregate);
                 self.check_expr(dimension);
-            }
-
-            Expr::Screen { charts, .. } => {
-                for chart in charts {
-                    if let Some(label) = &chart.label {
-                        // label is just metadata, nothing to resolve
-                        let _ = label;
-                    }
-                    if !VALID_CHART_TYPES.contains(&chart.chart_type.to_lowercase().as_str()) {
-                        self.errors.push(ResolveError::InvalidChartType(chart.chart_type.clone()));
-                    }
-                    if !matches!(chart.aggregate.as_ref(), Expr::Aggregate { .. }) {
-                        self.errors.push(ResolveError::InvalidChartAggregate(
-                            format!("{:?}", chart.aggregate)
-                        ));
-                    }
-                    if !matches!(chart.dimension.as_ref(), Expr::ColumnRef(_)) {
-                        self.errors.push(ResolveError::InvalidChartDimension(
-                            format!("{:?}", chart.dimension)
-                        ));
-                    }
-                    self.check_expr(&chart.aggregate);
-                    self.check_expr(&chart.dimension);
-                }
             }
 
             Expr::Section { statements, .. } => {

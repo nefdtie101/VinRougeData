@@ -117,36 +117,6 @@ fn test_parse_chart_with_label() {
 }
 
 #[test]
-fn test_parse_screen_block() {
-    let stmts = parse(r#"SCREEN "Dashboard" {
-        revenue: CHART bar SUM(invoices.amount) BY invoices.status
-        breakdown: CHART pie COUNT(invoices.id) BY invoices.category
-    }"#).unwrap();
-    assert_eq!(stmts.len(), 1);
-    let Expr::Screen { title, charts } = &stmts[0].expr else { panic!("expected Screen") };
-    assert_eq!(title, "Dashboard");
-    assert_eq!(charts.len(), 2);
-    assert_eq!(charts[0].label.as_deref(), Some("revenue"));
-    assert_eq!(charts[0].chart_type, "bar");
-    assert_eq!(charts[1].label.as_deref(), Some("breakdown"));
-    assert_eq!(charts[1].chart_type, "pie");
-}
-
-#[test]
-fn test_parse_screen_block_with_string_labels() {
-    let stmts = parse(r#"SCREEN "Dashboard" {
-        "Revenue Trend": CHART bar SUM(invoices.amount) BY invoices.status
-        "Category Breakdown": CHART pie COUNT(invoices.id) BY invoices.category
-    }"#).unwrap();
-    assert_eq!(stmts.len(), 1);
-    let Expr::Screen { title, charts } = &stmts[0].expr else { panic!("expected Screen") };
-    assert_eq!(title, "Dashboard");
-    assert_eq!(charts.len(), 2);
-    assert_eq!(charts[0].label.as_deref(), Some("Revenue Trend"));
-    assert_eq!(charts[1].label.as_deref(), Some("Category Breakdown"));
-}
-
-#[test]
 fn test_parse_section_block() {
     let stmts = parse(r#"SECTION "Reconciliation" {
         acb_only: ASSERT SUM(invoices.amount) = 1500
@@ -228,3 +198,20 @@ fn test_decimal_not_confused_with_ident() {
     let Expr::Compare { rhs, .. } = &stmts[0].expr else { panic!("expected Compare") };
     assert!(matches!(rhs.as_ref(), Expr::Number(n) if *n == dec!(13.5)));
 }
+
+
+#[test]
+fn test_parse_substr() {
+    let stmts = parse(r#"SUBSTR(employee.id_number, 1, 2)"#).unwrap();
+    assert_eq!(stmts.len(), 1);
+    assert!(matches!(&stmts[0].expr, Expr::SubStr { .. }));
+}
+
+#[test]
+fn test_parse_concat() {
+    let stmts = parse(r#"CONCAT("20", SUBSTR(employee.id_number, 1, 2))"#).unwrap();
+    assert_eq!(stmts.len(), 1);
+    assert!(matches!(&stmts[0].expr, Expr::Concat { .. }));
+}
+
+

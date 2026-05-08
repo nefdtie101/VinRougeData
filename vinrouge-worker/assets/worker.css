@@ -1,0 +1,141 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  background: #141414;
+  color: #d4c4c8;
+}
+
+/* ── Header ── */
+.vr-header {
+  background: #1c1c2e;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  border-bottom: 0.5px solid #2a2024;
+}
+.vr-logo {
+  color: #e8d5b0;
+  font-weight: 700;
+  font-size: 16px;
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}
+
+/* ── Layout ── */
+.vr-main {
+  display: flex;
+  min-height: calc(100vh - 44px);
+}
+
+/* ── Sidebar ── */
+.vr-sidenav {
+  width: 220px;
+  flex-shrink: 0;
+  background: #1c1c2e;
+  padding: 20px 0;
+  position: sticky;
+  top: 0;
+  height: calc(100vh - 44px);
+  overflow-y: auto;
+  border-right: 0.5px solid #2a2024;
+}
+.vr-sidenav-project { margin-bottom: 20px; }
+.vr-sidenav-project-name {
+  display: block;
+  padding: 4px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7c6fa0;
+}
+.vr-sidenav-link {
+  display: block;
+  padding: 6px 16px 6px 24px;
+  color: #c8c0d8;
+  text-decoration: none;
+  font-size: 13px;
+  border-left: 2px solid transparent;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.vr-sidenav-link:hover {
+  background: rgba(255,255,255,0.06);
+  border-left-color: #e8d5b0;
+  color: #e8d5b0;
+}
+
+/* ── Content area ── */
+.vr-content-area {
+  flex: 1;
+  padding: 32px 28px;
+  min-width: 0;
+}
+
+/* ── Dashboard wrap (individual script view) ── */
+.vr-dashboard-wrap {
+  max-width: 860px;
+  margin: 32px auto;
+  padding: 0 16px;
+}
+
+/* ── Empty state ── */
+.vr-empty-state {
+  padding: 48px 32px;
+  color: #8a6e74;
+}
+
+/* ── Project sections (home) ── */
+.vr-project-section { margin-bottom: 48px; }
+.vr-project-heading {
+  font-size: 16px;
+  font-weight: 700;
+  color: #e8d5b0;
+  border-bottom: 0.5px solid #2a2024;
+  padding-bottom: 10px;
+  margin-bottom: 20px;
+}
+
+/* ── Script panels ── */
+.vr-script-panel {
+  border: 0.5px solid #2a2024;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  background: rgba(19,14,16,0.6);
+}
+.vr-script-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 0.5px solid #2a2024;
+}
+.vr-script-heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: #d4c4c8;
+  margin: 0;
+}
+.vr-script-link {
+  font-size: 11px;
+  color: #7c6fa0;
+  text-decoration: none;
+}
+.vr-script-link:hover { text-decoration: underline; }
+.vr-script-results {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Dashboard header ── */
+.vr-dashboard-header { margin-bottom: 24px; }
+.vr-breadcrumb { color: #8a6e74; font-size: 12px; margin-bottom: 6px; }
+.vr-breadcrumb a { color: #7c6fa0; text-decoration: none; }
+.vr-breadcrumb a:hover { text-decoration: underline; }
+.vr-dashboard-body { display: flex; flex-direction: column; }
+
+h1 { font-size: 20px; font-weight: 700; color: #e8d5b0; margin-bottom: 4px; }

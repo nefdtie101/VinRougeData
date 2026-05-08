@@ -289,26 +289,6 @@ fn test_eval_chart_with_label() {
     assert_eq!(c.label.as_deref(), Some("revenue"));
 }
 
-#[test]
-fn test_eval_screen_with_two_charts() {
-    let ds = ds_invoices();
-    let stmts = parse(r#"SCREEN "Dashboard" {
-        CHART bar SUM(invoices.amount) BY invoices.status
-        CHART pie COUNT(invoices.amount) BY invoices.status
-    }"#).unwrap();
-    let results = run_script(&stmts, &ds);
-    assert_eq!(results.len(), 1);
-    let StatementResult::Screen(s) = &results[0] else { panic!("expected Screen") };
-    assert_eq!(s.title, "Dashboard");
-    assert_eq!(s.charts.len(), 2);
-    assert_eq!(s.charts[0].chart_type, "bar");
-    assert_eq!(s.charts[0].labels, vec!["open", "paid"]);
-    assert_eq!(s.charts[0].values, vec!["600", "900"]);
-    assert_eq!(s.charts[1].chart_type, "pie");
-    assert_eq!(s.charts[1].labels, vec!["open", "paid"]);
-    assert_eq!(s.charts[1].values, vec!["2", "3"]);
-}
-
 // ── section ───────────────────────────────────────────────────────────────
 
 #[test]

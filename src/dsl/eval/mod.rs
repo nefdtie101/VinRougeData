@@ -5,7 +5,10 @@ mod helpers;
 mod result;
 mod sample;
 
-pub use result::{AssertResult, ChartResult, SampleResult, SchemaColumn, SchemaTable, ScreenResult, SectionResult, StatementResult};
+pub use result::{AssertResult, ChartResult, SampleResult, SchemaColumn, SchemaTable, SectionResult, StatementResult};
+
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 use crate::dsl::ast::{self, *};
 use crate::dsl::datasource::EvalDataSource;
@@ -17,11 +20,19 @@ use crate::dsl::value::{EvalError, EvalResult, Row, Value};
 
 pub struct Evaluator<'ds> {
     pub(super) datasource: &'ds dyn EvalDataSource,
+    /// Cache for DUPLICATED frequency maps: cache_key → (row_key → count)
+    duplicated_cache: Mutex<HashMap<String, HashMap<String, usize>>>,
+    /// Cache for IN table.column lookups: "table.column" → set of value strings
+    in_col_cache: Mutex<HashMap<String, std::collections::HashSet<String>>>,
 }
 
 impl<'ds> Evaluator<'ds> {
     pub fn new(datasource: &'ds dyn EvalDataSource) -> Self {
-        Self { datasource }
+        Self {
+            datasource,
+            duplicated_cache: Mutex::new(HashMap::new()),
+            in_col_cache: Mutex::new(HashMap::new()),
+        }
     }
 
     // ── Column resolution ─────────────────────
@@ -162,6 +173,37 @@ impl<'ds> Evaluator<'ds> {
                 }
             }
 
+            Expr::SubStr { expr, start, length } => {
+                let text = self.eval(expr, row)?.as_text();
+                let start_val: i64 = self.eval(start, row)?.as_decimal()?.try_into().unwrap_or(1);
+                let len_val: Option<i64> = match length {
+                    Some(l) => self.eval(l, row)?.as_decimal()?.try_into().ok(),
+                    None => None,
+                };
+                // 1-based indexing, clamp to bounds
+                let start_idx = (start_val.max(1) - 1) as usize;
+                let result = if start_idx >= text.len() {
+                    ""
+                } else {
+                    match len_val {
+                        Some(len) if len > 0 => {
+                            let end_idx = (start_idx + len as usize).min(text.len());
+                            &text[start_idx..end_idx]
+                        }
+                        _ => &text[start_idx..],
+                    }
+                };
+                Ok(Value::Text(result.to_string()))
+            }
+
+            Expr::Concat { exprs } => {
+                let mut result = String::new();
+                for e in exprs {
+                    result.push_str(&self.eval(e, row)?.as_text());
+                }
+                Ok(Value::Text(result))
+            }
+
             Expr::DateFn { expr } => {
                 let text = self.eval(expr, row)?.as_text();
                 Ok(Value::Text(normalize_date(&text)))
@@ -244,31 +286,76 @@ impl<'ds> Evaluator<'ds> {
                     .ok_or_else(|| EvalError::AggregateError(
                         "DUPLICATED requires table.column references".into()
                     ))?;
-                let all_rows = self.datasource.rows(table)?;
 
-                let make_key = |r: &Row| {
-                    exprs.iter().map(|e| {
+                // Build a stable cache key from the column references
+                let cache_key = exprs.iter().map(|e| {
+                    if let Expr::ColumnRef(n) = e.as_ref() { n.clone() } else { String::new() }
+                }).collect::<Vec<_>>().join(",");
+
+                // Check cache first
+                {
+                    let cache = self.duplicated_cache.lock().unwrap();
+                    if let Some(freq_map) = cache.get(&cache_key) {
+                        let current_key = exprs.iter().map(|e| {
+                            if let Expr::ColumnRef(n) = e.as_ref() {
+                                Self::resolve_column(n, row).map(|v| v.to_string()).unwrap_or_default()
+                            } else { String::new() }
+                        }).collect::<Vec<_>>().join("\x00");
+                        let count = freq_map.get(&current_key).copied().unwrap_or(0);
+                        return Ok(Value::Bool(count > 1));
+                    }
+                }
+
+                // Build frequency map once and cache it
+                let all_rows = self.datasource.rows(table)?;
+                let mut freq_map: HashMap<String, usize> = HashMap::new();
+                for r in all_rows {
+                    let key = exprs.iter().map(|e| {
                         if let Expr::ColumnRef(n) = e.as_ref() {
                             Self::resolve_column(n, r).map(|v| v.to_string()).unwrap_or_default()
-                        } else {
-                            String::new()
-                        }
-                    }).collect::<Vec<_>>().join("\x00")
-                };
-                let current_key = make_key(row);
-                let count = all_rows.iter().filter(|r| make_key(r) == current_key).count();
+                        } else { String::new() }
+                    }).collect::<Vec<_>>().join("\x00");
+                    *freq_map.entry(key).or_default() += 1;
+                }
+
+                let current_key = exprs.iter().map(|e| {
+                    if let Expr::ColumnRef(n) = e.as_ref() {
+                        Self::resolve_column(n, row).map(|v| v.to_string()).unwrap_or_default()
+                    } else { String::new() }
+                }).collect::<Vec<_>>().join("\x00");
+                let count = freq_map.get(&current_key).copied().unwrap_or(0);
+
+                self.duplicated_cache.lock().unwrap().insert(cache_key, freq_map);
                 Ok(Value::Bool(count > 1))
             }
 
             Expr::InTableCol { expr, table, column, negated } => {
                 let v = self.eval(expr, row)?;
-                let all_rows = self.datasource.rows(table.as_str())?;
-                let col_lc = column.to_lowercase();
-                let found = all_rows.iter().any(|r| {
-                    let col_val = r.get(&col_lc)
-                        .or_else(|| r.iter().find(|(k, _)| k.eq_ignore_ascii_case(&col_lc)).map(|(_, v)| v));
-                    col_val.map(|cv| Value::sql_eq(&v, cv)).unwrap_or(false)
-                });
+                let cache_key = format!("{}.{}", table, column);
+
+                let in_set = {
+                    let cache = self.in_col_cache.lock().unwrap();
+                    if let Some(set) = cache.get(&cache_key) {
+                        set.clone()
+                    } else {
+                        drop(cache);
+                        let all_rows = self.datasource.rows(table.as_str())?;
+                        let col_lc = column.to_lowercase();
+                        let mut set = std::collections::HashSet::new();
+                        for r in all_rows {
+                            if let Some(val) = r.get(&col_lc)
+                                .or_else(|| r.iter().find(|(k, _)| k.eq_ignore_ascii_case(&col_lc)).map(|(_, v)| v))
+                            {
+                                set.insert(val.to_string());
+                            }
+                        }
+                        let set_clone = set.clone();
+                        self.in_col_cache.lock().unwrap().insert(cache_key, set);
+                        set_clone
+                    }
+                };
+
+                let found = in_set.contains(&v.to_string());
                 Ok(Value::Bool(if *negated { !found } else { found }))
             }
 
@@ -283,8 +370,6 @@ impl<'ds> Evaluator<'ds> {
             Expr::Sample { .. } => Ok(Value::Null),
 
             Expr::Chart { .. } => Ok(Value::Null),
-
-            Expr::Screen { .. } => Ok(Value::Null),
 
             Expr::Section { .. } => Ok(Value::Null),
 
@@ -332,12 +417,6 @@ pub fn run_script(
             Expr::Chart { chart_type, aggregate, dimension } => {
                 match evaluator.eval_chart(chart_type, aggregate, dimension, stmt.label.clone()) {
                     Ok(r)  => StatementResult::Chart(r),
-                    Err(e) => StatementResult::Error(e.to_string()),
-                }
-            }
-            Expr::Screen { title, charts } => {
-                match evaluator.eval_screen(title, charts) {
-                    Ok(r)  => StatementResult::Screen(r),
                     Err(e) => StatementResult::Error(e.to_string()),
                 }
             }

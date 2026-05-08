@@ -894,6 +894,22 @@
 }
 .ide-data-upload-btn:hover { border-color: var(--blue); color: var(--blue); background: rgba(96,165,250,0.08); }
 
+.ide-popout-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid var(--w-border-2);
+  border-radius: var(--radius-sm);
+  color: var(--w-text-3);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  background: none;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.ide-popout-btn:hover { border-color: var(--w-accent); color: var(--w-text-2); background: var(--w-accent-dim); }
+
 .ide-data-close {
   display: flex;
   align-items: center;

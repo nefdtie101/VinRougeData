@@ -30,12 +30,6 @@ pub struct ChartResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScreenResult {
-    pub title: String,
-    pub charts: Vec<ChartResult>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionResult {
     pub title: String,
     pub results: Vec<StatementResult>,
@@ -65,7 +59,7 @@ pub enum StatementResult {
     /// Produced by a RELATION declaration — carries the FK mapping as strings.
     Relation { from: String, to: String },
     Chart(ChartResult),
-    Screen(ScreenResult),
+
     Section(SectionResult),
     Schema(Vec<SchemaTable>),
     Error(String),

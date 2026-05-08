@@ -16,6 +16,8 @@ pub struct Project {
     pub name: String,
     pub path: String,
     pub created_at: String,
+    /// Set when the project lives inside a `.vrd` file.
+    pub vrd_path: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize)]

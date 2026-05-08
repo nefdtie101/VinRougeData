@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
-use crate::dsl::ast::{AggFunc, ChartDef, Expr};
+use crate::dsl::ast::{AggFunc, Expr};
 use crate::dsl::value::{EvalError, EvalResult, Row, Value};
 
 use super::Evaluator;
-use super::result::{ChartResult, ScreenResult};
+use super::result::ChartResult;
 
 impl<'ds> Evaluator<'ds> {
     pub(super) fn eval_chart(
@@ -14,18 +14,16 @@ impl<'ds> Evaluator<'ds> {
         dimension: &Expr,
         label: Option<String>,
     ) -> EvalResult<ChartResult> {
-        // Dimension must be a ColumnRef
         let dim_col = match dimension {
-            Expr::ColumnRef(name) => name,
-            other => return Err(EvalError::AggregateError(
-                format!("chart dimension must be a column reference, got {other:?}")
-            )),
+            Expr::ColumnRef(name) => Some(name.clone()),
+            _ => None,
         };
 
-        let dim_table = dim_col.find('.')
-            .map(|d| &dim_col[..d])
+        let dim_table = dim_col.as_ref()
+            .and_then(|n| n.find('.').map(|d| &n[..d]))
+            .or_else(|| find_table_in_aggregate(aggregate))
             .ok_or_else(|| EvalError::AggregateError(
-                format!("chart dimension must use table.column notation, got '{dim_col}'")
+                "chart dimension must use table.column notation, or the aggregate must reference a table".to_string()
             ))?;
 
         let all_rows = self.datasource.rows(dim_table)?;
@@ -33,9 +31,15 @@ impl<'ds> Evaluator<'ds> {
         // Group rows by dimension value
         let mut groups: BTreeMap<String, Vec<&Row>> = BTreeMap::new();
         for row in all_rows {
-            let dim_val = Self::resolve_column(dim_col, row)
-                .map(|v| v.to_string())
-                .unwrap_or_default();
+            let dim_val = if let Some(ref name) = dim_col {
+                Self::resolve_column(name, row)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default()
+            } else {
+                self.eval(dimension, row)
+                    .map(|v| v.to_string())
+                    .unwrap_or_default()
+            };
             groups.entry(dim_val).or_default().push(row);
         }
 
@@ -54,27 +58,6 @@ impl<'ds> Evaluator<'ds> {
             chart_type: chart_type.to_string(),
             labels,
             values,
-        })
-    }
-
-    pub(super) fn eval_screen(
-        &self,
-        title: &str,
-        charts: &[ChartDef],
-    ) -> EvalResult<ScreenResult> {
-        let mut results = Vec::with_capacity(charts.len());
-        for chart in charts {
-            let result = self.eval_chart(
-                &chart.chart_type,
-                &chart.aggregate,
-                &chart.dimension,
-                chart.label.clone(),
-            )?;
-            results.push(result);
-        }
-        Ok(ScreenResult {
-            title: title.to_string(),
-            charts: results,
         })
     }
 
@@ -161,5 +144,50 @@ impl<'ds> Evaluator<'ds> {
                 Ok(max)
             }
         }
+    }
+}
+
+/// Find the first table prefix inside an aggregate expression or its filter.
+fn find_table_in_aggregate(agg: &Expr) -> Option<&str> {
+    let (expr, filter) = match agg {
+        Expr::Aggregate { expr, filter, .. } => (expr.as_ref(), filter.as_deref()),
+        _ => return None,
+    };
+    find_table_in_expr(expr).or_else(|| filter.and_then(find_table_in_expr))
+}
+
+/// Recursively search for a `table.column` reference in an expression.
+fn find_table_in_expr(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::ColumnRef(name) => name.find('.').map(|d| &name[..d]),
+        Expr::BinOp { lhs, rhs, .. } => find_table_in_expr(lhs).or_else(|| find_table_in_expr(rhs)),
+        Expr::Compare { lhs, rhs, .. } => find_table_in_expr(lhs).or_else(|| find_table_in_expr(rhs)),
+        Expr::Logical { lhs, rhs, .. } => find_table_in_expr(lhs).or_else(|| find_table_in_expr(rhs)),
+        Expr::Not(inner) => find_table_in_expr(inner),
+        Expr::Case { branches, else_expr } => {
+            branches.iter().find_map(|(c, r)| find_table_in_expr(c).or_else(|| find_table_in_expr(r)))
+                .or_else(|| else_expr.as_deref().and_then(find_table_in_expr))
+        }
+        Expr::Coalesce { exprs } => exprs.iter().find_map(|e| find_table_in_expr(e)),
+        Expr::NullIf { expr, compare } => find_table_in_expr(expr).or_else(|| find_table_in_expr(compare)),
+        Expr::MathFn { expr, scale, .. } => find_table_in_expr(expr).or_else(|| scale.as_deref().and_then(find_table_in_expr)),
+        Expr::StringFn { expr, .. } => find_table_in_expr(expr),
+        Expr::SubStr { expr, start, length } => {
+            find_table_in_expr(expr)
+                .or_else(|| find_table_in_expr(start))
+                .or_else(|| length.as_deref().and_then(find_table_in_expr))
+        }
+        Expr::Concat { exprs } => exprs.iter().find_map(|e| find_table_in_expr(e)),
+        Expr::DateFn { expr } => find_table_in_expr(expr),
+        Expr::IsNull { expr, .. } => find_table_in_expr(expr),
+        Expr::IsBlank { expr, .. } => find_table_in_expr(expr),
+        Expr::IsNumeric { expr, .. } => find_table_in_expr(expr),
+        Expr::IsDate { expr, .. } => find_table_in_expr(expr),
+        Expr::SaIdValid { expr } => find_table_in_expr(expr),
+        Expr::Duplicated { exprs } => exprs.iter().find_map(|e| find_table_in_expr(e)),
+        Expr::Like { expr, pattern, .. } => find_table_in_expr(expr).or_else(|| find_table_in_expr(pattern)),
+        Expr::InList { expr, values, .. } => find_table_in_expr(expr).or_else(|| values.iter().find_map(find_table_in_expr)),
+        Expr::Between { expr, low, high, .. } => find_table_in_expr(expr).or_else(|| find_table_in_expr(low)).or_else(|| find_table_in_expr(high)),
+        _ => None,
     }
 }

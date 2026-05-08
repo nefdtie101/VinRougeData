@@ -14,9 +14,6 @@ pub mod settings;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod projects;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub mod tui;
-
 pub use analysis::{RelCandidate, RelationshipDetector, RelationshipScorer, WorkflowDetector};
 pub use export::ExportFormat;
 pub use schema::{Column, DataType, Relationship, Table};

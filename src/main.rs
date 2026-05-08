@@ -17,7 +17,8 @@ use vinrouge::sources::{CsvSource, DataSource, ExcelSource, FlatfileSource, Mssq
 
 #[derive(Parser)]
 #[command(name = "vinrouge")]
-#[command(about = "Interactive data analysis tool for databases and files", long_about = None)]
+#[command(about = "Data analysis tool for databases and files", long_about = None)]
+#[command(arg_required_else_help = true)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -29,8 +30,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Launch interactive TUI mode
-    Interactive,
     /// Analyze data sources and generate reports
     Analyze {
         /// Path to configuration file
@@ -108,6 +107,23 @@ enum Commands {
         #[arg(short, long, default_value = "vinrouge.json")]
         output: PathBuf,
     },
+
+    /// One-time migration: package every existing project as a .vrd file.
+    ///
+    /// Each project in ~/VinRouge/projects/ is zipped into a .vrd archive
+    /// saved alongside it.  The original project folder is then moved into
+    /// ~/VinRouge/_migrated_backup/ so nothing is permanently deleted.
+    ///
+    /// Run this once after upgrading to the .vrd format.
+    MigrateVrd {
+        /// Where to write the .vrd files (defaults to ~/VinRouge/vrd/)
+        #[arg(short, long)]
+        output_dir: Option<PathBuf>,
+
+        /// Delete the original project folders instead of backing them up
+        #[arg(long)]
+        delete_originals: bool,
+    },
 }
 
 #[tokio::main]
@@ -127,13 +143,7 @@ async fn main() -> Result<()> {
         .init();
 
     match cli.command {
-        // If no command specified, launch TUI mode
-        None => {
-            vinrouge::tui::run().await?;
-        }
-        Some(Commands::Interactive) => {
-            vinrouge::tui::run().await?;
-        }
+        None => unreachable!(), // arg_required_else_help = true prevents this
         Some(Commands::Analyze {
             config,
             format,
@@ -182,6 +192,9 @@ async fn main() -> Result<()> {
         }
         Some(Commands::GenerateConfig { output }) => {
             handle_generate_config(output)?;
+        }
+        Some(Commands::MigrateVrd { output_dir, delete_originals }) => {
+            handle_migrate_vrd(output_dir, delete_originals)?;
         }
     }
 
@@ -788,6 +801,16 @@ async fn handle_reconcile(
 
     info!("Reconciliation complete!");
 
+    Ok(())
+}
+
+fn handle_migrate_vrd(output_dir: Option<PathBuf>, delete_originals: bool) -> Result<()> {
+    vinrouge::projects::vrd::migrate_projects_to_vrd(
+        output_dir.as_deref(),
+        delete_originals,
+        |line| println!("{line}"),
+    )
+    .map_err(|e| anyhow::anyhow!(e))?;
     Ok(())
 }
 

@@ -9,7 +9,7 @@ pub async fn export_audit_plan_pdf(
     app: AppHandle,
     state: State<'_, ProjectsState>,
 ) -> Result<bool, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     let processes = vinrouge::projects::list_audit_plan(&project_dir)?;
     let details = vinrouge::projects::load_project_details(&project_dir)?;
 
@@ -41,7 +41,7 @@ pub async fn export_audit_plan_docx(
     app: AppHandle,
     state: State<'_, ProjectsState>,
 ) -> Result<bool, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     let processes = vinrouge::projects::list_audit_plan(&project_dir)?;
     let details = vinrouge::projects::load_project_details(&project_dir)?;
 
@@ -73,7 +73,7 @@ pub async fn export_pbc_pdf(
     app: AppHandle,
     state: State<'_, ProjectsState>,
 ) -> Result<bool, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     let groups = vinrouge::projects::list_pbc_groups(&project_dir)?;
     let details = vinrouge::projects::load_project_details(&project_dir)?;
 
@@ -105,7 +105,7 @@ pub async fn export_pbc_docx(
     app: AppHandle,
     state: State<'_, ProjectsState>,
 ) -> Result<bool, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     let groups = vinrouge::projects::list_pbc_groups(&project_dir)?;
     let details = vinrouge::projects::load_project_details(&project_dir)?;
 

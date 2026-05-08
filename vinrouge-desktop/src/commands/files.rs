@@ -11,7 +11,7 @@ pub async fn pick_and_add_file(
 ) -> Result<Option<vinrouge::projects::ProjectFile>, String> {
     let project_dir = {
         let guard = state.0.lock().unwrap();
-        guard.clone().ok_or("No active project")?
+        guard.as_ref().map(|a| a.dir.clone()).ok_or("No active project")?
     };
 
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -42,7 +42,7 @@ pub fn list_project_files(
 ) -> Result<Vec<vinrouge::projects::ProjectFile>, String> {
     let project_dir = {
         let guard = state.0.lock().unwrap();
-        guard.clone().ok_or("No active project")?
+        guard.as_ref().map(|a| a.dir.clone()).ok_or("No active project")?
     };
     vinrouge::projects::list_project_files(&project_dir)
 }
@@ -52,7 +52,7 @@ pub fn read_project_file(
     file_id: String,
     state: State<ProjectsState>,
 ) -> Result<String, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     vinrouge::projects::read_project_file_text(&project_dir, &file_id)
 }
 
@@ -62,7 +62,7 @@ pub fn add_data_file(
     bytes: Vec<u8>,
     state: State<ProjectsState>,
 ) -> Result<vinrouge::projects::ProjectFile, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     vinrouge::projects::add_file_bytes_to_project(&project_dir, &name, &bytes)
 }
 
@@ -71,7 +71,7 @@ pub fn delete_project_file(
     file_id: String,
     state: State<ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     vinrouge::projects::delete_project_file(&project_dir, &file_id)
 }
 
@@ -81,7 +81,7 @@ pub async fn get_data_file_headers(
     file_id: String,
     state: State<'_, ProjectsState>,
 ) -> Result<Vec<String>, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     let path = vinrouge::projects::get_file_path(&project_dir, &file_id)?;
 
     let (tx, rx) = tokio::sync::oneshot::channel();

@@ -20,7 +20,12 @@
       "Bash(python3 *)",
       "Bash(cargo test *)",
       "Bash(grep -E \"FAILED|ok$|error\\\\[\")",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Read(//Users/johannnefdr/VinRouge/projects/**)",
+      "Bash(sqlite3 ~/VinRouge/vinrouge.db \"SELECT name, path FROM projects;\")",
+      "Bash(./target/debug/vinrouge migrate-vrd *)",
+      "Read(//Users/johannnefdr/VinRouge/vrd/**)",
+      "Read(//Users/johannnefdr/VinRouge/_migrated_backup/**)"
     ]
   }
 }

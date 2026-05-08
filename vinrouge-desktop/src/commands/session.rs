@@ -3,6 +3,7 @@ use crate::session_db::SessionDb;
 use crate::state::{DslCacheState, ProjectsState};
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SessionSchema {
@@ -24,32 +25,36 @@ pub async fn import_data_file(
     state: State<'_, ProjectsState>,
     cache: State<'_, DslCacheState>,
 ) -> Result<String, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir: PathBuf = state.dir()?;
     // Invalidate the DSL datasource cache — new data means it must be rebuilt.
     cache.0.lock().unwrap().datasource = None;
-    tokio::task::spawn_blocking(move || {
-        let path = vinrouge::projects::get_file_path(&project_dir, &file_id)?;
-        let bytes = std::fs::read(&path).map_err(|e| format!("Read error: {e}"))?;
-        let name = path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
-        let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
-        let db = SessionDb::new(&conn);
-
-        match ext.as_str() {
-            "csv" => db.import_csv(Some(&file_id), &name, bytes, &mappings),
-            "xlsx" | "xls" => {
-                db.import_excel(Some(&file_id), &name, bytes, &mappings, sheet.as_deref())
-                    .map(|ids| ids.into_iter().next().unwrap_or_default())
+    let import_id = tokio::task::spawn_blocking({
+        let project_dir = project_dir.clone();
+        move || {
+            let path = vinrouge::projects::get_file_path(&project_dir, &file_id)?;
+            let bytes = std::fs::read(&path).map_err(|e| format!("Read error: {e}"))?;
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
+            let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+            let db = SessionDb::new(&conn);
+            match ext.as_str() {
+                "csv" => db.import_csv(Some(&file_id), &name, bytes, &mappings),
+                "xlsx" | "xls" => {
+                    db.import_excel(Some(&file_id), &name, bytes, &mappings, sheet.as_deref())
+                        .map(|ids| ids.into_iter().next().unwrap_or_default())
+                }
+                _ => Err(format!("Unsupported file type: .{ext}")),
             }
-            _ => Err(format!("Unsupported file type: .{ext}")),
         }
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    state.sync_vrd()?;
+    Ok(import_id)
 }
 
 #[tauri::command]
@@ -58,7 +63,7 @@ pub fn save_column_mappings(
     mappings: Vec<(String, String)>,
     state: State<ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
     let now = chrono::Utc::now().to_rfc3339();
     let json = serde_json::to_string(&mappings).map_err(|e| e.to_string())?;
@@ -76,7 +81,7 @@ pub fn get_column_mappings(
     file_id: String,
     state: State<ProjectsState>,
 ) -> Result<Vec<(String, String)>, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
     let json: Option<String> = conn
         .query_row(
@@ -94,7 +99,7 @@ pub fn get_column_mappings(
 pub fn list_session_imports(
     state: State<ProjectsState>,
 ) -> Result<Vec<crate::session_db::SessionImport>, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
     SessionDb::new(&conn).list_imports()
 }
@@ -104,7 +109,7 @@ pub fn get_session_rows(
     import_id: String,
     state: State<ProjectsState>,
 ) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
     SessionDb::new(&conn).get_rows(&import_id)
 }
@@ -116,7 +121,7 @@ pub async fn get_session_rows_paged(
     limit: usize,
     state: State<'_, ProjectsState>,
 ) -> Result<Vec<std::collections::HashMap<String, String>>, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     tokio::task::spawn_blocking(move || {
         let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
         SessionDb::new(&conn).get_rows_paged(&import_id, offset, limit)
@@ -130,9 +135,10 @@ pub fn delete_session_import(
     import_id: String,
     state: State<ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
-    SessionDb::new(&conn).delete_import(&import_id)
+    SessionDb::new(&conn).delete_import(&import_id)?;
+    state.sync_vrd()
 }
 
 /// Return one SessionSchema per import.
@@ -140,7 +146,7 @@ pub fn delete_session_import(
 pub async fn get_session_schemas(
     state: State<'_, ProjectsState>,
 ) -> Result<Vec<SessionSchema>, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     tokio::task::spawn_blocking(move || {
         let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
         let db = SessionDb::new(&conn);
@@ -182,7 +188,7 @@ pub async fn get_session_schemas(
 pub async fn detect_data_relationships(
     state: State<'_, ProjectsState>,
 ) -> Result<Vec<vinrouge::RelCandidate>, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     tokio::task::spawn_blocking(move || {
         let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
         let db = SessionDb::new(&conn);
@@ -250,7 +256,7 @@ pub async fn get_column_distribution(
     table_col: String,
     state: State<'_, ProjectsState>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let project_dir = state.0.lock().unwrap().clone().ok_or("No active project")?;
+    let project_dir = state.dir()?;
     tokio::task::spawn_blocking(move || {
         let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
         let db = SessionDb::new(&conn);

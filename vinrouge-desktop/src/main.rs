@@ -74,6 +74,7 @@ fn main() {
             list_dsl_scripts,
             clear_dsl_scripts,
             run_dsl_script,
+            run_all_dsl_scripts,
             invalidate_dsl_cache,
             list_test_results,
             get_column_distribution,
@@ -86,6 +87,10 @@ fn main() {
             save_settings,
             open_settings_window,
             close_settings_window,
+            export_project_vrd,
+            import_project_vrd,
+            save_project_vrd,
+            pick_and_open_vrd,
         ])
         .setup(|app| {
             // Auto-start Ollama when the desktop app launches.

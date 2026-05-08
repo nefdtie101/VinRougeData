@@ -17,9 +17,6 @@ impl super::Parser {
         if self.peek() == &Token::Chart {
             return self.parse_chart();
         }
-        if self.peek() == &Token::Screen {
-            return self.parse_screen();
-        }
         if self.peek() == &Token::Section {
             return self.parse_section();
         }
@@ -202,6 +199,8 @@ impl super::Parser {
             Token::Lower  => self.parse_string_fn(ast::StringFunc::Lower),
             Token::Trim   => self.parse_string_fn(ast::StringFunc::Trim),
             Token::Length => self.parse_string_fn(ast::StringFunc::Length),
+            Token::SubStr => self.parse_substr(),
+            Token::Concat => self.parse_concat(),
             Token::Date   => self.parse_date_fn(),
             Token::Case   => self.parse_case(),
 
@@ -232,7 +231,7 @@ impl super::Parser {
                     return Err(ParseError::new(pos, format!(
                         "unknown function '{name}' — supported: \
                          SUM COUNT AVG MIN MAX COUNTIF SUMIF  \
-                         UPPER LOWER TRIM LENGTH DATE  \
+                         UPPER LOWER TRIM LENGTH SUBSTR CONCAT DATE  \
                          COALESCE NULLIF IIF ABS ROUND CASE  \
                          IS_BLANK IS_NUMERIC IS_DATE DUPLICATED SA_ID_VALID"
                     )));

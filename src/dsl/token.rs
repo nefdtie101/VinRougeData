@@ -34,6 +34,8 @@ pub enum Token {
     Lower,      // LOWER() string function
     Trim,       // TRIM() string function
     Length,     // LENGTH() string function
+    SubStr,     // SUBSTR() string extraction
+    Concat,     // CONCAT() string concatenation
     Date,       // DATE() normalization function
     Case,       // CASE expression
     When,       // WHEN clause
@@ -55,7 +57,6 @@ pub enum Token {
     SaIdValid,  // SA_ID_VALID(col) — true when value is a valid SA ID number (Luhn)
     Arrow,      // -> operator (used in RELATION a.col -> b.col)
     Chart,      // CHART keyword
-    Screen,     // SCREEN keyword
     Section,    // SECTION keyword
     By,         // BY keyword (grouping in charts)
     Schema,     // SCHEMA — prints all imported table schemas

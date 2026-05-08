@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}{{ script_label }} — {{ project_name }}{% endblock %}
+
+{% block content %}
+<div class="vr-dashboard-wrap">
+  <div class="vr-dashboard-header">
+    <div class="vr-breadcrumb"><a href="/">← Dashboard</a> / {{ project_name }}</div>
+    <h1>{{ script_label }}</h1>
+  </div>
+  <div class="vr-dashboard-body">
+    {{ content_html }}
+  </div>
+</div>
+{% endblock %}
