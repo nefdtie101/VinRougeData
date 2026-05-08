@@ -1,20 +1,22 @@
-name: Release
+name: Worker
 
 on:
   push:
+    branches:
+      - master
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
-
-permissions:
-  contents: write
+      - 'v*'
+  pull_request:
+    branches:
+      - master
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
-  build:
-    name: Build ${{ matrix.asset_name }}
+  build-cli:
+    name: CLI ${{ matrix.asset_name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -45,24 +47,19 @@ jobs:
             archive_ext: zip
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # tiberius uses native-tls -> openssl on Linux.
-      # macOS uses security-framework and Windows uses schannel — no extra setup needed there.
-      - name: Install OpenSSL dev headers (Linux only)
+      - name: Install OpenSSL dev headers (Linux)
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y pkg-config libssl-dev
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Cache Cargo build artifacts
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
 
@@ -92,8 +89,7 @@ jobs:
           Copy-Item LLM_GUIDE.md dist\
           Compress-Archive -Path dist\* -DestinationPath "${{ matrix.asset_name }}.zip"
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
           path: ${{ matrix.asset_name }}.${{ matrix.archive_ext }}
@@ -101,7 +97,7 @@ jobs:
           retention-days: 1
 
   build-worker:
-    name: Build Worker ${{ matrix.asset_name }}
+    name: Worker ${{ matrix.asset_name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -120,22 +116,19 @@ jobs:
             archive_ext: zip
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install OpenSSL dev headers (Linux only)
+      - name: Install OpenSSL dev headers (Linux)
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y pkg-config libssl-dev
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
-      - name: Cache Cargo build artifacts
-        uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}-worker
 
@@ -166,8 +159,7 @@ jobs:
           Copy-Item LLM_GUIDE.md dist\
           Compress-Archive -Path dist\* -DestinationPath "${{ matrix.asset_name }}.zip"
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset_name }}
           path: ${{ matrix.asset_name }}.${{ matrix.archive_ext }}
@@ -175,21 +167,22 @@ jobs:
           retention-days: 1
 
   release:
-    name: Create GitHub Release
-    needs: [build, build-worker]
+    name: Publish Release
+    needs: [build-cli, build-worker]
     runs-on: ubuntu-22.04
-    if: success()
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/master')
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Create GitHub Release and upload assets
+      - name: Create GitHub Release (tag)
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           name: VinRougeData ${{ github.ref_name }}
@@ -200,3 +193,24 @@ jobs:
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
           fail_on_unmatched_files: true
+
+      - name: Compute build tag (master)
+        if: github.ref == 'refs/heads/master'
+        id: build_tag
+        run: echo "tag=build-$(date +%Y%m%d)-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Create dev build release (master)
+        if: github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.build_tag.outputs.tag }}
+          name: "Dev build ${{ steps.build_tag.outputs.tag }}"
+          prerelease: true
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+          body: |
+            Automated build from the latest commit on `master`.
+
+            **Commit:** ${{ github.sha }}
+            **Run:** #${{ github.run_number }}

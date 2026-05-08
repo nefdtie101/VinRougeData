@@ -1,4 +1,4 @@
-name: Build Desktop App
+name: Desktop
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.platform }}
+    name: ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -26,10 +26,12 @@ jobs:
             os: ubuntu-22.04
             tauri_triple: x86_64-unknown-linux-gnu
             ollama_url: https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tar.zst
+
           - platform: macos-aarch64
             os: macos-latest
             tauri_triple: aarch64-apple-darwin
             ollama_url: https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz
+
           - platform: windows-x86_64
             os: windows-latest
             tauri_triple: x86_64-pc-windows-msvc
@@ -38,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Linux system dependencies (webkit2gtk, etc.)
+      - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update -q
@@ -48,8 +50,7 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
@@ -57,7 +58,7 @@ jobs:
         with:
           workspaces: vinrouge-desktop -> target
 
-      - name: Install trunk (for building the Leptos frontend)
+      - name: Install trunk
         uses: jetli/trunk-action@v0.5.0
         with:
           version: "v0.21.7"
@@ -65,7 +66,7 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
 
-      - name: Download and extract Ollama binary (Linux)
+      - name: Download Ollama binary (Linux)
         if: matrix.os == 'ubuntu-22.04'
         run: |
           mkdir -p vinrouge-desktop/binaries
@@ -75,7 +76,7 @@ jobs:
             | xargs -I{} cp {} vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
           chmod +x vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
 
-      - name: Download and extract Ollama binary (macOS)
+      - name: Download Ollama binary (macOS)
         if: matrix.os == 'macos-latest'
         run: |
           mkdir -p vinrouge-desktop/binaries
@@ -85,7 +86,7 @@ jobs:
             | xargs -I{} cp {} vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
           chmod +x vinrouge-desktop/binaries/ollama-${{ matrix.tauri_triple }}
 
-      - name: Download and extract Ollama binary (Windows)
+      - name: Download Ollama binary (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
@@ -94,17 +95,12 @@ jobs:
           Expand-Archive -Path ollama.zip -DestinationPath tmp_ollama -Force
           $bin = Get-ChildItem -Path tmp_ollama -Filter "ollama.exe" -Recurse | Select-Object -First 1
           Copy-Item $bin.FullName "vinrouge-desktop\binaries\ollama-${{ matrix.tauri_triple }}.exe"
-          # Copy lib/ollama/ in full: ggml-base.dll lives at the top level and is required
-          # for ggml-cuda.dll (inside cuda_v12/) to load. Skipping it silently disables GPU.
-          # We skip ROCm and other runners to keep the ZIP size down.
           $ollamaLib = Join-Path $bin.DirectoryName "lib\ollama"
           if (Test-Path $ollamaLib) {
             $dest = "vinrouge-desktop\binaries\lib\ollama"
             New-Item -ItemType Directory -Force -Path $dest | Out-Null
-            # Top-level DLLs (ggml-base.dll, ggml-cpu-*.dll, etc.)
             Get-ChildItem -Path $ollamaLib -Filter "*.dll" |
               ForEach-Object { Copy-Item $_.FullName $dest }
-            # cuda_v12 runner (skip rocm to avoid inflating the ZIP)
             $cudaDir = Join-Path $ollamaLib "cuda_v12"
             if (Test-Path $cudaDir) {
               Copy-Item -Recurse -Force $cudaDir "$dest\cuda_v12"
@@ -115,7 +111,6 @@ jobs:
             Write-Warning "lib\ollama not found in Ollama archive"
           }
 
-
       - name: Build Leptos frontend
         working-directory: vinrouge-web
         run: trunk build --release --public-url ./
@@ -124,13 +119,11 @@ jobs:
         working-directory: vinrouge-desktop
         run: cargo tauri icon icons/icon.png
 
-      # macOS + Linux: normal Tauri bundle (DMG / deb / AppImage)
       - name: Build desktop app (macOS / Linux)
         if: matrix.os != 'windows-latest'
         working-directory: vinrouge-desktop
         run: cargo tauri build
 
-      # Windows: build the exe only, then package + stub installer manually
       - name: Build desktop app (Windows)
         if: matrix.os == 'windows-latest'
         working-directory: vinrouge-desktop
@@ -142,16 +135,11 @@ jobs:
         run: |
           $stage = "vinrouge-stage"
           New-Item -ItemType Directory -Force -Path $stage
-
-          # App binary
           Copy-Item "vinrouge-desktop\target\release\vinrouge-desktop.exe" "$stage\"
-
-          # Ollama + CUDA runner
           Copy-Item "vinrouge-desktop\binaries\ollama-${{ matrix.tauri_triple }}.exe" "$stage\ollama.exe"
           if (Test-Path "vinrouge-desktop\binaries\lib") {
             Copy-Item -Recurse "vinrouge-desktop\binaries\lib" "$stage\"
           }
-
           Compress-Archive -Path "$stage\*" -DestinationPath "VinRouge-windows-x64.zip" -Force
           Write-Host "ZIP size: $([math]::Round((Get-Item VinRouge-windows-x64.zip).Length / 1MB, 1)) MB"
 
@@ -188,11 +176,6 @@ jobs:
             vinrouge-desktop/target/release/bundle/appimage/*.AppImage
           if-no-files-found: warn
 
-      - name: List Windows build outputs
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: Get-ChildItem -Path . -Filter "VinRouge*" | Select-Object Name, Length
-
       - name: Upload Windows artifacts
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
@@ -204,10 +187,10 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Publish GitHub Release
+    name: Publish Release
     needs: build
+    runs-on: ubuntu-22.04
     if: github.event_name == 'push'
-    runs-on: ubuntu-latest
     permissions:
       contents: write
 
@@ -220,14 +203,13 @@ jobs:
           VERSION=$(grep '^version' vinrouge-desktop/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Force-update 'latest' tag to current commit
+      - name: Force-update 'latest' tag (master)
         if: "!startsWith(github.ref, 'refs/tags/')"
         run: |
           git tag -f latest
           git push origin -f latest
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
 

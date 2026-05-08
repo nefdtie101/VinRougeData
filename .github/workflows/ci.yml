@@ -18,7 +18,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # tiberius uses native-tls -> openssl on Linux
       - name: Install OpenSSL dev headers
         run: |
           sudo apt-get update -q
