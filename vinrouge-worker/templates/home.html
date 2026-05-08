@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — VinRouge Worker{% endblock %}
+
+{% block content %}
+{% if sections | length == 0 %}
+  <div class="vr-empty-state">
+    <p>No .vrd files found in the data directory. Drop .vrd files there and restart the worker.</p>
+  </div>
+{% else %}
+
+<nav class="vr-sidenav">
+  {% for section in sections %}
+  <div class="vr-sidenav-project">
+    <span class="vr-sidenav-project-name">{{ section.project_name }}</span>
+    {% for script in section.scripts %}
+    <a class="vr-sidenav-link" href="#script-{{ section.project_id }}-{{ script.script_id }}">
+      {{ script.label }}
+    </a>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</nav>
+
+<div class="vr-content-area">
+  {% for section in sections %}
+  <section class="vr-project-section">
+    <h2 class="vr-project-heading">{{ section.project_name }}</h2>
+
+    {% for script in section.scripts %}
+    <div class="vr-script-panel" id="script-{{ section.project_id }}-{{ script.script_id }}">
+      <div class="vr-script-header">
+        <h3 class="vr-script-heading">{{ script.label }}</h3>
+        <a class="vr-script-link" href="/projects/{{ section.project_id }}/scripts/{{ script.script_id }}/dashboard">
+          open full view
+        </a>
+      </div>
+      <div class="vr-script-results">
+        {{ script.content_html }}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</div>
+
+{% endif %}
+{% endblock %}
