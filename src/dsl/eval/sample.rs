@@ -2,7 +2,7 @@ use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 
 use crate::dsl::ast::{Expr, SampleMethod, SampleSize};
-use crate::dsl::value::{EvalError, EvalResult, Row, Value};
+use crate::dsl::value::{EvalError, EvalResult, Row};
 
 use super::result::SampleResult;
 use super::Evaluator;

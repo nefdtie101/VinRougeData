@@ -287,7 +287,7 @@ if exist "{}" goto retry
 
         let tmp = tempfile::Builder::new()
             .suffix(".bat")
-            .temp_file()
+            .tempfile()
             .context("failed to create cleanup bat")?;
         std::fs::write(tmp.path(), cleanup_script)?;
 

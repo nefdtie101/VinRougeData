@@ -5,9 +5,6 @@ use calamine::{open_workbook_from_rs, Data, Reader, Xlsx};
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 
-#[cfg(not(target_arch = "wasm32"))]
-use calamine::open_workbook;
-
 pub struct ExcelSource {
     inner: ExcelSourceInner,
     sheet_name: Option<String>,

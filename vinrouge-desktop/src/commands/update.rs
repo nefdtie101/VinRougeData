@@ -3,6 +3,8 @@ use serde::Serialize;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 const GITHUB_API_LATEST: &str = "https://api.github.com/repos/Johannnefdt/VinRouge/releases/latest";
 const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));

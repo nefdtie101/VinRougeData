@@ -1,4 +1,4 @@
-use portable_pty::{CommandBuilder, PtySize, PtySystem};
+use portable_pty::{CommandBuilder, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::SocketAddr;

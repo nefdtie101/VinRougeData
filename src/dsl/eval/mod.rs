@@ -264,7 +264,6 @@ impl<'ds> Evaluator<'ds> {
 
             Expr::MathFn { func, expr, scale } => {
                 use crate::dsl::ast::MathFunc;
-                use rust_decimal::Decimal;
                 let v = self.eval(expr, row)?.as_decimal()?;
                 match func {
                     MathFunc::Abs => Ok(Value::Decimal(v.abs())),

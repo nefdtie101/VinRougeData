@@ -62,7 +62,7 @@ pub fn generate_pdf(
     let mut cur_layer = doc.get_page(p0).get_layer(l0);
     let mut y: f32 = top;
 
-    let mut new_page = || -> PdfLayerReference {
+    let new_page = || -> PdfLayerReference {
         let (np, nl) = doc.add_page(Mm(W), Mm(H), "Layer 1");
         doc.get_page(np).get_layer(nl)
     };
