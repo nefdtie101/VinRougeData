@@ -81,6 +81,69 @@ pub async fn tauri_invoke<T: for<'de> serde::Deserialize<'de>>(cmd: &str) -> Res
     serde_json::from_str::<T>(&json).map_err(|e| format!("deserialize: {e}"))
 }
 
+/// Listen for any named Tauri event.
+pub async fn tauri_listen_event(
+    event: &'static str,
+    on_event: impl Fn() + 'static,
+) -> Result<(), String> {
+    let window = web_sys::window().ok_or("no window")?;
+    let tauri = js_sys::Reflect::get(&window, &JsValue::from_str("__TAURI__"))
+        .map_err(|_| "no __TAURI__")?;
+    let event_obj = js_sys::Reflect::get(&tauri, &JsValue::from_str("event"))
+        .map_err(|_| "no __TAURI__.event")?;
+    let listen_fn: js_sys::Function =
+        js_sys::Reflect::get(&event_obj, &JsValue::from_str("listen"))
+            .map_err(|_| "no listen")?
+            .dyn_into()
+            .map_err(|_| "listen not a function")?;
+
+    let cb = Closure::wrap(Box::new(move |_event: JsValue| {
+        on_event();
+    }) as Box<dyn Fn(JsValue)>);
+
+    listen_fn
+        .call2(&JsValue::UNDEFINED, &JsValue::from_str(event), cb.as_ref().unchecked_ref())
+        .map_err(|e| format!("listen call failed: {e:?}"))?;
+
+    cb.forget();
+    Ok(())
+}
+
+/// Like [`tauri_listen_event`] but passes the deserialized JSON payload to the callback.
+pub async fn tauri_listen_event_payload(
+    event: &'static str,
+    on_event: impl Fn(serde_json::Value) + 'static,
+) -> Result<(), String> {
+    let window = web_sys::window().ok_or("no window")?;
+    let tauri = js_sys::Reflect::get(&window, &JsValue::from_str("__TAURI__"))
+        .map_err(|_| "no __TAURI__")?;
+    let event_obj = js_sys::Reflect::get(&tauri, &JsValue::from_str("event"))
+        .map_err(|_| "no __TAURI__.event")?;
+    let listen_fn: js_sys::Function =
+        js_sys::Reflect::get(&event_obj, &JsValue::from_str("listen"))
+            .map_err(|_| "no listen")?
+            .dyn_into()
+            .map_err(|_| "listen not a function")?;
+
+    let cb = Closure::wrap(Box::new(move |ev: JsValue| {
+        let payload = js_sys::Reflect::get(&ev, &JsValue::from_str("payload"))
+            .unwrap_or(JsValue::NULL);
+        let json: serde_json::Value = js_sys::JSON::stringify(&payload)
+            .ok()
+            .and_then(|s| s.as_string())
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(serde_json::Value::Null);
+        on_event(json);
+    }) as Box<dyn Fn(JsValue)>);
+
+    listen_fn
+        .call2(&JsValue::UNDEFINED, &JsValue::from_str(event), cb.as_ref().unchecked_ref())
+        .map_err(|e| format!("listen call failed: {e:?}"))?;
+
+    cb.forget();
+    Ok(())
+}
+
 /// Listen for the `settings-saved` event emitted by the native settings window.
 pub async fn tauri_listen_settings_changed(
     on_changed: impl Fn() + 'static,

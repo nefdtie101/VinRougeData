@@ -12,6 +12,8 @@
     <link data-trunk rel="css" href="assets/steps.css" />
     <link data-trunk rel="css" href="assets/studio.css" />
     <link data-trunk rel="css" href="assets/data-grid.css" />
+    <!-- xterm.js -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5/css/xterm.css" />
     <!-- CodeMirror 5 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css" />
@@ -26,7 +28,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/sql-hint.min.js"></script>
+    <!-- xterm.js + fit addon (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8/lib/xterm-addon-fit.js"></script>
     <!-- Local bridges (data-trunk so Trunk copies them to dist) -->
+    <script data-trunk src="assets/pty-bridge.js"></script>
     <script data-trunk src="assets/charts-bridge.js"></script>
     <script data-trunk src="assets/dsl-editor.js"></script>
     <!-- Settings window page -->

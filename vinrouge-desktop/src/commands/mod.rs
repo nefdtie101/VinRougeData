@@ -9,6 +9,7 @@ pub mod ollama;
 pub mod projects;
 pub mod settings;
 pub mod session;
+pub mod terminal;
 pub mod vrd;
 
 pub use analysis::*;
@@ -22,4 +23,5 @@ pub use ollama::*;
 pub use projects::*;
 pub use settings::*;
 pub use session::*;
+pub use terminal::*;
 pub use vrd::*;

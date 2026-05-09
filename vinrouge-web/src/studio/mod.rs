@@ -5,7 +5,7 @@ use crate::components::data_grid::open_data_window;
 use crate::file_analysis::{analyze_bytes, read_file_bytes};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
 use crate::ollama::ask_ai;
-use crate::storage::sync_settings_from_tauri;
+use crate::storage::{AiProvider, AppSettings, sync_settings_from_tauri};
 use vinrouge::audit_prompts::DSL_LANGUAGE_REFERENCE;
 use crate::types::{DslScript, Project, ProjectFile, SessionSchema};
 use leptos::prelude::*;
@@ -127,8 +127,17 @@ pub fn StudioView() -> impl IntoView {
     let dsl_running: RwSignal<bool> = RwSignal::new(false);
     let script_label: RwSignal<String> = RwSignal::new(String::new());
 
-    // ── Bottom panel tab ──────────────────────────────────────────────────────
+    // ── Bottom panel tab + resize ─────────────────────────────────────────────
     let bottom_tab: RwSignal<&'static str> = RwSignal::new("output");
+    // (start_client_y, start_panel_height)
+    let bottom_drag: RwSignal<Option<(f64, f64)>> = RwSignal::new(None);
+    let bottom_height: RwSignal<f64> = RwSignal::new(220.0);
+
+    // ── DSL run phase ("" | "loading" | "running") ────────────────────────────
+    // "loading" = building DuckDB cache from SQLite (slow, first run only)
+    // "running" = executing the DSL script (usually fast)
+    let dsl_phase: RwSignal<String> = RwSignal::new(String::new());
+    let dsl_phase_label: RwSignal<String> = RwSignal::new(String::new());
 
     // ── AI assistant state ────────────────────────────────────────────────────
     #[derive(Clone)]
@@ -279,6 +288,67 @@ pub fn StudioView() -> impl IntoView {
             }).await;
         });
     }
+
+    // ── Listen for script updates from the terminal API server ───────────────
+    if crate::ipc::is_tauri() {
+        spawn_local(async move {
+            let _ = crate::ipc::tauri_listen_event("scripts-changed", move || {
+                spawn_local(async move {
+                    if let Ok(list) = tauri_invoke::<Vec<DslScript>>("list_dsl_scripts").await {
+                        scripts.set(list);
+                    }
+                });
+            }).await;
+        });
+    }
+
+    // ── Listen for run-phase events emitted by the backend ───────────────────
+    if crate::ipc::is_tauri() {
+        spawn_local(async move {
+            let _ = crate::ipc::tauri_listen_event_payload("dsl-status", move |payload| {
+                match payload["phase"].as_str().unwrap_or("") {
+                    "loading" => {
+                        dsl_phase.set("loading".into());
+                        dsl_phase_label.set("Loading data into engine…".into());
+                    }
+                    "running" => {
+                        dsl_phase.set("running".into());
+                        let label = payload["label"].as_str().unwrap_or("");
+                        let n     = payload["n"].as_u64();
+                        let total = payload["total"].as_u64();
+                        let msg = match (n, total) {
+                            (Some(n), Some(t)) if !label.is_empty() =>
+                                format!("Running {n}/{t}: {label}"),
+                            (Some(n), Some(t)) =>
+                                format!("Running script {n}/{t}…"),
+                            _ if !label.is_empty() =>
+                                format!("Running: {label}"),
+                            _ => "Running…".into(),
+                        };
+                        dsl_phase_label.set(msg);
+                    }
+                    _ => {
+                        dsl_phase.set(String::new());
+                        dsl_phase_label.set(String::new());
+                    }
+                }
+            }).await;
+        });
+    }
+
+    // ── Keep .vinrouge/scripts.json in sync with the live scripts signal ─────
+    Effect::new(move |_| {
+        let list = scripts.get();
+        if !crate::ipc::is_tauri() { return; }
+        if let Ok(json) = serde_json::to_string(&list) {
+            spawn_local(async move {
+                let _ = tauri_invoke_args::<()>(
+                    "pty_update_scripts",
+                    serde_json::json!({ "scriptsJson": json }),
+                ).await;
+            });
+        }
+    });
 
     // ── Load scripts for active project ───────────────────────────────────────
     let load_scripts = move || {
@@ -471,7 +541,8 @@ pub fn StudioView() -> impl IntoView {
             let code = dsl_get_value();
             let save_args = serde_json::json!({ "scriptId": s.id.clone(), "scriptText": code });
             dsl_running.set(true);
-            dsl_output.set("Saving & running…".into());
+            dsl_output.set("saving".into());
+            bottom_tab.set("output");
             let script_id = s.id.clone();
             spawn_local(async move {
                 let _ = tauri_invoke_args::<()>("update_dsl_script", save_args).await;
@@ -491,7 +562,8 @@ pub fn StudioView() -> impl IntoView {
     let on_run_all = move |_: web_sys::MouseEvent| {
         if dsl_running.get() { return; }
         dsl_running.set(true);
-        dsl_output.set("Saving & running all scripts…".into());
+        dsl_output.set("saving".into());
+        bottom_tab.set("output");
         // If a script is open, persist its latest text first
         let save_fut = if let Some(s) = active_script.get() {
             let code = dsl_get_value();
@@ -557,6 +629,19 @@ pub fn StudioView() -> impl IntoView {
 
     view! {
         <div class="studio-shell">
+
+            // ── Bottom-panel resize overlay (only during drag) ────────────────
+            {move || bottom_drag.get().map(|(start_y, start_h)| view! {
+                <div
+                    style="position:fixed;inset:0;z-index:9999;cursor:ns-resize"
+                    on:mousemove=move |e| {
+                        let delta = e.client_y() as f64 - start_y;
+                        bottom_height.set((start_h - delta).max(80.0).min(600.0));
+                    }
+                    on:mouseup=move |_| bottom_drag.set(None)
+                    on:mouseleave=move |_| bottom_drag.set(None)
+                />
+            })}
 
             // ── Left sidebar ──────────────────────────────────────────────────
             <div class=move || if sidebar_collapsed.get() {
@@ -1403,8 +1488,23 @@ pub fn StudioView() -> impl IntoView {
 
                         // ── Bottom panel ──────────────────────────────────────
                         <div class="ide-bottom-panel"
-                            style=move || if data_open.get() { "display:none" } else { "" }
+                            style=move || if data_open.get() {
+                                "display:none".into()
+                            } else {
+                                format!("height:{}px", bottom_height.get())
+                            }
                         >
+
+                            // Drag handle
+                            <div class="ide-resize-handle"
+                                on:mousedown=move |e| {
+                                    e.prevent_default();
+                                    bottom_drag.set(Some((
+                                        e.client_y() as f64,
+                                        bottom_height.get_untracked(),
+                                    )));
+                                }
+                            />
 
                             // Tab bar
                             <div class="ide-bottom-tabbar">
@@ -1429,13 +1529,27 @@ pub fn StudioView() -> impl IntoView {
                                     } else { "ide-bottom-tab" }
                                     on:click=move |_| bottom_tab.set("ai")
                                 >
-                                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                                        <circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.1"/>
-                                        <path d="M4 5c0-1.1.9-2 2-2s2 .9 2 2c0 .8-.5 1.5-1.2 1.8L6.5 8h-1V7l.7-.2C6.7 6.6 7 6.3 7 6"
-                                            stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <circle cx="6" cy="9.5" r=".5" fill="currentColor"/>
-                                    </svg>
-                                    "AI Assistant"
+                                    {move || if AppSettings::load().provider == AiProvider::Terminal {
+                                        view! {
+                                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                                <rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="1"/>
+                                                <path d="M3.5 4.5l2 2-2 2M6.5 8.5h2"
+                                                    stroke="currentColor" stroke-width="1"
+                                                    stroke-linecap="round" stroke-linejoin="round"/>
+                                            </svg>
+                                            <span>"Terminal"</span>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                                <circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.1"/>
+                                                <path d="M4 5c0-1.1.9-2 2-2s2 .9 2 2c0 .8-.5 1.5-1.2 1.8L6.5 8h-1V7l.7-.2C6.7 6.6 7 6.3 7 6"
+                                                    stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+                                                <circle cx="6" cy="9.5" r=".5" fill="currentColor"/>
+                                            </svg>
+                                            <span>"AI Assistant"</span>
+                                        }.into_any()
+                                    }}
                                 </div>
                                 <div class="ide-bottom-tabbar-spacer" />
                                 // Tab-specific actions
@@ -1465,8 +1579,30 @@ pub fn StudioView() -> impl IntoView {
                                     }.into_any();
                                 }
 
-                                // While saving/running show spinner line
-                                if dsl_running.get() || !raw.starts_with('[') {
+                                // While running show animated phase status
+                                if dsl_running.get() {
+                                    let phase = dsl_phase.get();
+                                    let label = dsl_phase_label.get();
+                                    let msg = if label.is_empty() { "Saving…".to_string() } else { label };
+                                    let is_loading = phase == "loading";
+                                    return view! {
+                                        <div class="ide-run-status">
+                                            <span class=move || if is_loading {
+                                                "ide-run-status-dot ide-run-status-dot--slow"
+                                            } else {
+                                                "ide-run-status-dot"
+                                            }/>
+                                            <span class="ide-run-status-msg">{msg}</span>
+                                            {is_loading.then(|| view! {
+                                                <span class="ide-run-status-hint">
+                                                    " (first run only — will be cached)"
+                                                </span>
+                                            })}
+                                        </div>
+                                    }.into_any();
+                                }
+
+                                if !raw.starts_with('[') {
                                     return view! {
                                         <pre class="ide-output">{raw}</pre>
                                     }.into_any();
@@ -1570,7 +1706,33 @@ pub fn StudioView() -> impl IntoView {
                             })}
 
                             // AI assistant tab
-                            {move || (bottom_tab.get() == "ai").then(|| view! {
+                            {move || (bottom_tab.get() == "ai").then(|| {
+                                if AppSettings::load().provider == AiProvider::Terminal {
+                                    let schema_json = serde_json::to_string(&session_schemas.get())
+                                        .unwrap_or_else(|_| "[]".to_string());
+                                    let scripts_json = serde_json::to_string(&scripts.get())
+                                        .unwrap_or_else(|_| "[]".to_string());
+                                    Effect::new(move |_| {
+                                        let js = format!(
+                                            "window.ptyBridge && window.ptyBridge.init('pty-terminal', {})",
+                                            serde_json::json!({
+                                                "SCHEMA": schema_json,
+                                                "DSL_SCRIPTS": scripts_json,
+                                            })
+                                        );
+                                        let _ = js_sys::eval(&js);
+                                    });
+                                    on_cleanup(|| {
+                                        let _ = js_sys::eval(
+                                            "window.ptyBridge && window.ptyBridge.destroy()"
+                                        );
+                                    });
+                                    return view! {
+                                        <div id="pty-terminal" class="ide-pty-panel" />
+                                    }.into_any();
+                                }
+
+                                view! {
                                 <div class="ide-ai-panel">
                                     <div class="ide-ai-messages">
                                         {move || {
@@ -1676,6 +1838,7 @@ pub fn StudioView() -> impl IntoView {
                                         </button>
                                     </div>
                                 </div>
+                                }.into_any()
                             })}
 
                         </div>

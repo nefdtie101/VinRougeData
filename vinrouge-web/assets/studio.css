@@ -444,13 +444,21 @@
 
 .ide-bottom-panel {
   flex-shrink: 0;
-  height: 220px;
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--w-border);
   background: #0a0708;
   overflow: hidden;
 }
+
+.ide-resize-handle {
+  height: 4px;
+  flex-shrink: 0;
+  cursor: ns-resize;
+  background: transparent;
+  transition: background 0.15s;
+}
+.ide-resize-handle:hover { background: var(--w-accent); }
 
 .ide-bottom-tabbar {
   display: flex;
@@ -492,6 +500,40 @@
   transition: color 0.15s;
 }
 .ide-clear-btn:hover { color: var(--w-text-3); }
+
+.ide-run-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  flex: 1;
+}
+.ide-run-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--w-accent);
+  flex-shrink: 0;
+  animation: ide-pulse 1s ease-in-out infinite;
+}
+.ide-run-status-dot--slow {
+  background: #c9914a;
+  animation: ide-pulse 1.8s ease-in-out infinite;
+}
+@keyframes ide-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.75); }
+}
+.ide-run-status-msg {
+  font-size: 12px;
+  color: var(--w-text-3);
+  font-family: var(--mono);
+}
+.ide-run-status-hint {
+  font-size: 11px;
+  color: var(--w-text-4);
+  font-family: var(--mono);
+}
 
 .ide-output {
   flex: 1;
@@ -1253,3 +1295,20 @@
 .ide-schema-col-type--numeric { color: #86efac; }
 .ide-schema-col-type--text    { color: #93c5fd; }
 .ide-schema-col-type--boolean { color: #fde68a; }
+
+/* ── Terminal panel ─────────────────────────────────────────────────────────── */
+
+.ide-pty-panel {
+  width: 100%;
+  height: 100%;
+  background: #0d0d0d;
+  overflow: hidden;
+}
+
+/* Let xterm.js fill the panel */
+.ide-pty-panel .xterm,
+.ide-pty-panel .xterm-viewport,
+.ide-pty-panel .xterm-screen {
+  width: 100% !important;
+  height: 100% !important;
+}

@@ -25,7 +25,9 @@
       "Bash(sqlite3 ~/VinRouge/vinrouge.db \"SELECT name, path FROM projects;\")",
       "Bash(./target/debug/vinrouge migrate-vrd *)",
       "Read(//Users/johannnefdr/VinRouge/vrd/**)",
-      "Read(//Users/johannnefdr/VinRouge/_migrated_backup/**)"
+      "Read(//Users/johannnefdr/VinRouge/_migrated_backup/**)",
+      "Bash(cargo search *)",
+      "Bash(git -C /Users/johannnefdr/RustroverProjects/VinRouge diff HEAD~3..HEAD -- src/dsl/ --stat)"
     ]
   }
 }

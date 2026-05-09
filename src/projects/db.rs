@@ -135,5 +135,10 @@ pub fn open_project(project_dir: &Path) -> Result<Connection> {
             run_at       TEXT NOT NULL
         );",
     );
+    // Performance: index so get_rows() is O(import_rows) not O(all_rows).
+    let _ = conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_session_rows_import \
+         ON session_rows(import_id, row_index);",
+    );
     Ok(conn)
 }

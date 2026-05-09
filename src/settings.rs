@@ -6,7 +6,7 @@ use std::path::PathBuf;
 #[serde(rename_all = "snake_case")]
 pub enum AiProvider {
     Ollama,
-    Claude,
+    Terminal,
 }
 
 impl Default for AiProvider {
@@ -27,9 +27,7 @@ pub struct AppSettings {
     #[serde(default)]
     pub ollama_models_dir: Option<String>,
     #[serde(default)]
-    pub claude_api_key: String,
-    #[serde(default = "default_claude_model")]
-    pub claude_model: String,
+    pub terminal_command: String,
 }
 
 fn default_ollama_url() -> String {
@@ -40,10 +38,6 @@ fn default_ollama_model() -> String {
     "mistral".to_string()
 }
 
-fn default_claude_model() -> String {
-    "claude-3-5-sonnet-20241022".to_string()
-}
-
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -51,8 +45,7 @@ impl Default for AppSettings {
             ollama_url: default_ollama_url(),
             ollama_model: default_ollama_model(),
             ollama_models_dir: None,
-            claude_api_key: String::new(),
-            claude_model: default_claude_model(),
+            terminal_command: String::new(),
         }
     }
 }

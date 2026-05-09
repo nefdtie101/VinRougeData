@@ -643,8 +643,8 @@ pub async fn ask_ai(system: &str, question: &str) -> Result<String, String> {
         crate::storage::AiProvider::Ollama => {
             ask_ollama_wasm(&settings.ollama_url, &settings.ollama_model, system, question).await
         }
-        crate::storage::AiProvider::Claude => {
-            ask_claude(&settings.claude_api_key, &settings.claude_model, system, question).await
+        crate::storage::AiProvider::Terminal => {
+            Err("Terminal provider: use the Open Terminal button in the Terminal tab.".to_string())
         }
     }
 }

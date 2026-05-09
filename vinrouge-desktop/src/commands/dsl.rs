@@ -1,7 +1,15 @@
 use crate::helpers::{build_datasource, run_dsl_script_blocking, run_dsl_script_text_blocking};
 use crate::state::{DslCacheState, ProjectsState};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
+
+fn emit_status(app: &AppHandle, phase: &str, label: Option<&str>, n: Option<usize>, total: Option<usize>) {
+    let mut v = serde_json::json!({"phase": phase});
+    if let Some(l) = label { v["label"] = serde_json::Value::String(l.to_string()); }
+    if let Some(n) = n    { v["n"]     = serde_json::Value::Number(n.into()); }
+    if let Some(t) = total { v["total"] = serde_json::Value::Number(t.into()); }
+    let _ = app.emit("dsl-status", v);
+}
 
 /// Drop the cached DuckDB datasource so the next script run rebuilds from SQLite.
 /// Useful when the user knows data has changed outside the normal import flow.
@@ -44,6 +52,7 @@ pub fn clear_dsl_scripts(state: State<ProjectsState>) -> Result<(), String> {
 /// JSON → DuckDB build only runs on the first call after an import.
 #[tauri::command]
 pub async fn run_dsl_script(
+    app: AppHandle,
     script_id: String,
     state: State<'_, ProjectsState>,
     cache: State<'_, DslCacheState>,
@@ -52,20 +61,14 @@ pub async fn run_dsl_script(
     let cache_arc = cache.0.clone();
 
     tokio::task::spawn_blocking(move || {
-        // Get or build the datasource — the expensive SQLite read only happens
-        // on a cache miss (first run after an import or project change).
         let datasource = {
             let mut guard = cache_arc.lock().unwrap();
-            let same_project = guard.project_dir.as_ref() == Some(&project_dir);
-            if same_project {
-                if let Some(ds) = guard.datasource.clone() {
-                    ds
-                } else {
-                    let ds = Arc::new(build_datasource(&project_dir)?);
-                    guard.datasource = Some(ds.clone());
-                    ds
-                }
+            let cache_hit = guard.project_dir.as_ref() == Some(&project_dir)
+                && guard.datasource.is_some();
+            if cache_hit {
+                guard.datasource.clone().unwrap()
             } else {
+                emit_status(&app, "loading", None, None, None);
                 let ds = Arc::new(build_datasource(&project_dir)?);
                 guard.project_dir = Some(project_dir.clone());
                 guard.datasource = Some(ds.clone());
@@ -73,6 +76,7 @@ pub async fn run_dsl_script(
             }
         };
 
+        emit_status(&app, "running", None, None, None);
         run_dsl_script_blocking(script_id, project_dir, datasource)
     })
     .await
@@ -121,6 +125,7 @@ pub fn rename_dsl_script(
 
 #[tauri::command]
 pub async fn run_all_dsl_scripts(
+    app: AppHandle,
     state: State<'_, ProjectsState>,
     cache: State<'_, DslCacheState>,
 ) -> Result<Vec<serde_json::Value>, String> {
@@ -130,16 +135,12 @@ pub async fn run_all_dsl_scripts(
     tokio::task::spawn_blocking(move || {
         let datasource = {
             let mut guard = cache_arc.lock().unwrap();
-            let same_project = guard.project_dir.as_ref() == Some(&project_dir);
-            if same_project {
-                if let Some(ds) = guard.datasource.clone() {
-                    ds
-                } else {
-                    let ds = Arc::new(build_datasource(&project_dir)?);
-                    guard.datasource = Some(ds.clone());
-                    ds
-                }
+            let cache_hit = guard.project_dir.as_ref() == Some(&project_dir)
+                && guard.datasource.is_some();
+            if cache_hit {
+                guard.datasource.clone().unwrap()
             } else {
+                emit_status(&app, "loading", None, None, None);
                 let ds = Arc::new(build_datasource(&project_dir)?);
                 guard.project_dir = Some(project_dir.clone());
                 guard.datasource = Some(ds.clone());
@@ -148,9 +149,11 @@ pub async fn run_all_dsl_scripts(
         };
 
         let scripts = vinrouge::projects::list_dsl_scripts(&project_dir)?;
+        let total = scripts.len();
         let mut all_results: Vec<serde_json::Value> = Vec::new();
 
-        for script in scripts {
+        for (i, script) in scripts.into_iter().enumerate() {
+            emit_status(&app, "running", Some(&script.label), Some(i + 1), Some(total));
             let json_results = run_dsl_script_text_blocking(
                 &script.script_text,
                 &project_dir,

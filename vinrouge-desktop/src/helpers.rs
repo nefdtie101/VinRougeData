@@ -109,6 +109,37 @@ pub fn build_datasource(project_dir: &Path) -> Result<DuckDbDataSource, String> 
     Ok(datasource)
 }
 
+/// Build a resolver [`Schema`] from import metadata only — no row data is loaded.
+/// Use this for agent `schema` and `validate` actions so the agent never sees values.
+pub fn schema_from_imports(project_dir: &Path) -> Result<vinrouge::dsl::Schema, String> {
+    let conn = vinrouge::projects::db::open_project(project_dir).map_err(|e| e.to_string())?;
+    let db = crate::session_db::SessionDb::new(&conn);
+    let mut schema = vinrouge::dsl::Schema::new();
+    for imp in db.list_imports()? {
+        let table = table_name_from_source(&imp.source_name);
+        let cols: Vec<String> = imp.mappings.iter()
+            .map(|(src, tgt)| if tgt.is_empty() { src.clone() } else { tgt.clone() })
+            .filter(|n| !n.trim().is_empty())
+            .collect();
+        schema.add_table(table, cols);
+    }
+    Ok(schema)
+}
+
+/// Return schema as JSON for the agent — only table/column names and row counts, no values.
+pub fn schema_json(project_dir: &Path) -> Result<Vec<serde_json::Value>, String> {
+    let conn = vinrouge::projects::db::open_project(project_dir).map_err(|e| e.to_string())?;
+    let db = crate::session_db::SessionDb::new(&conn);
+    Ok(db.list_imports()?.into_iter().map(|imp| {
+        let table = table_name_from_source(&imp.source_name);
+        let cols: Vec<String> = imp.mappings.iter()
+            .map(|(src, tgt)| if tgt.is_empty() { src.clone() } else { tgt.clone() })
+            .filter(|n| !n.trim().is_empty())
+            .collect();
+        serde_json::json!({ "table": table, "row_count": imp.row_count, "columns": cols })
+    }).collect())
+}
+
 pub fn result_to_json(index: usize, r: &StatementResult) -> serde_json::Value {
     match r {
         StatementResult::Assert(a) => serde_json::json!({

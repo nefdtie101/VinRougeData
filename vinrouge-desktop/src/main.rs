@@ -8,6 +8,7 @@ mod session_db;
 mod state;
 
 use tauri::Manager;
+use commands::terminal::PtyState;
 use state::{DslCacheState, OllamaState, ProjectsState};
 use commands::*;
 
@@ -18,6 +19,7 @@ fn main() {
         .manage(OllamaState(std::sync::Mutex::new(None)))
         .manage(ProjectsState(std::sync::Mutex::new(None)))
         .manage(DslCacheState::default())
+        .manage(PtyState::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             pick_and_analyze,
@@ -91,6 +93,10 @@ fn main() {
             import_project_vrd,
             save_project_vrd,
             pick_and_open_vrd,
+            pty_create,
+            pty_write,
+            pty_resize,
+            pty_update_scripts,
         ])
         .setup(|app| {
             // Auto-start Ollama when the desktop app launches.

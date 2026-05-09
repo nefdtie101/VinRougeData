@@ -128,7 +128,15 @@ pub fn vinrouge_home() -> Result<PathBuf, String> {
         .map_err(|_| {
             "Could not determine home directory (HOME / USERPROFILE not set)".to_string()
         })?;
-    Ok(PathBuf::from(home).join("VinRouge"))
+    let home = PathBuf::from(home);
+    let new_dir = home.join(".vinrouge");
+    let old_dir = home.join("VinRouge");
+    // One-time migration: move old visible directory to hidden location.
+    if !new_dir.exists() && old_dir.exists() {
+        let _ = std::fs::rename(&old_dir, &new_dir);
+    }
+    std::fs::create_dir_all(&new_dir).map_err(|e| e.to_string())?;
+    Ok(new_dir)
 }
 
 // ── Project management ────────────────────────────────────────────────────────

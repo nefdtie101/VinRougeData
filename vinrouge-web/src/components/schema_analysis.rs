@@ -1,4 +1,5 @@
 use crate::ollama::{ask_ai, build_web_summary};
+use crate::storage::{AiProvider, AppSettings};
 use crate::types::AnalysisResult;
 use leptos::prelude::*;
 use vinrouge::analysis::Workflow;
@@ -203,9 +204,14 @@ where
         });
     };
 
+    let provider_label = move || match AppSettings::load().provider {
+        AiProvider::Terminal => "Terminal",
+        AiProvider::Ollama => "Ollama",
+    };
+
     view! {
         <section class="ollama-section">
-            <h2>"Ask AI"</h2>
+            <h2>{provider_label}</h2>
             <p class="ollama-hint">
                 "Ask questions about your data schema. Configure your AI provider in Settings."
             </p>

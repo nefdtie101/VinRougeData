@@ -133,7 +133,7 @@ pub struct JoinSpec {
     pub right_col: String,
 }
 
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct DslScript {
     pub id: String,
     pub control_id: String,

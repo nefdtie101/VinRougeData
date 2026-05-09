@@ -33,7 +33,7 @@ const SETTINGS_KEY: &str = "vinrouge_settings_v1";
 #[serde(rename_all = "snake_case")]
 pub enum AiProvider {
     Ollama,
-    Claude,
+    Terminal,
 }
 
 impl Default for AiProvider {
@@ -49,14 +49,11 @@ pub struct AppSettings {
     #[serde(default = "default_ollama_model")]
     pub ollama_model: String,
     #[serde(default)]
-    pub claude_api_key: String,
-    #[serde(default = "default_claude_model")]
-    pub claude_model: String,
+    pub terminal_command: String,
 }
 
 fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
 fn default_ollama_model() -> String { "mistral".to_string() }
-fn default_claude_model() -> String { "claude-3-5-sonnet-20241022".to_string() }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -64,8 +61,7 @@ impl Default for AppSettings {
             provider: AiProvider::default(),
             ollama_url: default_ollama_url(),
             ollama_model: default_ollama_model(),
-            claude_api_key: String::new(),
-            claude_model: default_claude_model(),
+            terminal_command: String::new(),
         }
     }
 }
