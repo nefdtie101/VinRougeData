@@ -4,7 +4,7 @@ Unicode True
 
 ; Injected by the workflow at build time
 !ifndef DOWNLOAD_URL
-  !define DOWNLOAD_URL "https://github.com/VinRougeData/VinRougeData/releases/latest/download/VinRouge-windows-x64.zip"
+  !define DOWNLOAD_URL "https://github.com/nefdtie101/VinRougeData/releases/latest/download/VinRouge-windows-x64.zip"
 !endif
 !ifndef APP_VERSION
   !define APP_VERSION "0.1.0"

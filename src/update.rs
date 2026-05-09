@@ -4,7 +4,7 @@ use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 use tracing::info;
 
-const GITHUB_API_LATEST: &str = "https://api.github.com/repos/Johannnefdt/VinRouge/releases/latest";
+const GITHUB_API_LATEST: &str = "https://api.github.com/repos/nefdtie101/VinRougeData/releases/latest";
 const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
 /// Information about an available update.
@@ -19,6 +19,7 @@ pub struct UpdateInfo {
 #[derive(Debug, Deserialize)]
 struct GitHubRelease {
     tag_name: String,
+    name: String,
     assets: Vec<GitHubAsset>,
 }
 
@@ -50,6 +51,13 @@ pub async fn check_for_update() -> Result<Option<UpdateInfo>> {
         .context("failed to parse GitHub release JSON")?;
 
     let latest = normalize_version(&release.tag_name);
+    let latest = if semver::Version::parse(&latest).is_ok() {
+        latest
+    } else if let Some(v) = extract_version(&release.name) {
+        normalize_version(&v)
+    } else {
+        latest
+    };
     info!("Current version: {current}, latest release: {latest}");
 
     if !is_newer(&latest, &current) {
@@ -162,8 +170,18 @@ fn is_newer(latest: &str, current: &str) -> bool {
         semver::Version::parse(current),
     ) {
         (Ok(l), Ok(c)) => l > c,
-        _ => latest != current,
+        _ => false,
     }
+}
+
+fn extract_version(text: &str) -> Option<String> {
+    for word in text.split_whitespace() {
+        let cleaned = word.trim_matches(|c: char| matches!(c, '(' | ')' | '[' | ']' | '{' | '}'));
+        if semver::Version::parse(&normalize_version(cleaned)).is_ok() {
+            return Some(cleaned.to_string());
+        }
+    }
+    None
 }
 
 fn archive_extension() -> &'static str {

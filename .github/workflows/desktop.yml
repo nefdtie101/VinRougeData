@@ -144,7 +144,7 @@ jobs:
       - name: Build desktop app (Windows)
         if: matrix.os == 'windows-latest'
         working-directory: vinrouge-desktop
-        run: cargo build --release
+        run: cargo tauri build --no-bundle
 
       - name: Build CLI binary
         run: cargo build --release --bin vinrouge

@@ -6,7 +6,7 @@ use tauri::{AppHandle, Emitter, Manager};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-const GITHUB_API_LATEST: &str = "https://api.github.com/repos/Johannnefdt/VinRouge/releases/latest";
+const GITHUB_API_LATEST: &str = "https://api.github.com/repos/nefdtie101/VinRougeData/releases/latest";
 const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, Clone, Serialize)]
@@ -20,6 +20,7 @@ pub struct UpdateInfo {
 #[derive(Debug, serde::Deserialize)]
 struct GitHubRelease {
     tag_name: String,
+    name: String,
     assets: Vec<GitHubAsset>,
 }
 
@@ -50,6 +51,13 @@ pub async fn check_for_update() -> Result<Option<UpdateInfo>, String> {
         .map_err(|e| format!("failed to parse GitHub release: {e}"))?;
 
     let latest = normalize_version(&release.tag_name);
+    let latest = if semver::Version::parse(&latest).is_ok() {
+        latest
+    } else if let Some(v) = extract_version(&release.name) {
+        normalize_version(&v)
+    } else {
+        latest
+    };
     if !is_newer(&latest, &current) {
         println!("Desktop app is up to date ({current})");
         return Ok(None);
@@ -301,13 +309,13 @@ if exist "{}" goto retry
             .tempfile()
             .context("failed to create cleanup bat")?;
         std::fs::write(tmp.path(), cleanup_script)?;
+        let (_file, bat_path) = tmp.keep().context("failed to keep cleanup bat")?;
 
         let mut cmd = Command::new("cmd");
-        cmd.args(["/C", tmp.path().to_string_lossy().as_ref()]);
+        cmd.args(["/C", bat_path.to_string_lossy().as_ref()]);
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x00000008); // DETACHED_PROCESS
         cmd.spawn().context("failed to spawn cleanup")?;
-        let _ = tmp.into_temp_path();
 
         return Ok(());
     }
@@ -327,8 +335,18 @@ fn is_newer(latest: &str, current: &str) -> bool {
         semver::Version::parse(current),
     ) {
         (Ok(l), Ok(c)) => l > c,
-        _ => latest != current,
+        _ => false,
     }
+}
+
+fn extract_version(text: &str) -> Option<String> {
+    for word in text.split_whitespace() {
+        let cleaned = word.trim_matches(|c: char| matches!(c, '(' | ')' | '[' | ']' | '{' | '}'));
+        if semver::Version::parse(&normalize_version(cleaned)).is_ok() {
+            return Some(cleaned.to_string());
+        }
+    }
+    None
 }
 
 fn desktop_asset_name() -> String {
