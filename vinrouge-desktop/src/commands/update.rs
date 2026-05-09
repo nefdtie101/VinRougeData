@@ -267,7 +267,8 @@ fn install_windows(path: &Path) -> anyhow::Result<()> {
         extract_zip(path, tmp_extract.path()).context("failed to extract zip")?;
 
         // The ZIP contains a staged folder (see CI). Find the actual files.
-        let stage = find_single_subdir(tmp_extract.path()).unwrap_or(tmp_extract.path());
+        let stage = find_single_subdir(tmp_extract.path())
+            .unwrap_or_else(|| tmp_extract.path().to_path_buf());
 
         // Rename current exe so we can overwrite it.
         let backup = exe.with_extension("old");
@@ -297,7 +298,7 @@ if exist "{}" goto retry
         );
         let tmp = tempfile::Builder::new()
             .suffix(".bat")
-            .temp_file()
+            .tempfile()
             .context("failed to create cleanup bat")?;
         std::fs::write(tmp.path(), cleanup_script)?;
 
@@ -367,13 +368,13 @@ fn extract_zip(archive: &Path, out_dir: &Path) -> anyhow::Result<()> {
 }
 
 #[cfg(target_os = "windows")]
-fn find_single_subdir(dir: &Path) -> Option<&Path> {
+fn find_single_subdir(dir: &Path) -> Option<PathBuf> {
     let mut entries = std::fs::read_dir(dir).ok()?;
     let first = entries.next()?.ok()?;
     if first.file_type().ok()?.is_dir() && entries.next().is_none() {
-        Some(&first.path())
+        Some(first.path())
     } else {
-        Some(dir)
+        Some(dir.to_path_buf())
     }
 }
 

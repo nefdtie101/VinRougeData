@@ -62,6 +62,7 @@ pub enum HierarchyType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct AggregationPattern {
     pub group_by: Vec<String>,
     pub aggregate_columns: Vec<String>,
@@ -71,6 +72,7 @@ pub struct AggregationPattern {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[allow(dead_code)]
 pub enum AggregationType {
     Sum,
     Count,
