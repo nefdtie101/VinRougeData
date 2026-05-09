@@ -10,19 +10,16 @@ use super::modal::FindingModal;
 // ── Step5aView — Audit findings ───────────────────────────────────────────────
 
 #[component]
-pub fn Step5aView(
-    audit_ui_step: RwSignal<u8>,
-    status: RwSignal<String>,
-) -> impl IntoView {
-    let scripts: RwSignal<Vec<DslScript>>  = RwSignal::new(vec![]);
+pub fn Step5aView(audit_ui_step: RwSignal<u8>, status: RwSignal<String>) -> impl IntoView {
+    let scripts: RwSignal<Vec<DslScript>> = RwSignal::new(vec![]);
     let results: RwSignal<Vec<TestResult>> = RwSignal::new(vec![]);
-    let loading: RwSignal<bool>            = RwSignal::new(true);
+    let loading: RwSignal<bool> = RwSignal::new(true);
 
     // (script_id, script, result) of the finding whose modal is open.
     let modal: RwSignal<Option<(DslScript, TestResult)>> = RwSignal::new(None);
 
     spawn_local(async move {
-        let s: Vec<DslScript>  = tauri_invoke("list_dsl_scripts").await.unwrap_or_default();
+        let s: Vec<DslScript> = tauri_invoke("list_dsl_scripts").await.unwrap_or_default();
         let r: Vec<TestResult> = tauri_invoke("list_test_results").await.unwrap_or_default();
         scripts.set(s);
         results.set(r);
@@ -30,12 +27,16 @@ pub fn Step5aView(
     });
 
     let finding_count = move || {
-        results.get().iter()
+        results
+            .get()
+            .iter()
             .filter(|r| r.failed_count > 0 || r.error_count > 0)
             .count()
     };
     let pass_count = move || {
-        results.get().iter()
+        results
+            .get()
+            .iter()
             .filter(|r| r.failed_count == 0 && r.error_count == 0)
             .count()
     };

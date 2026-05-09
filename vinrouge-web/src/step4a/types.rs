@@ -17,7 +17,7 @@ pub struct ScriptState {
 #[derive(Clone, PartialEq)]
 pub enum Phase {
     Loading,
-    Idle,      // schemas loaded, waiting for user to proceed
+    Idle, // schemas loaded, waiting for user to proceed
     Generating,
     Review,
     Running { done: usize, total: usize },
@@ -28,14 +28,14 @@ pub enum Phase {
 pub struct RunResult {
     pub expr_type: String,
     pub expected: String,
-    pub actual:   String,
-    pub passed:   bool,
+    pub actual: String,
+    pub passed: bool,
     pub duration_ms: f64,
 }
 
 #[derive(Clone)]
 pub struct ChatMsg {
     pub is_user: bool,
-    pub text:    String,
-    pub code:    Option<String>, // extracted DSL code block
+    pub text: String,
+    pub code: Option<String>, // extracted DSL code block
 }

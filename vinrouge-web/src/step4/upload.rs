@@ -1,11 +1,11 @@
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
+use super::types::{DataFile, FileSource};
 use crate::file_analysis::{analyze_bytes, read_file_bytes};
 use crate::ipc::tauri_invoke_args;
 use crate::ollama::{ask_column_mapping, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::types::{PbcGroup, ProjectFile};
-use super::types::{DataFile, FileSource};
 
 // ── Column mapping helpers ────────────────────────────────────────────────────
 

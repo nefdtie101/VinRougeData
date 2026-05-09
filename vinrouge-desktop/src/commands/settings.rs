@@ -32,13 +32,17 @@ pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
         let _ = win.close();
     }
 
-    let window = WebviewWindowBuilder::new(&app, "settings", tauri::WebviewUrl::App("settings.html".into()))
-        .title("Settings")
-        .inner_size(480.0, 520.0)
-        .resizable(false)
-        .maximizable(false)
-        .build()
-        .map_err(|e| format!("Failed to create window: {e}"))?;
+    let window = WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        tauri::WebviewUrl::App("settings.html".into()),
+    )
+    .title("Settings")
+    .inner_size(480.0, 520.0)
+    .resizable(false)
+    .maximizable(false)
+    .build()
+    .map_err(|e| format!("Failed to create window: {e}"))?;
 
     let app_handle = app.clone();
     window.on_window_event(move |event| {

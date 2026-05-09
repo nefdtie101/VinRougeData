@@ -2,19 +2,38 @@ use rust_decimal::Decimal;
 
 /// Aggregate functions
 #[derive(Debug, PartialEq, Clone)]
-pub enum AggFunc { Sum, Avg, Count, Min, Max }
+pub enum AggFunc {
+    Sum,
+    Avg,
+    Count,
+    Min,
+    Max,
+}
 
 /// String scalar functions
 #[derive(Debug, PartialEq, Clone)]
-pub enum StringFunc { Upper, Lower, Trim, Length }
+pub enum StringFunc {
+    Upper,
+    Lower,
+    Trim,
+    Length,
+}
 
 /// Math scalar functions
 #[derive(Debug, PartialEq, Clone)]
-pub enum MathFunc { Abs, Round }
+pub enum MathFunc {
+    Abs,
+    Round,
+}
 
 /// Sampling methods
 #[derive(Debug, PartialEq, Clone)]
-pub enum SampleMethod { Mus, Random, Systematic, Stratified }
+pub enum SampleMethod {
+    Mus,
+    Random,
+    Systematic,
+    Stratified,
+}
 
 /// Sample size — fixed count or percentage
 #[derive(Debug, PartialEq, Clone)]
@@ -25,15 +44,30 @@ pub enum SampleSize {
 
 /// Binary arithmetic operators
 #[derive(Debug, PartialEq, Clone)]
-pub enum ArithOp { Add, Sub, Mul, Div }
+pub enum ArithOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
 
 /// Comparison operators
 #[derive(Debug, PartialEq, Clone)]
-pub enum CmpOp { Eq, NotEq, Gt, Gte, Lt, Lte }
+pub enum CmpOp {
+    Eq,
+    NotEq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+}
 
 /// Logical operators
 #[derive(Debug, PartialEq, Clone)]
-pub enum LogicOp { And, Or }
+pub enum LogicOp {
+    And,
+    Or,
+}
 
 /// Full expression tree
 #[derive(Debug, PartialEq, Clone)]
@@ -101,10 +135,7 @@ pub enum Expr {
     },
 
     /// IS NULL / IS NOT NULL
-    IsNull {
-        expr: Box<Expr>,
-        negated: bool,
-    },
+    IsNull { expr: Box<Expr>, negated: bool },
 
     /// LIKE pattern match  e.g.  table.col LIKE "INV-%"
     Like {
@@ -114,10 +145,7 @@ pub enum Expr {
     },
 
     /// String function  e.g.  UPPER(table.col)
-    StringFn {
-        func: StringFunc,
-        expr: Box<Expr>,
-    },
+    StringFn { func: StringFunc, expr: Box<Expr> },
 
     /// SUBSTR() extraction  e.g.  SUBSTR(table.col, 1, 3)
     SubStr {
@@ -127,14 +155,10 @@ pub enum Expr {
     },
 
     /// CONCAT() concatenation  e.g.  CONCAT("20", SUBSTR(table.col, 1, 2))
-    Concat {
-        exprs: Vec<Box<Expr>>,
-    },
+    Concat { exprs: Vec<Box<Expr>> },
 
     /// DATE() normalisation  e.g.  DATE(table.col) >= DATE("2024-01-01")
-    DateFn {
-        expr: Box<Expr>,
-    },
+    DateFn { expr: Box<Expr> },
 
     /// CASE WHEN cond THEN val … ELSE default END
     Case {
@@ -149,7 +173,11 @@ pub enum Expr {
     NullIf { expr: Box<Expr>, compare: Box<Expr> },
 
     /// Math function  e.g.  ABS(table.col)  or  ROUND(table.col, 2)
-    MathFn { func: MathFunc, expr: Box<Expr>, scale: Option<Box<Expr>> },
+    MathFn {
+        func: MathFunc,
+        expr: Box<Expr>,
+        scale: Option<Box<Expr>>,
+    },
 
     /// IS_BLANK(col) — true when value is NULL or the empty string
     IsBlank { expr: Box<Expr>, negated: bool },
@@ -195,8 +223,8 @@ pub enum Expr {
     /// SAMPLE  e.g.  SAMPLE MUS invoices.amount 50 WHERE amount > 0
     Sample {
         method: SampleMethod,
-        population: String,    // table name
-        value_column: String,  // column for MUS weighting
+        population: String,   // table name
+        value_column: String, // column for MUS weighting
         size: SampleSize,
         filter: Option<Box<Expr>>,
     },

@@ -51,8 +51,7 @@ pub async fn run_analysis(path: String) -> Result<AnalysisOutput, String> {
     };
 
     let relationships = RelationshipDetector::new(tables.clone()).detect_relationships();
-    let workflows =
-        WorkflowDetector::new(tables.clone(), relationships.clone()).detect_workflows();
+    let workflows = WorkflowDetector::new(tables.clone(), relationships.clone()).detect_workflows();
 
     Ok(AnalysisOutput {
         tables,
@@ -79,7 +78,13 @@ pub fn table_name_from_source(source_name: &str) -> String {
             .unwrap_or(source_name)
     };
     base.chars()
-        .map(|c| if c.is_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .split('_')
         .filter(|s| !s.is_empty())
@@ -117,8 +122,16 @@ pub fn schema_from_imports(project_dir: &Path) -> Result<vinrouge::dsl::Schema, 
     let mut schema = vinrouge::dsl::Schema::new();
     for imp in db.list_imports()? {
         let table = table_name_from_source(&imp.source_name);
-        let cols: Vec<String> = imp.mappings.iter()
-            .map(|(src, tgt)| if tgt.is_empty() { src.clone() } else { tgt.clone() })
+        let cols: Vec<String> = imp
+            .mappings
+            .iter()
+            .map(|(src, tgt)| {
+                if tgt.is_empty() {
+                    src.clone()
+                } else {
+                    tgt.clone()
+                }
+            })
             .filter(|n| !n.trim().is_empty())
             .collect();
         schema.add_table(table, cols);
@@ -130,14 +143,26 @@ pub fn schema_from_imports(project_dir: &Path) -> Result<vinrouge::dsl::Schema, 
 pub fn schema_json(project_dir: &Path) -> Result<Vec<serde_json::Value>, String> {
     let conn = vinrouge::projects::db::open_project(project_dir).map_err(|e| e.to_string())?;
     let db = crate::session_db::SessionDb::new(&conn);
-    Ok(db.list_imports()?.into_iter().map(|imp| {
-        let table = table_name_from_source(&imp.source_name);
-        let cols: Vec<String> = imp.mappings.iter()
-            .map(|(src, tgt)| if tgt.is_empty() { src.clone() } else { tgt.clone() })
-            .filter(|n| !n.trim().is_empty())
-            .collect();
-        serde_json::json!({ "table": table, "row_count": imp.row_count, "columns": cols })
-    }).collect())
+    Ok(db
+        .list_imports()?
+        .into_iter()
+        .map(|imp| {
+            let table = table_name_from_source(&imp.source_name);
+            let cols: Vec<String> = imp
+                .mappings
+                .iter()
+                .map(|(src, tgt)| {
+                    if tgt.is_empty() {
+                        src.clone()
+                    } else {
+                        tgt.clone()
+                    }
+                })
+                .filter(|n| !n.trim().is_empty())
+                .collect();
+            serde_json::json!({ "table": table, "row_count": imp.row_count, "columns": cols })
+        })
+        .collect())
 }
 
 pub fn result_to_json(index: usize, r: &StatementResult) -> serde_json::Value {
@@ -214,8 +239,8 @@ pub fn run_dsl_script_text_blocking(
     datasource: Arc<DuckDbDataSource>,
     script_id: Option<&str>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let statements = dsl::parse(script_text)
-        .map_err(|e| format!("DSL parse error: {}", e.message))?;
+    let statements =
+        dsl::parse(script_text).map_err(|e| format!("DSL parse error: {}", e.message))?;
     let raw_results = dsl::run_script(&statements, datasource.as_ref());
 
     let json_results: Vec<serde_json::Value> = raw_results
@@ -232,14 +257,11 @@ pub fn run_dsl_script_text_blocking(
         .iter()
         .filter(|r| r["kind"] == "assert" && r["passed"] == false)
         .count() as i64;
-    let errors = json_results
-        .iter()
-        .filter(|r| r["kind"] == "error")
-        .count() as i64;
+    let errors = json_results.iter().filter(|r| r["kind"] == "error").count() as i64;
 
     if let Some(id) = script_id {
-        let result_json = serde_json::to_string(&json_results)
-            .map_err(|e| format!("Serialise error: {e}"))?;
+        let result_json =
+            serde_json::to_string(&json_results).map_err(|e| format!("Serialise error: {e}"))?;
         vinrouge::projects::save_test_result(
             project_dir,
             id,
@@ -266,5 +288,10 @@ pub fn run_dsl_script_blocking(
             .ok_or_else(|| format!("Script {script_id} not found"))?
     };
 
-    run_dsl_script_text_blocking(&script.script_text, &project_dir, datasource, Some(&script_id))
+    run_dsl_script_text_blocking(
+        &script.script_text,
+        &project_dir,
+        datasource,
+        Some(&script_id),
+    )
 }

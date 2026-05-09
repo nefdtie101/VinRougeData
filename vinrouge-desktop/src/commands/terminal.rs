@@ -37,7 +37,9 @@ fn start_ipc_server(app: AppHandle, project_dir: PathBuf) -> u16 {
     tokio::spawn(async move {
         let listener = TcpListener::from_std(std_listener).unwrap();
         loop {
-            let Ok((stream, _addr)) = listener.accept().await else { continue };
+            let Ok((stream, _addr)) = listener.accept().await else {
+                continue;
+            };
             let app = app.clone();
             let dir = project_dir.clone();
             tokio::spawn(async move {
@@ -88,7 +90,13 @@ fn handle_ipc(line: &str, project_dir: &PathBuf, app: &AppHandle) -> String {
             let text = cmd["script_text"].as_str().unwrap_or("");
             let control_id = cmd["control_id"].as_str().unwrap_or("");
             let control_ref = cmd["control_ref"].as_str().unwrap_or("");
-            match vinrouge::projects::save_dsl_script(project_dir, control_id, control_ref, label, text) {
+            match vinrouge::projects::save_dsl_script(
+                project_dir,
+                control_id,
+                control_ref,
+                label,
+                text,
+            ) {
                 Ok(script) => {
                     let _ = app.emit("scripts-changed", ());
                     serde_json::to_string(&script).unwrap_or_else(|_| r#"{"ok":true}"#.into())
@@ -96,12 +104,10 @@ fn handle_ipc(line: &str, project_dir: &PathBuf, app: &AppHandle) -> String {
                 Err(e) => json_err(&e),
             }
         }
-        "schema" => {
-            match crate::helpers::schema_json(project_dir) {
-                Ok(tables) => serde_json::to_string(&tables).unwrap_or_else(|_| "[]".into()),
-                Err(e) => json_err(&e),
-            }
-        }
+        "schema" => match crate::helpers::schema_json(project_dir) {
+            Ok(tables) => serde_json::to_string(&tables).unwrap_or_else(|_| "[]".into()),
+            Err(e) => json_err(&e),
+        },
         "validate" => {
             let text = match cmd["script_text"].as_str() {
                 Some(s) => s,
@@ -109,7 +115,9 @@ fn handle_ipc(line: &str, project_dir: &PathBuf, app: &AppHandle) -> String {
             };
             let statements = match vinrouge::dsl::parse(text) {
                 Ok(s) => s,
-                Err(e) => return json_err(&format!("parse error at {}: {}", e.position, e.message)),
+                Err(e) => {
+                    return json_err(&format!("parse error at {}: {}", e.position, e.message))
+                }
             };
             match crate::helpers::schema_from_imports(project_dir) {
                 Ok(schema) => {
@@ -130,7 +138,10 @@ fn handle_ipc(line: &str, project_dir: &PathBuf, app: &AppHandle) -> String {
 }
 
 fn json_err(msg: &str) -> String {
-    format!(r#"{{"error":{}}}"#, serde_json::Value::String(msg.to_string()))
+    format!(
+        r#"{{"error":{}}}"#,
+        serde_json::Value::String(msg.to_string())
+    )
 }
 
 // ── Helper script written into the project directory ─────────────────────────
@@ -369,16 +380,21 @@ pub async fn pty_create(
     projects: State<'_, ProjectsState>,
     env: Option<HashMap<String, String>>,
 ) -> Result<(), String> {
-    let project_dir = projects.dir().unwrap_or_else(|_| {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-    });
+    let project_dir = projects
+        .dir()
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
     let port = start_ipc_server(app.clone(), project_dir.clone());
     write_helper_script(&project_dir, port);
 
     let pty_system = portable_pty::native_pty_system();
     let pair = pty_system
-        .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .map_err(|e| e.to_string())?;
 
     let shell = if cfg!(target_os = "windows") {
@@ -394,11 +410,14 @@ pub async fn pty_create(
     cmd.env("VINROUGE_PORT", port.to_string());
     cmd.env("VINROUGE_PROJECT", project_dir.to_string_lossy().as_ref());
     cmd.env("DSL_SCRIPTS_FILE", scripts_file.to_string_lossy().as_ref());
-    cmd.env("PATH", format!(
-        "{}:{}",
-        project_dir.to_string_lossy(),
-        std::env::var("PATH").unwrap_or_default()
-    ));
+    cmd.env(
+        "PATH",
+        format!(
+            "{}:{}",
+            project_dir.to_string_lossy(),
+            std::env::var("PATH").unwrap_or_default()
+        ),
+    );
 
     if let Some(vars) = env {
         for (k, v) in vars {
@@ -442,8 +461,13 @@ pub fn pty_write(state: State<PtyState>, data: String) -> Result<(), String> {
 #[tauri::command]
 pub fn pty_resize(state: State<PtyState>, cols: u16, rows: u16) -> Result<(), String> {
     if let Some(m) = state.master.lock().unwrap().as_ref() {
-        m.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-            .map_err(|e| e.to_string())?;
+        m.resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| e.to_string())?;
     }
     Ok(())
 }

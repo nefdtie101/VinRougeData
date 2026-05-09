@@ -4,26 +4,31 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::components::{GhostButton, StatCard};
 use crate::ipc::tauri_invoke;
-use crate::types::{DslScript, TestResult};
-use crate::step5a::chart::{EChart, RawChart, build_summary_option, pick_sample_column, sample_distribution};
+use crate::step5a::chart::{
+    build_summary_option, pick_sample_column, sample_distribution, EChart, RawChart,
+};
 use crate::step5a::types::{ChartTab, DistPoint};
+use crate::types::{DslScript, TestResult};
 
 fn export_debug(scripts: &[DslScript], results: &[TestResult]) {
-    let rows: Vec<serde_json::Value> = scripts.iter().map(|s| {
-        let res = results.iter().find(|r| r.script_id == s.id);
-        serde_json::json!({
-            "control_ref":  s.control_ref,
-            "label":        s.label,
-            "script_id":    s.id,
-            "script_text":  s.script_text,
-            "result": res.map(|r| serde_json::json!({
-                "passed_count": r.passed_count,
-                "failed_count": r.failed_count,
-                "error_count":  r.error_count,
-                "statements":   r.results,
-            }))
+    let rows: Vec<serde_json::Value> = scripts
+        .iter()
+        .map(|s| {
+            let res = results.iter().find(|r| r.script_id == s.id);
+            serde_json::json!({
+                "control_ref":  s.control_ref,
+                "label":        s.label,
+                "script_id":    s.id,
+                "script_text":  s.script_text,
+                "result": res.map(|r| serde_json::json!({
+                    "passed_count": r.passed_count,
+                    "failed_count": r.failed_count,
+                    "error_count":  r.error_count,
+                    "statements":   r.results,
+                }))
+            })
         })
-    }).collect();
+        .collect();
 
     let payload = serde_json::json!({
         "exported_at": js_sys::Date::new_0().to_iso_string().as_string().unwrap_or_default(),
@@ -46,10 +51,7 @@ fn export_debug(scripts: &[DslScript], results: &[TestResult]) {
 // ── Step5View — Audit test results ────────────────────────────────────────────
 
 #[component]
-pub fn Step5View(
-    audit_ui_step: RwSignal<u8>,
-    status: RwSignal<String>,
-) -> impl IntoView {
+pub fn Step5View(audit_ui_step: RwSignal<u8>, status: RwSignal<String>) -> impl IntoView {
     let scripts: RwSignal<Vec<DslScript>> = RwSignal::new(vec![]);
     let results: RwSignal<Vec<TestResult>> = RwSignal::new(vec![]);
     let loading: RwSignal<bool> = RwSignal::new(true);
@@ -71,15 +73,9 @@ pub fn Step5View(
             .map(|r| r.passed_count + r.failed_count)
             .sum::<i64>()
     };
-    let total_passed = move || {
-        results.get().iter().map(|r| r.passed_count).sum::<i64>()
-    };
-    let total_failed = move || {
-        results.get().iter().map(|r| r.failed_count).sum::<i64>()
-    };
-    let total_errors = move || {
-        results.get().iter().map(|r| r.error_count).sum::<i64>()
-    };
+    let total_passed = move || results.get().iter().map(|r| r.passed_count).sum::<i64>();
+    let total_failed = move || results.get().iter().map(|r| r.failed_count).sum::<i64>();
+    let total_errors = move || results.get().iter().map(|r| r.error_count).sum::<i64>();
 
     view! {
         <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">

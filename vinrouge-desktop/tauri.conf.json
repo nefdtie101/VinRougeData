@@ -1,6 +1,5 @@
 {
   "productName": "VinRouge",
-  "version": "0.1.0",
   "identifier": "io.vinrouge.desktop",
   "build": {
     "frontendDist": "../vinrouge-web/dist",

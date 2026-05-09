@@ -3,13 +3,10 @@ use crate::components::{
     Spinner,
 };
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{
-    ask_audit_plan, ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL,
-};
+use crate::ollama::{ask_audit_plan, ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::types::{AuditProcessWithControls, Control, ProjectFile};
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-
 
 // ── Step2View ─────────────────────────────────────────────────────────────────
 
@@ -50,21 +47,19 @@ pub fn Step2View(
                     }
                 };
                 // Always regenerate from scratch — chunked, no scope constraint.
-                let json_str = match ask_audit_plan(
-                    OLLAMA_DEFAULT_URL,
-                    OLLAMA_DEFAULT_MODEL,
-                    &text,
-                    |msg| status.set(msg),
-                )
-                .await
-                {
-                    Ok(s) => s,
-                    Err(e) => {
-                        status.set(format!("Ollama error: {e}"));
-                        sop_analyzing.set(None);
-                        return;
-                    }
-                };
+                let json_str =
+                    match ask_audit_plan(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &text, |msg| {
+                        status.set(msg)
+                    })
+                    .await
+                    {
+                        Ok(s) => s,
+                        Err(e) => {
+                            status.set(format!("Ollama error: {e}"));
+                            sop_analyzing.set(None);
+                            return;
+                        }
+                    };
                 if let Err(e) = tauri_invoke_args::<()>(
                     "save_audit_plan",
                     serde_json::json!({ "sopFileId": fid, "processesJson": json_str }),

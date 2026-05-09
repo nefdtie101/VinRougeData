@@ -10,8 +10,8 @@ pub enum ChartTab {
 impl ChartTab {
     pub fn label(self) -> &'static str {
         match self {
-            ChartTab::Bar   => "Bar",
-            ChartTab::Pie   => "Pie",
+            ChartTab::Bar => "Bar",
+            ChartTab::Pie => "Pie",
             ChartTab::Table => "Table",
         }
     }

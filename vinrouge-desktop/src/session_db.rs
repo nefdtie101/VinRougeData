@@ -55,13 +55,19 @@ impl<'a> SessionDb<'a> {
         headers: &[String],
         mappings: &[(String, String)],
     ) -> HashMap<String, String> {
-        let lookup: HashMap<&str, &str> =
-            mappings.iter().map(|(s, t)| (s.as_str(), t.as_str())).collect();
+        let lookup: HashMap<&str, &str> = mappings
+            .iter()
+            .map(|(s, t)| (s.as_str(), t.as_str()))
+            .collect();
         let mut out = HashMap::new();
         for (i, val) in row.iter().enumerate() {
             if let Some(hdr) = headers.get(i) {
                 let target = lookup.get(hdr.as_str()).copied().unwrap_or("");
-                let key = if target.is_empty() { hdr.as_str() } else { target };
+                let key = if target.is_empty() {
+                    hdr.as_str()
+                } else {
+                    target
+                };
                 out.insert(key.to_string(), val.clone());
             }
         }
@@ -79,8 +85,7 @@ impl<'a> SessionDb<'a> {
     ) -> Result<String, String> {
         let import_id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
-        let mappings_json =
-            serde_json::to_string(mappings).unwrap_or_else(|_| "[]".to_string());
+        let mappings_json = serde_json::to_string(mappings).unwrap_or_else(|_| "[]".to_string());
         let row_count = rows.len();
 
         self.conn
@@ -102,8 +107,7 @@ impl<'a> SessionDb<'a> {
 
         for (idx, row_map) in rows.iter().enumerate() {
             let row_id = uuid::Uuid::new_v4().to_string();
-            let data_json =
-                serde_json::to_string(row_map).unwrap_or_else(|_| "{}".to_string());
+            let data_json = serde_json::to_string(row_map).unwrap_or_else(|_| "{}".to_string());
             self.conn
                 .execute(
                     "INSERT INTO session_rows (id, import_id, row_index, data_json) \
@@ -146,7 +150,9 @@ impl<'a> SessionDb<'a> {
         let rows: Vec<HashMap<String, String>> = data
             .iter()
             .map(|row| {
-                headers.iter().zip(row.iter())
+                headers
+                    .iter()
+                    .zip(row.iter())
                     .filter(|(h, _)| !h.trim().is_empty())
                     .map(|(h, v)| (h.clone(), v.clone()))
                     .collect()
@@ -186,8 +192,8 @@ impl<'a> SessionDb<'a> {
             let mut result = Vec::new();
 
             for sh in &sheet_names {
-                let mut src = ExcelSource::from_bytes(bytes.clone(), name.to_string())
-                    .with_sheet(sh.clone());
+                let mut src =
+                    ExcelSource::from_bytes(bytes.clone(), name.to_string()).with_sheet(sh.clone());
 
                 let tables = src.extract_schema().await.map_err(|e| e.to_string())?;
                 let headers: Vec<String> = tables
@@ -205,7 +211,9 @@ impl<'a> SessionDb<'a> {
                 let rows: Vec<HashMap<String, String>> = data
                     .iter()
                     .map(|row| {
-                        headers.iter().zip(row.iter())
+                        headers
+                            .iter()
+                            .zip(row.iter())
                             .filter(|(h, _)| !h.trim().is_empty())
                             .map(|(h, v)| (h.clone(), v.clone()))
                             .collect()
@@ -259,8 +267,10 @@ impl<'a> SessionDb<'a> {
         mappings: &[(String, String)],
         raw_rows: Vec<HashMap<String, String>>,
     ) -> Result<String, String> {
-        let lookup: HashMap<&str, &str> =
-            mappings.iter().map(|(s, t)| (s.as_str(), t.as_str())).collect();
+        let lookup: HashMap<&str, &str> = mappings
+            .iter()
+            .map(|(s, t)| (s.as_str(), t.as_str()))
+            .collect();
 
         let rows: Vec<HashMap<String, String>> = raw_rows
             .into_iter()
@@ -342,9 +352,10 @@ impl<'a> SessionDb<'a> {
             )
             .map_err(|e| e.to_string())?;
         let jsons = stmt
-            .query_map(rusqlite::params![import_id, limit as i64, offset as i64], |row| {
-                row.get::<_, String>(0)
-            })
+            .query_map(
+                rusqlite::params![import_id, limit as i64, offset as i64],
+                |row| row.get::<_, String>(0),
+            )
             .map_err(|e| e.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string())?;
@@ -450,7 +461,13 @@ impl<'a> SessionDb<'a> {
         let col_names: Vec<String> = imp
             .mappings
             .iter()
-            .map(|(src, tgt)| if tgt.is_empty() { src.clone() } else { tgt.clone() })
+            .map(|(src, tgt)| {
+                if tgt.is_empty() {
+                    src.clone()
+                } else {
+                    tgt.clone()
+                }
+            })
             .filter(|n| !n.trim().is_empty())
             .collect();
         if col_names.is_empty() {
@@ -484,8 +501,10 @@ impl<'a> SessionDb<'a> {
         table.row_count = Some(imp.row_count);
 
         for cp in &profile.column_profiles {
-            let mut col =
-                SchemaColumn::new(cp.column_name.clone(), SchemaDataType::VarChar { max_length: None });
+            let mut col = SchemaColumn::new(
+                cp.column_name.clone(),
+                SchemaDataType::VarChar { max_length: None },
+            );
             col.unique_count = Some(cp.unique_values);
             col.null_count = Some(cp.null_count);
             // Mark as PK heuristic: high uniqueness AND looks like an identifier
@@ -537,4 +556,3 @@ fn table_name_from_source_name(source_name: &str) -> String {
         .map(|c| if c.is_alphanumeric() { c } else { '_' })
         .collect()
 }
-

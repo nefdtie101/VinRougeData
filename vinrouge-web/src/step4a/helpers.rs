@@ -4,17 +4,18 @@ use super::types::RunResult;
 pub fn parse_run_result(results: &[serde_json::Value], dt_ms: f64) -> RunResult {
     // Prefer the first assert; fall back to value / sample / error.
     let first_assert = results.iter().find(|r| r["kind"] == "assert");
-    let first_error  = results.iter().find(|r| r["kind"] == "error");
+    let first_error = results.iter().find(|r| r["kind"] == "error");
 
     if let Some(r) = first_assert {
         let passed = r["passed"].as_bool().unwrap_or(false);
-        let failed_count = results.iter()
+        let failed_count = results
+            .iter()
             .filter(|r| r["kind"] == "assert" && r["passed"] == false)
             .count();
         return RunResult {
             expr_type: "EXCEPTIONS".to_string(),
-            expected:  "0".to_string(),
-            actual:    failed_count.to_string(),
+            expected: "0".to_string(),
+            actual: failed_count.to_string(),
             passed,
             duration_ms: dt_ms,
         };
@@ -22,9 +23,9 @@ pub fn parse_run_result(results: &[serde_json::Value], dt_ms: f64) -> RunResult 
     if let Some(r) = first_error {
         return RunResult {
             expr_type: "ERROR".to_string(),
-            expected:  "—".to_string(),
-            actual:    r["error"].as_str().unwrap_or("unknown error").to_string(),
-            passed:    false,
+            expected: "—".to_string(),
+            actual: r["error"].as_str().unwrap_or("unknown error").to_string(),
+            passed: false,
             duration_ms: dt_ms,
         };
     }
@@ -35,18 +36,18 @@ pub fn parse_run_result(results: &[serde_json::Value], dt_ms: f64) -> RunResult 
             let sel = r["selected_count"].as_u64().unwrap_or(0);
             return RunResult {
                 expr_type: "SAMPLE".to_string(),
-                expected:  pop.to_string(),
-                actual:    sel.to_string(),
-                passed:    true,
+                expected: pop.to_string(),
+                actual: sel.to_string(),
+                passed: true,
                 duration_ms: dt_ms,
             };
         }
         if r["kind"] == "value" {
             return RunResult {
                 expr_type: "MATH".to_string(),
-                expected:  "—".to_string(),
-                actual:    r["value"].to_string(),
-                passed:    true,
+                expected: "—".to_string(),
+                actual: r["value"].to_string(),
+                passed: true,
                 duration_ms: dt_ms,
             };
         }
@@ -54,9 +55,9 @@ pub fn parse_run_result(results: &[serde_json::Value], dt_ms: f64) -> RunResult 
             let labels = r["labels"].as_array().map(|a| a.len()).unwrap_or(0);
             return RunResult {
                 expr_type: "CHART".to_string(),
-                expected:  "—".to_string(),
-                actual:    format!("{} points", labels),
-                passed:    true,
+                expected: "—".to_string(),
+                actual: format!("{} points", labels),
+                passed: true,
                 duration_ms: dt_ms,
             };
         }
@@ -64,18 +65,18 @@ pub fn parse_run_result(results: &[serde_json::Value], dt_ms: f64) -> RunResult 
             let charts = r["charts"].as_array().map(|a| a.len()).unwrap_or(0);
             return RunResult {
                 expr_type: "SCREEN".to_string(),
-                expected:  "—".to_string(),
-                actual:    format!("{} charts", charts),
-                passed:    true,
+                expected: "—".to_string(),
+                actual: format!("{} charts", charts),
+                passed: true,
                 duration_ms: dt_ms,
             };
         }
     }
     RunResult {
         expr_type: "RUN".to_string(),
-        expected:  "—".to_string(),
-        actual:    format!("{} result(s)", results.len()),
-        passed:    true,
+        expected: "—".to_string(),
+        actual: format!("{} result(s)", results.len()),
+        passed: true,
         duration_ms: dt_ms,
     }
 }
@@ -83,8 +84,17 @@ pub fn parse_run_result(results: &[serde_json::Value], dt_ms: f64) -> RunResult 
 /// Extract a DSL code block from an LLM response.
 pub fn extract_dsl_code(text: &str) -> Option<String> {
     const KWS: &[&str] = &[
-        "EXCEPTIONS", "RECONCILE", "SAMPLE", "TOTAL", "COUNT",
-        "AVERAGE", "FLAG", "ASSERT", "MATH", "CHART", "SCREEN",
+        "EXCEPTIONS",
+        "RECONCILE",
+        "SAMPLE",
+        "TOTAL",
+        "COUNT",
+        "AVERAGE",
+        "FLAG",
+        "ASSERT",
+        "MATH",
+        "CHART",
+        "SCREEN",
     ];
 
     // Try ``` code fences first.
@@ -114,5 +124,9 @@ pub fn extract_dsl_code(text: &str) -> Option<String> {
             out.push(line.to_string());
         }
     }
-    if out.is_empty() { None } else { Some(out.join("\n").trim().to_string()) }
+    if out.is_empty() {
+        None
+    } else {
+        Some(out.join("\n").trim().to_string())
+    }
 }

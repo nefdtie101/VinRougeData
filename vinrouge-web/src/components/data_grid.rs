@@ -1,15 +1,18 @@
+use leptos::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use leptos::prelude::*;
 use wasm_bindgen::{JsCast, JsValue};
 
 // ── Popout window helpers ─────────────────────────────────────────────────────
 
 /// Build the self-contained interactive HTML for the data popout window.
 pub fn build_data_window_html(tables: &[(String, Vec<String>, Vec<Vec<String>>)]) -> String {
-    let tables_val: Vec<serde_json::Value> = tables.iter().map(|(name, cols, rows)| {
-        serde_json::json!({ "name": name, "columns": cols, "rows": rows })
-    }).collect();
+    let tables_val: Vec<serde_json::Value> = tables
+        .iter()
+        .map(
+            |(name, cols, rows)| serde_json::json!({ "name": name, "columns": cols, "rows": rows }),
+        )
+        .collect();
 
     let tables_json = serde_json::to_string(&serde_json::Value::Array(tables_val))
         .unwrap_or_default()
@@ -139,7 +142,10 @@ document.addEventListener('DOMContentLoaded',function(){
 "#);
 
     for (i, (name, _, rows)) in tables.iter().enumerate() {
-        let safe = name.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+        let safe = name
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
         let active = if i == 0 { " active" } else { "" };
         html.push_str(&format!(
             r#"<button class="tab{active}" data-ti="{i}">{safe}<span class="tab-count">{}</span></button>"#,
@@ -167,7 +173,9 @@ pub async fn open_data_window(
 ) {
     if tables.is_empty() {
         // Close the pre-opened blank tab if we have nothing to show
-        if let Some(w) = pre_win { let _ = w.close(); }
+        if let Some(w) = pre_win {
+            let _ = w.close();
+        }
         return;
     }
 
@@ -183,12 +191,16 @@ pub async fn open_data_window(
     // Browser: build HTML, create a Blob URL, then navigate the pre-opened tab to it.
     let html = build_data_window_html(&tables);
 
-    let blob = match web_sys::Blob::new_with_str_sequence(
-        &js_sys::Array::of1(&JsValue::from_str(&html))
-    ) { Ok(b) => b, Err(_) => return };
+    let blob = match web_sys::Blob::new_with_str_sequence(&js_sys::Array::of1(&JsValue::from_str(
+        &html,
+    ))) {
+        Ok(b) => b,
+        Err(_) => return,
+    };
 
     let url = match web_sys::Url::create_object_url_with_blob(&blob) {
-        Ok(u) => u, Err(_) => return,
+        Ok(u) => u,
+        Err(_) => return,
     };
 
     if let Some(win) = pre_win {
@@ -204,7 +216,7 @@ pub async fn open_data_window(
 
 // ── In-app DataGrid ───────────────────────────────────────────────────────────
 
-const ROW_H:    f64   = 28.0;
+const ROW_H: f64 = 28.0;
 const OVERSCAN: usize = 12;
 
 fn col_letter(i: usize) -> String {
@@ -232,21 +244,21 @@ pub fn DataGrid(
     let num_cols = cols.len();
 
     // ── Filter state ──────────────────────────────────────────────────────────
-    let filters:  RwSignal<HashMap<usize, HashSet<String>>> = RwSignal::new(HashMap::new());
-    let open_col: RwSignal<Option<usize>>                   = RwSignal::new(None);
+    let filters: RwSignal<HashMap<usize, HashSet<String>>> = RwSignal::new(HashMap::new());
+    let open_col: RwSignal<Option<usize>> = RwSignal::new(None);
 
     // ── Sort state ────────────────────────────────────────────────────────────
     let sort_col: RwSignal<Option<(usize, bool)>> = RwSignal::new(None);
 
     // ── Virtual-scroll state ──────────────────────────────────────────────────
-    let scroll_top:    RwSignal<f64> = RwSignal::new(0.0);
-    let viewport_h:    RwSignal<f64> = RwSignal::new(500.0);
+    let scroll_top: RwSignal<f64> = RwSignal::new(0.0);
+    let viewport_h: RwSignal<f64> = RwSignal::new(500.0);
     let container_ref: NodeRef<leptos::html::Div> = NodeRef::new();
 
-    let rows_arc          = Arc::new(rows);
-    let rows_for_filter   = rows_arc.clone();
-    let rows_for_sort     = rows_arc.clone();
-    let rows_for_body     = rows_arc.clone();
+    let rows_arc = Arc::new(rows);
+    let rows_for_filter = rows_arc.clone();
+    let rows_for_sort = rows_arc.clone();
+    let rows_for_body = rows_arc.clone();
     let rows_for_dropdown = rows_arc.clone();
 
     // ── Filter: keep only rows that pass all active column filters ────────────
@@ -272,13 +284,25 @@ pub fn DataGrid(
         if let Some((ci, asc)) = sort_col.get() {
             let rows = rows_for_sort.clone();
             indices.sort_by(|&a, &b| {
-                let va = rows.get(a).and_then(|r| r.get(ci)).map(|s| s.as_str()).unwrap_or("");
-                let vb = rows.get(b).and_then(|r| r.get(ci)).map(|s| s.as_str()).unwrap_or("");
+                let va = rows
+                    .get(a)
+                    .and_then(|r| r.get(ci))
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
+                let vb = rows
+                    .get(b)
+                    .and_then(|r| r.get(ci))
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 let ord = match (va.parse::<f64>(), vb.parse::<f64>()) {
                     (Ok(na), Ok(nb)) => na.partial_cmp(&nb).unwrap_or(std::cmp::Ordering::Equal),
                     _ => va.to_lowercase().cmp(&vb.to_lowercase()),
                 };
-                if asc { ord } else { ord.reverse() }
+                if asc {
+                    ord
+                } else {
+                    ord.reverse()
+                }
             });
         }
         indices
@@ -286,11 +310,11 @@ pub fn DataGrid(
 
     // ── Memoize visible window ────────────────────────────────────────────────
     let visible_window: Memo<(usize, usize, usize)> = Memo::new(move |_| {
-        let st    = scroll_top.get();
-        let vh    = viewport_h.get().max(200.0);
+        let st = scroll_top.get();
+        let vh = viewport_h.get().max(200.0);
         let total = sorted_filtered.with(|f| f.len());
         let start = ((st / ROW_H) as usize).saturating_sub(OVERSCAN);
-        let end   = (((st + vh) / ROW_H).ceil() as usize + OVERSCAN).min(total);
+        let end = (((st + vh) / ROW_H).ceil() as usize + OVERSCAN).min(total);
         (start, end, total)
     });
 
@@ -307,18 +331,26 @@ pub fn DataGrid(
 
     // ── Keyboard navigation ───────────────────────────────────────────────────
     let on_keydown = move |ev: web_sys::KeyboardEvent| {
-        if open_col.get_untracked().is_some() { return; }
-        let Some((r, c)) = selected_cell.get_untracked() else { return };
+        if open_col.get_untracked().is_some() {
+            return;
+        }
+        let Some((r, c)) = selected_cell.get_untracked() else {
+            return;
+        };
         let visible = sorted_filtered.get_untracked();
         let cur_pos = visible.iter().position(|&i| i == r);
 
         let next_row = match ev.key().as_str() {
-            "ArrowUp"   => cur_pos.and_then(|p| visible.get(p.saturating_sub(1))).copied(),
-            "ArrowDown" => cur_pos.and_then(|p| visible.get((p + 1).min(visible.len().saturating_sub(1)))).copied(),
+            "ArrowUp" => cur_pos
+                .and_then(|p| visible.get(p.saturating_sub(1)))
+                .copied(),
+            "ArrowDown" => cur_pos
+                .and_then(|p| visible.get((p + 1).min(visible.len().saturating_sub(1))))
+                .copied(),
             _ => None,
         };
         let next_col = match ev.key().as_str() {
-            "ArrowLeft"  => Some(c.saturating_sub(1)),
+            "ArrowLeft" => Some(c.saturating_sub(1)),
             "ArrowRight" => Some((c + 1).min(num_cols.saturating_sub(1))),
             _ => None,
         };
@@ -327,11 +359,11 @@ pub fn DataGrid(
             ev.prevent_default();
             selected_cell.set(Some((nr, c)));
             if let Some(el) = container_ref.get_untracked() {
-                let new_pos    = visible.iter().position(|&i| i == nr).unwrap_or(0);
-                let row_top    = new_pos as f64 * ROW_H;
+                let new_pos = visible.iter().position(|&i| i == nr).unwrap_or(0);
+                let row_top = new_pos as f64 * ROW_H;
                 let cur_scroll = el.scroll_top() as f64;
-                let height     = el.client_height() as f64;
-                let header_h   = ROW_H * 2.0;
+                let height = el.client_height() as f64;
+                let header_h = ROW_H * 2.0;
                 if row_top < cur_scroll + header_h {
                     let _ = el.set_scroll_top((row_top - header_h) as i32);
                 } else if row_top + ROW_H > cur_scroll + height {
@@ -345,10 +377,10 @@ pub fn DataGrid(
                 let selector = format!("thead tr:first-child th:nth-child({})", nc + 2);
                 if let Ok(Some(th)) = el.query_selector(&selector) {
                     if let Ok(th_el) = th.dyn_into::<web_sys::HtmlElement>() {
-                        let th_left  = th_el.offset_left() as f64;
+                        let th_left = th_el.offset_left() as f64;
                         let th_right = th_left + th_el.offset_width() as f64;
-                        let cur_sl   = el.scroll_left() as f64;
-                        let visible  = el.client_width() as f64;
+                        let cur_sl = el.scroll_left() as f64;
+                        let visible = el.client_width() as f64;
                         if th_left < cur_sl {
                             let _ = el.set_scroll_left(th_left as i32);
                         } else if th_right > cur_sl + visible {
@@ -360,11 +392,13 @@ pub fn DataGrid(
         }
     };
 
-    let close_dropdown = move || { open_col.set(None); };
+    let close_dropdown = move || {
+        open_col.set(None);
+    };
 
-    let letters    = (0..cols.len()).map(col_letter).collect::<Vec<_>>();
+    let letters = (0..cols.len()).map(col_letter).collect::<Vec<_>>();
     let cols_clone = cols.clone();
-    let nc1        = num_cols;
+    let nc1 = num_cols;
 
     view! {
         // Backdrop closes the open filter dropdown

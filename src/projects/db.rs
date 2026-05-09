@@ -106,9 +106,8 @@ pub fn open_project(project_dir: &Path) -> Result<Connection> {
         );",
     )?;
     // Additive migrations — errors ignored so existing DBs are upgraded cleanly.
-    let _ = conn.execute_batch(
-        "ALTER TABLE controls ADD COLUMN sop_gap INTEGER NOT NULL DEFAULT 0;",
-    );
+    let _ =
+        conn.execute_batch("ALTER TABLE controls ADD COLUMN sop_gap INTEGER NOT NULL DEFAULT 0;");
     let _ = conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS file_column_mappings (
             file_id       TEXT PRIMARY KEY,

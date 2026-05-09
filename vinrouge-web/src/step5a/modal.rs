@@ -15,19 +15,21 @@ pub fn FindingModal(
     result: TestResult,
     on_close: Callback<()>,
 ) -> impl IntoView {
-    let tab: RwSignal<ChartTab>         = RwSignal::new(ChartTab::Bar);
-    let dist: RwSignal<Vec<DistPoint>>  = RwSignal::new(vec![]);
-    let loading: RwSignal<bool>         = RwSignal::new(false);
+    let tab: RwSignal<ChartTab> = RwSignal::new(ChartTab::Bar);
+    let dist: RwSignal<Vec<DistPoint>> = RwSignal::new(vec![]);
+    let loading: RwSignal<bool> = RwSignal::new(false);
     let err_sig: RwSignal<Option<String>> = RwSignal::new(None);
 
     // Collect distinct source columns from failed assertions.
     let all_cols: Vec<String> = {
         let mut seen = std::collections::HashSet::new();
-        result.results.iter()
+        result
+            .results
+            .iter()
             .filter(|s| {
                 s["kind"].as_str() == Some("assert")
-                && !s["passed"].as_bool().unwrap_or(true)
-                && s.get("source_col").and_then(|v| v.as_str()).is_some()
+                    && !s["passed"].as_bool().unwrap_or(true)
+                    && s.get("source_col").and_then(|v| v.as_str()).is_some()
             })
             .filter_map(|s| s["source_col"].as_str().map(String::from))
             .filter(|c| seen.insert(c.clone()))
@@ -50,21 +52,25 @@ pub fn FindingModal(
             match tauri_invoke_args::<Vec<DistPoint>>(
                 "get_column_distribution",
                 serde_json::json!({ "tableCol": col }),
-            ).await {
+            )
+            .await
+            {
                 Ok(pts) => dist.set(pts),
-                Err(e)  => err_sig.set(Some(e)),
+                Err(e) => err_sig.set(Some(e)),
             }
             loading.set(false);
         });
     });
 
     // Static data cloned for use inside closures.
-    let label     = script.label.clone();
-    let ctrl_ref  = script.control_ref.clone();
+    let label = script.label.clone();
+    let ctrl_ref = script.control_ref.clone();
     let script_id = script.id.clone();
 
     // Pre-build the static failed-assertions list (rendered once, not reactive).
-    let failed_rows: Vec<_> = result.results.iter()
+    let failed_rows: Vec<_> = result
+        .results
+        .iter()
         .filter(|s| {
             let k = s["kind"].as_str().unwrap_or("");
             (k == "assert" && !s["passed"].as_bool().unwrap_or(true)) || k == "error"
@@ -74,7 +80,7 @@ pub fn FindingModal(
             if kind == "assert" {
                 let lbl = s["label"].as_str().unwrap_or("assert").to_string();
                 let lhs = s["lhs_value"].as_str().unwrap_or("?").to_string();
-                let op  = s["op"].as_str().unwrap_or("=").to_string();
+                let op = s["op"].as_str().unwrap_or("=").to_string();
                 let rhs = s["rhs_value"].as_str().unwrap_or("?").to_string();
                 view! {
                     <div style="padding:6px 10px;background:rgba(224,92,92,0.08);
@@ -85,7 +91,8 @@ pub fn FindingModal(
                             {format!("actual {lhs} {op} {rhs}")}
                         </span>
                     </div>
-                }.into_any()
+                }
+                .into_any()
             } else {
                 let err = s["error"].as_str().unwrap_or("error").to_string();
                 view! {
@@ -94,14 +101,15 @@ pub fn FindingModal(
                                 font-size:12px;color:#f0a500">
                         {err}
                     </div>
-                }.into_any()
+                }
+                .into_any()
             }
         })
         .collect();
 
-    let dist_sig  = Signal::derive(move || dist.get());
-    let tab_sig   = Signal::derive(move || tab.get());
-    let has_cols  = !all_cols.is_empty();
+    let dist_sig = Signal::derive(move || dist.get());
+    let tab_sig = Signal::derive(move || tab.get());
+    let has_cols = !all_cols.is_empty();
     let multi_col = all_cols.len() > 1;
     let cols_for_select = all_cols.clone();
 

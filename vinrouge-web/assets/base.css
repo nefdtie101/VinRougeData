@@ -484,3 +484,42 @@ section h2 {
   font-style: italic;
   padding: 1rem 0;
 }
+
+
+/* ── Update banner ──────────────────────────────────────────────────────────── */
+
+.update-banner {
+  background: var(--w-accent-dim);
+  border-bottom: 1px solid var(--w-border);
+  padding: 0.6rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.875rem;
+}
+
+.update-banner-text {
+  color: var(--w-text-2);
+}
+
+.update-banner-btn {
+  background: var(--w-accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.35rem 0.9rem;
+  margin-left: auto;
+  transition: opacity 0.15s;
+}
+
+.update-banner-btn:hover {
+  opacity: 0.85;
+}
+
+.update-banner--error {
+  background: rgba(139, 26, 42, 0.2);
+  color: var(--accent-hover);
+}

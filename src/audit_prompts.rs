@@ -393,10 +393,7 @@ pub fn normalize_audit_plan_json(raw: &str) -> Result<String, String> {
             if let Some(obj) = proc.as_object_mut() {
                 rename_key(obj, "processName", "process_name");
 
-                if let Some(controls) = obj
-                    .get_mut("controls")
-                    .and_then(|c| c.as_array_mut())
-                {
+                if let Some(controls) = obj.get_mut("controls").and_then(|c| c.as_array_mut()) {
                     for ctrl in controls.iter_mut() {
                         if let Some(co) = ctrl.as_object_mut() {
                             rename_key(co, "controlRef", "control_ref");
@@ -430,9 +427,7 @@ pub fn normalize_audit_plan_json(raw: &str) -> Result<String, String> {
                             // Normalise sop_gap: coerce "true"/"false" strings → bool.
                             if let Some(sg) = co.get_mut("sop_gap") {
                                 if let Some(s) = sg.as_str() {
-                                    *sg = serde_json::Value::Bool(
-                                        s.eq_ignore_ascii_case("true"),
-                                    );
+                                    *sg = serde_json::Value::Bool(s.eq_ignore_ascii_case("true"));
                                 }
                             }
                             // Default sop_gap to false if missing.
@@ -455,11 +450,7 @@ pub fn normalize_audit_plan_json(raw: &str) -> Result<String, String> {
     serde_json::to_string(&v).map_err(|e| format!("Serialisation error: {e}"))
 }
 
-fn rename_key(
-    obj: &mut serde_json::Map<String, serde_json::Value>,
-    from: &str,
-    to: &str,
-) {
+fn rename_key(obj: &mut serde_json::Map<String, serde_json::Value>, from: &str, to: &str) {
     if obj.contains_key(from) && !obj.contains_key(to) {
         if let Some(val) = obj.remove(from) {
             obj.insert(to.to_string(), val);
@@ -660,7 +651,7 @@ Rule: every named threshold or approved-value list in the control_description\n\
 MUST produce at least one ASSERT. These catch real violations in client data.\n\n";
 
 pub const GENERATE_DSL: &str =
-"You are an expert audit DSL programmer. Generate executable VinRouge DSL test scripts.\n\n";
+    "You are an expert audit DSL programmer. Generate executable VinRouge DSL test scripts.\n\n";
 
 // GENERATE_DSL is prepended with DSL_LANGUAGE_REFERENCE at call sites via
 // the build_generate_dsl_prompt() helper below.
@@ -674,7 +665,7 @@ pub fn build_generate_dsl_prompt() -> String {
 
 /// Absolute rules appended after the schema/plan context at generation time.
 pub const GENERATE_DSL_RULES: &str =
-"══════════════════════════════════════════════════════════════\n\
+    "══════════════════════════════════════════════════════════════\n\
  ABSOLUTE RULES — violating any of these breaks the script\n\
 ══════════════════════════════════════════════════════════════\n\
 \n\

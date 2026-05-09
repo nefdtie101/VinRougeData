@@ -3,10 +3,10 @@
 //!   vinrouge.db     — the project SQLite database
 //!   files/          — all uploaded project files
 
+use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::path::Path;
 use zip::write::FileOptions;
-use serde::{Deserialize, Serialize};
 
 const VRD_VERSION: &str = "1";
 
@@ -25,8 +25,7 @@ struct VrdManifest {
 /// The returned `Project` has `path = vrd_path` and `vrd_path` set,
 /// so `open_project` can detect it and extract on demand.
 pub fn peek_vrd_project(vrd_path: &Path) -> Result<super::Project, String> {
-    let file = std::fs::File::open(vrd_path)
-        .map_err(|e| format!("Cannot open .vrd: {e}"))?;
+    let file = std::fs::File::open(vrd_path).map_err(|e| format!("Cannot open .vrd: {e}"))?;
     let mut archive =
         zip::ZipArchive::new(file).map_err(|e| format!("Not a valid .vrd archive: {e}"))?;
     let manifest: VrdManifest = {
@@ -54,8 +53,8 @@ pub fn export_project_vrd(
     project: &super::Project,
     dest_path: &Path,
 ) -> Result<(), String> {
-    let file = std::fs::File::create(dest_path)
-        .map_err(|e| format!("Cannot create .vrd file: {e}"))?;
+    let file =
+        std::fs::File::create(dest_path).map_err(|e| format!("Cannot create .vrd file: {e}"))?;
     let mut zip = zip::ZipWriter::new(file);
     let options = FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
@@ -67,7 +66,8 @@ pub fn export_project_vrd(
         created_at: project.created_at.clone(),
         exported_at: chrono::Utc::now().to_rfc3339(),
     };
-    zip.start_file("manifest.json", options).map_err(|e| e.to_string())?;
+    zip.start_file("manifest.json", options)
+        .map_err(|e| e.to_string())?;
     zip.write_all(
         serde_json::to_string_pretty(&manifest)
             .map_err(|e| e.to_string())?
@@ -79,14 +79,16 @@ pub fn export_project_vrd(
     let db_path = project_dir.join("vinrouge.db");
     if db_path.exists() {
         let bytes = std::fs::read(&db_path).map_err(|e| e.to_string())?;
-        zip.start_file("vinrouge.db", options).map_err(|e| e.to_string())?;
+        zip.start_file("vinrouge.db", options)
+            .map_err(|e| e.to_string())?;
         zip.write_all(&bytes).map_err(|e| e.to_string())?;
     }
 
     // Write files/ directory
     let files_dir = project_dir.join("files");
     if files_dir.exists() {
-        zip.add_directory("files/", options).map_err(|e| e.to_string())?;
+        zip.add_directory("files/", options)
+            .map_err(|e| e.to_string())?;
         add_dir_to_zip(&mut zip, &files_dir, project_dir, options)?;
     }
 
@@ -126,8 +128,7 @@ fn add_dir_to_zip<W: Write + std::io::Seek>(
 // ── Import ────────────────────────────────────────────────────────────────────
 
 pub fn import_project_vrd(vrd_path: &Path, parent_dir: &Path) -> Result<super::Project, String> {
-    let file = std::fs::File::open(vrd_path)
-        .map_err(|e| format!("Cannot open .vrd file: {e}"))?;
+    let file = std::fs::File::open(vrd_path).map_err(|e| format!("Cannot open .vrd file: {e}"))?;
     let mut archive =
         zip::ZipArchive::new(file).map_err(|e| format!("Not a valid .vrd archive: {e}"))?;
 
@@ -304,9 +305,9 @@ pub fn migrate_projects_to_vrd(
                 Ok(_) => progress(&format!("    Backed up to {}", backup_target.display())),
                 Err(_) => {
                     // rename fails across filesystems — copy then delete
-                    match copy_dir_all(&project_dir, &backup_target)
-                        .and_then(|_| std::fs::remove_dir_all(&project_dir).map_err(|e| e.to_string()))
-                    {
+                    match copy_dir_all(&project_dir, &backup_target).and_then(|_| {
+                        std::fs::remove_dir_all(&project_dir).map_err(|e| e.to_string())
+                    }) {
                         Ok(_) => progress(&format!("    Backed up to {}", backup_target.display())),
                         Err(e) => progress(&format!("    Backup failed: {e}")),
                     }
@@ -321,10 +322,7 @@ pub fn migrate_projects_to_vrd(
         "\nMigration complete: {ok} exported, {skipped} skipped."
     ));
     if !delete_originals && ok > 0 {
-        progress(&format!(
-            "Originals backed up to: {}",
-            backup_dir.display()
-        ));
+        progress(&format!("Originals backed up to: {}", backup_dir.display()));
     }
     progress(&format!(".vrd files saved to: {}", vrd_dir.display()));
 

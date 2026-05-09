@@ -46,10 +46,8 @@ fn chunk_sop(text: &str) -> Vec<String> {
 fn merge_plans(plans: &[String]) -> Result<String, String> {
     // Preserve insertion order with a separate key list.
     let mut order: Vec<String> = Vec::new();
-    let mut map: std::collections::HashMap<
-        String,
-        (String, String, Vec<serde_json::Value>),
-    > = std::collections::HashMap::new();
+    let mut map: std::collections::HashMap<String, (String, String, Vec<serde_json::Value>)> =
+        std::collections::HashMap::new();
     let mut industry = String::new();
     let mut framework = String::new();
 
@@ -129,7 +127,10 @@ fn format_plan_chunk(processes: &[crate::types::AuditProcessWithControls]) -> St
         s.push_str(&format!("Process: {}\n", p.process_name));
         s.push_str(&format!("Description: {}\n", p.description));
         for c in &p.controls {
-            s.push_str(&format!("  Control {}: {}\n", c.control_ref, c.control_objective));
+            s.push_str(&format!(
+                "  Control {}: {}\n",
+                c.control_ref, c.control_objective
+            ));
             s.push_str(&format!("    How it operates: {}\n", c.control_description));
             s.push_str(&format!("    Test procedure: {}\n", c.test_procedure));
             s.push_str(&format!("    Risk: {}\n", c.risk_level));
@@ -176,9 +177,7 @@ pub async fn ask_pbc_list(
         let raw = ask_ollama_structured(base_url, model, &prompt, schema.clone()).await?;
 
         let extract_items = |s: &str| -> Option<Vec<serde_json::Value>> {
-            serde_json::from_str::<serde_json::Value>(s)
-                .ok()?
-                ["items"]
+            serde_json::from_str::<serde_json::Value>(s).ok()?["items"]
                 .as_array()
                 .filter(|a| !a.is_empty())
                 .cloned()
@@ -385,7 +384,11 @@ pub async fn ask_column_mapping(
     use leptos::logging::log;
     use vinrouge::audit_prompts::{map_columns_schema, MAP_COLUMNS};
 
-    log!("[column_mapping] starting — {} headers, {} pbc groups", headers.len(), pbc_groups.len());
+    log!(
+        "[column_mapping] starting — {} headers, {} pbc groups",
+        headers.len(),
+        pbc_groups.len()
+    );
 
     // Valid field set — used to reject hallucinated targets after each call.
     let valid_fields: std::collections::HashSet<String> = pbc_groups
@@ -428,11 +431,15 @@ pub async fn ask_column_mapping(
     for (i, chunk) in chunks.iter().enumerate() {
         log!(
             "[column_mapping] chunk {}/{} — {} columns",
-            i + 1, total, chunk.len()
+            i + 1,
+            total,
+            chunk.len()
         );
 
         // Number the source columns so the model must process them in order.
-        let numbered: Vec<String> = chunk.iter().enumerate()
+        let numbered: Vec<String> = chunk
+            .iter()
+            .enumerate()
             .map(|(j, h)| format!("{}. {}", j + 1, h))
             .collect();
         let chunk_json = serde_json::to_string(&numbered).map_err(|e| e.to_string())?;
@@ -452,7 +459,8 @@ pub async fn ask_column_mapping(
         );
         log!("[column_mapping] prompt {} chars", prompt.len());
 
-        let raw = match ask_ollama_structured(base_url, model, &prompt, map_columns_schema()).await {
+        let raw = match ask_ollama_structured(base_url, model, &prompt, map_columns_schema()).await
+        {
             Ok(r) => {
                 log!("[column_mapping] chunk {} response: {}", i + 1, r);
                 r
@@ -479,8 +487,7 @@ pub async fn ask_column_mapping(
         };
 
         // Build a set of the actual source column names in this chunk for validation.
-        let chunk_set: std::collections::HashSet<&str> =
-            chunk.iter().map(|s| s.as_str()).collect();
+        let chunk_set: std::collections::HashSet<&str> = chunk.iter().map(|s| s.as_str()).collect();
 
         if let Some(arr) = v["mappings"].as_array() {
             for m in arr {
@@ -490,17 +497,29 @@ pub async fn ask_column_mapping(
                 };
                 // Reject sources that aren't in this chunk (model hallucinated column names).
                 if !chunk_set.contains(src.as_str()) {
-                    log!("[column_mapping] rejected unknown source '{}' in chunk {}", src, i + 1);
+                    log!(
+                        "[column_mapping] rejected unknown source '{}' in chunk {}",
+                        src,
+                        i + 1
+                    );
                     continue;
                 }
                 let tgt = m["target"].as_str().unwrap_or("").to_string();
                 let tgt = if tgt.is_empty() {
                     tgt
                 } else if !valid_fields.contains(&tgt) {
-                    log!("[column_mapping] rejected hallucinated target '{}' for '{}'", tgt, src);
+                    log!(
+                        "[column_mapping] rejected hallucinated target '{}' for '{}'",
+                        tgt,
+                        src
+                    );
                     String::new()
                 } else if used_targets.contains(&tgt) {
-                    log!("[column_mapping] demoted '{}' → '{}': target already taken", src, tgt);
+                    log!(
+                        "[column_mapping] demoted '{}' → '{}': target already taken",
+                        src,
+                        tgt
+                    );
                     String::new()
                 } else {
                     tgt
@@ -515,7 +534,10 @@ pub async fn ask_column_mapping(
         }
     }
 
-    log!("[column_mapping] done — {} raw mappings", all_mappings.len());
+    log!(
+        "[column_mapping] done — {} raw mappings",
+        all_mappings.len()
+    );
 
     // Final dedup: remove any duplicate source entries the model may have produced within a chunk.
     // Target uniqueness is already guaranteed by `used_targets` maintained during the loop.
@@ -532,7 +554,10 @@ pub async fn ask_column_mapping(
         })
         .collect();
 
-    log!("[column_mapping] {} mappings after dedup", all_mappings.len());
+    log!(
+        "[column_mapping] {} mappings after dedup",
+        all_mappings.len()
+    );
     if all_mappings.is_empty() {
         return Err("No mappings returned by LLM".to_string());
     }
@@ -633,7 +658,12 @@ pub async fn ask_claude(
         .and_then(|arr| arr.first())
         .and_then(|first| first["text"].as_str())
         .map(|s| s.to_string())
-        .ok_or_else(|| format!("Unexpected response shape: {}", serde_json::to_string(&val).unwrap_or_default()))
+        .ok_or_else(|| {
+            format!(
+                "Unexpected response shape: {}",
+                serde_json::to_string(&val).unwrap_or_default()
+            )
+        })
 }
 
 /// Unified AI call — routes to Ollama or Claude based on saved settings.
@@ -641,7 +671,13 @@ pub async fn ask_ai(system: &str, question: &str) -> Result<String, String> {
     let settings = AppSettings::load();
     match settings.provider {
         crate::storage::AiProvider::Ollama => {
-            ask_ollama_wasm(&settings.ollama_url, &settings.ollama_model, system, question).await
+            ask_ollama_wasm(
+                &settings.ollama_url,
+                &settings.ollama_model,
+                system,
+                question,
+            )
+            .await
         }
         crate::storage::AiProvider::Terminal => {
             Err("Terminal provider: use the Open Terminal button in the Terminal tab.".to_string())

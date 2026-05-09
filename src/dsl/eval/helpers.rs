@@ -15,7 +15,7 @@ pub(super) fn like_match(text: &str, pattern: &str) -> bool {
             dp[i][j] = match p[j - 1] {
                 '%' => dp[i - 1][j] || dp[i][j - 1],
                 '_' => dp[i - 1][j - 1],
-                c   => dp[i - 1][j - 1] && t[i - 1].to_ascii_lowercase() == c.to_ascii_lowercase(),
+                c => dp[i - 1][j - 1] && t[i - 1].to_ascii_lowercase() == c.to_ascii_lowercase(),
             };
         }
     }
@@ -58,7 +58,9 @@ pub(super) fn normalize_date(s: &str) -> String {
 /// Return true when `s` matches a recognisable date pattern.
 /// Accepts: YYYY-MM-DD, YYYY/MM/DD, DD/MM/YYYY, DD-MM-YYYY, MM/DD/YYYY.
 pub(super) fn is_date_str(s: &str) -> bool {
-    if s.len() != 10 { return false; }
+    if s.len() != 10 {
+        return false;
+    }
     let b = s.as_bytes();
     let sep4 = b[4];
     let sep2 = b[2];

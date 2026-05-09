@@ -2,13 +2,13 @@ use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
 
+use super::types::{DataFile, FileSource};
+use super::upload::{normalize_map, start_file_upload, upload_file_list};
 use crate::components::{Banner, GhostButton, PrimaryButton, Spinner, StatCard};
 use crate::file_analysis::read_file_bytes;
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
 use crate::ollama::{ask_column_mapping, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::types::{AuditProcessWithControls, PbcGroup, ProjectFile};
-use super::types::{DataFile, FileSource};
-use super::upload::{normalize_map, start_file_upload, upload_file_list};
 
 #[component]
 pub fn Step4View(
@@ -34,71 +34,71 @@ pub fn Step4View(
             }
         }
         if data_files.get_untracked().is_empty() {
-        if let Ok(files) = tauri_invoke::<Vec<ProjectFile>>("list_project_files").await {
-            let mut loaded: Vec<DataFile> = vec![];
-            for f in files
-                .into_iter()
-                .filter(|f| matches!(f.file_type.as_str(), "csv" | "xlsx" | "xls"))
-            {
-                let cols: Vec<String> = tauri_invoke_args(
-                    "get_data_file_headers",
-                    serde_json::json!({ "fileId": f.id }),
-                )
-                .await
-                .unwrap_or_default();
-
-                // Try to load previously-saved mappings; only run AI if none exist.
-                let mappings = match tauri_invoke_args::<Vec<(String, String)>>(
-                    "get_column_mappings",
-                    serde_json::json!({ "fileId": f.id }),
-                )
-                .await
+            if let Ok(files) = tauri_invoke::<Vec<ProjectFile>>("list_project_files").await {
+                let mut loaded: Vec<DataFile> = vec![];
+                for f in files
+                    .into_iter()
+                    .filter(|f| matches!(f.file_type.as_str(), "csv" | "xlsx" | "xls"))
                 {
-                    Ok(m) if !m.is_empty() => m,
-                    _ => {
-                        let groups_snap = pbc_groups.get_untracked();
-                        let m = match ask_column_mapping(
-                            OLLAMA_DEFAULT_URL,
-                            OLLAMA_DEFAULT_MODEL,
-                            &cols,
-                            &groups_snap,
-                        )
-                        .await
-                        {
-                            Ok(m) if !m.is_empty() => m,
-                            _ => {
-                                let all_fields: Vec<String> = groups_snap
-                                    .iter()
-                                    .flat_map(|g| g.items.iter())
-                                    .flat_map(|i| i.fields.iter().cloned())
-                                    .collect();
-                                normalize_map(&cols, &all_fields)
-                            }
-                        };
-                        // Persist so next load skips AI.
-                        let _ = tauri_invoke_args::<()>(
-                            "save_column_mappings",
-                            serde_json::json!({ "fileId": f.id, "mappings": m }),
-                        )
-                        .await;
-                        m
-                    }
-                };
+                    let cols: Vec<String> = tauri_invoke_args(
+                        "get_data_file_headers",
+                        serde_json::json!({ "fileId": f.id }),
+                    )
+                    .await
+                    .unwrap_or_default();
 
-                loaded.push(DataFile {
-                    local_id: f.name.clone(),
-                    name: f.name.clone(),
-                    columns: cols,
-                    mappings,
-                    source: FileSource::Saved(f.id.clone()),
-                });
+                    // Try to load previously-saved mappings; only run AI if none exist.
+                    let mappings = match tauri_invoke_args::<Vec<(String, String)>>(
+                        "get_column_mappings",
+                        serde_json::json!({ "fileId": f.id }),
+                    )
+                    .await
+                    {
+                        Ok(m) if !m.is_empty() => m,
+                        _ => {
+                            let groups_snap = pbc_groups.get_untracked();
+                            let m = match ask_column_mapping(
+                                OLLAMA_DEFAULT_URL,
+                                OLLAMA_DEFAULT_MODEL,
+                                &cols,
+                                &groups_snap,
+                            )
+                            .await
+                            {
+                                Ok(m) if !m.is_empty() => m,
+                                _ => {
+                                    let all_fields: Vec<String> = groups_snap
+                                        .iter()
+                                        .flat_map(|g| g.items.iter())
+                                        .flat_map(|i| i.fields.iter().cloned())
+                                        .collect();
+                                    normalize_map(&cols, &all_fields)
+                                }
+                            };
+                            // Persist so next load skips AI.
+                            let _ = tauri_invoke_args::<()>(
+                                "save_column_mappings",
+                                serde_json::json!({ "fileId": f.id, "mappings": m }),
+                            )
+                            .await;
+                            m
+                        }
+                    };
+
+                    loaded.push(DataFile {
+                        local_id: f.name.clone(),
+                        name: f.name.clone(),
+                        columns: cols,
+                        mappings,
+                        source: FileSource::Saved(f.id.clone()),
+                    });
+                }
+                if !loaded.is_empty() {
+                    let first_local_id = loaded[0].local_id.clone();
+                    data_files.set(loaded);
+                    selected_id.set(Some(first_local_id));
+                }
             }
-            if !loaded.is_empty() {
-                let first_local_id = loaded[0].local_id.clone();
-                data_files.set(loaded);
-                selected_id.set(Some(first_local_id));
-            }
-        }
         } // end if data_files.is_empty()
     });
 
@@ -108,7 +108,14 @@ pub fn Step4View(
         move |ev: web_sys::Event| {
             let input: web_sys::HtmlInputElement = ev.target().unwrap().unchecked_into();
             if let Some(files) = input.files() {
-                upload_file_list(files, uploading, status, data_files, pbc_groups, selected_id);
+                upload_file_list(
+                    files,
+                    uploading,
+                    status,
+                    data_files,
+                    pbc_groups,
+                    selected_id,
+                );
             }
         }
     };

@@ -2,8 +2,8 @@ use crate::helpers::table_name_from_source;
 use crate::session_db::SessionDb;
 use crate::state::{DslCacheState, ProjectsState};
 use serde::{Deserialize, Serialize};
-use tauri::State;
 use std::path::PathBuf;
+use tauri::State;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SessionSchema {
@@ -39,14 +39,14 @@ pub async fn import_data_file(
                 .to_string_lossy()
                 .to_string();
             let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
-            let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
+            let conn =
+                vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
             let db = SessionDb::new(&conn);
             match ext.as_str() {
                 "csv" => db.import_csv(Some(&file_id), &name, bytes, &mappings),
-                "xlsx" | "xls" => {
-                    db.import_excel(Some(&file_id), &name, bytes, &mappings, sheet.as_deref())
-                        .map(|ids| ids.into_iter().next().unwrap_or_default())
-                }
+                "xlsx" | "xls" => db
+                    .import_excel(Some(&file_id), &name, bytes, &mappings, sheet.as_deref())
+                    .map(|ids| ids.into_iter().next().unwrap_or_default()),
                 _ => Err(format!("Unsupported file type: .{ext}")),
             }
         }
@@ -131,10 +131,7 @@ pub async fn get_session_rows_paged(
 }
 
 #[tauri::command]
-pub fn delete_session_import(
-    import_id: String,
-    state: State<ProjectsState>,
-) -> Result<(), String> {
+pub fn delete_session_import(import_id: String, state: State<ProjectsState>) -> Result<(), String> {
     let project_dir = state.dir()?;
     let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
     SessionDb::new(&conn).delete_import(&import_id)?;
@@ -163,7 +160,11 @@ pub async fn get_session_schemas(
                         .iter()
                         .filter(|(src, _)| !src.trim().is_empty())
                         .map(|(src, tgt)| {
-                            let pbc = if tgt.is_empty() { src.clone() } else { tgt.clone() };
+                            let pbc = if tgt.is_empty() {
+                                src.clone()
+                            } else {
+                                tgt.clone()
+                            };
                             (src.clone(), pbc)
                         })
                         .collect()
@@ -219,15 +220,20 @@ pub async fn detect_data_relationships(
         }
 
         // Step 2 — name/pattern detection
-        let relationships = vinrouge::analysis::RelationshipDetector::new(tables).detect_relationships();
+        let relationships =
+            vinrouge::analysis::RelationshipDetector::new(tables).detect_relationships();
 
         // Step 3 — fetch value samples for every detected candidate
         let mut samples: std::collections::HashMap<(String, String), Vec<String>> =
             std::collections::HashMap::new();
 
         for rel in &relationships {
-            let Some(lid) = table_to_import.get(&rel.from_table) else { continue };
-            let Some(rid) = table_to_import.get(&rel.to_table) else { continue };
+            let Some(lid) = table_to_import.get(&rel.from_table) else {
+                continue;
+            };
+            let Some(rid) = table_to_import.get(&rel.to_table) else {
+                continue;
+            };
 
             let lk = (lid.clone(), rel.from_column.clone());
             if !samples.contains_key(&lk) {
@@ -273,8 +279,7 @@ pub async fn get_column_distribution(
 
         let rows = db.get_rows(&import.id)?;
 
-        let mut counts: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         for row in &rows {
             let val = row
                 .iter()

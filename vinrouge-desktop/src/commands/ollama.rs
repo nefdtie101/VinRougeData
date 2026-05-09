@@ -76,7 +76,9 @@ pub fn start_ollama(state: State<OllamaState>) -> Result<String, String> {
         }
     }
 
-    let child = cmd.spawn().map_err(|e| format!("Failed to start Ollama: {e}"))?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to start Ollama: {e}"))?;
     *guard = Some(child);
     Ok(binary_str)
 }
@@ -133,8 +135,12 @@ pub async fn check_model() -> Result<bool, String> {
     let has_mistral = body["models"]
         .as_array()
         .map(|arr| {
-            arr.iter()
-                .any(|m| m["name"].as_str().unwrap_or("").starts_with(vinrouge::ollama::DEFAULT_MODEL))
+            arr.iter().any(|m| {
+                m["name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .starts_with(vinrouge::ollama::DEFAULT_MODEL)
+            })
         })
         .unwrap_or(false);
 
@@ -213,7 +219,11 @@ pub async fn pull_model(app: AppHandle) -> Result<(), String> {
 
                         let _ = app.emit(
                             "model-pull-progress",
-                            PullProgress { percent, status, done },
+                            PullProgress {
+                                percent,
+                                status,
+                                done,
+                            },
                         );
 
                         if done {

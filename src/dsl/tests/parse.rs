@@ -1,17 +1,25 @@
-use rust_decimal_macros::dec;
 use crate::dsl::*;
+use rust_decimal_macros::dec;
 
 #[test]
 fn test_simple_sum() {
     let stmts = parse("SUM(invoices.amount)").unwrap();
     assert_eq!(stmts.len(), 1);
-    assert!(matches!(&stmts[0].expr, Expr::Aggregate { func: AggFunc::Sum, .. }));
+    assert!(matches!(
+        &stmts[0].expr,
+        Expr::Aggregate {
+            func: AggFunc::Sum,
+            ..
+        }
+    ));
 }
 
 #[test]
 fn test_sum_with_where() {
     let stmts = parse(r#"SUM(invoices.amount) WHERE status = "paid""#).unwrap();
-    let Expr::Aggregate { filter, .. } = &stmts[0].expr else { panic!() };
+    let Expr::Aggregate { filter, .. } = &stmts[0].expr else {
+        panic!()
+    };
     assert!(filter.is_some());
 }
 
@@ -23,15 +31,20 @@ fn test_assert_equality() {
 
 #[test]
 fn test_assert_with_label_string() {
-    let stmts = parse(r#"ASSERT "Debtors recon" debtors_control = SUM(sub_ledger.balance)"#).unwrap();
-    let Expr::Assert { label, .. } = &stmts[0].expr else { panic!() };
+    let stmts =
+        parse(r#"ASSERT "Debtors recon" debtors_control = SUM(sub_ledger.balance)"#).unwrap();
+    let Expr::Assert { label, .. } = &stmts[0].expr else {
+        panic!()
+    };
     assert_eq!(label.as_deref(), Some("Debtors recon"));
 }
 
 #[test]
 fn test_sample_mus() {
     let stmts = parse("SAMPLE MUS invoices.amount 50").unwrap();
-    let Expr::Sample { method, size, .. } = &stmts[0].expr else { panic!() };
+    let Expr::Sample { method, size, .. } = &stmts[0].expr else {
+        panic!()
+    };
     assert_eq!(*method, SampleMethod::Mus);
     assert_eq!(*size, SampleSize::Count(dec!(50)));
 }
@@ -39,26 +52,36 @@ fn test_sample_mus() {
 #[test]
 fn test_sample_percent() {
     let stmts = parse("SAMPLE RANDOM invoices.id 10%").unwrap();
-    let Expr::Sample { size, .. } = &stmts[0].expr else { panic!() };
+    let Expr::Sample { size, .. } = &stmts[0].expr else {
+        panic!()
+    };
     assert_eq!(*size, SampleSize::Percent(dec!(10)));
 }
 
 #[test]
 fn test_arithmetic() {
     let stmts = parse("total_vat = net_sales * 0.15").unwrap();
-    assert!(matches!(&stmts[0].expr, Expr::Compare { op: CmpOp::Eq, .. }));
+    assert!(matches!(
+        &stmts[0].expr,
+        Expr::Compare { op: CmpOp::Eq, .. }
+    ));
 }
 
 #[test]
 fn test_between() {
     let stmts = parse("invoices.amount BETWEEN 1000 AND 50000").unwrap();
-    assert!(matches!(&stmts[0].expr, Expr::Between { negated: false, .. }));
+    assert!(matches!(
+        &stmts[0].expr,
+        Expr::Between { negated: false, .. }
+    ));
 }
 
 #[test]
 fn test_in_list() {
     let stmts = parse(r#"status IN ("paid", "approved", "posted")"#).unwrap();
-    let Expr::InList { values, .. } = &stmts[0].expr else { panic!() };
+    let Expr::InList { values, .. } = &stmts[0].expr else {
+        panic!()
+    };
     assert_eq!(values.len(), 3);
 }
 
@@ -71,7 +94,10 @@ fn test_labeled_statement() {
 #[test]
 fn test_is_null() {
     let stmts = parse("invoices.approval IS NULL").unwrap();
-    assert!(matches!(&stmts[0].expr, Expr::IsNull { negated: false, .. }));
+    assert!(matches!(
+        &stmts[0].expr,
+        Expr::IsNull { negated: false, .. }
+    ));
 }
 
 #[test]
@@ -102,9 +128,22 @@ fn test_error_missing_paren() {
 fn test_parse_chart_simple() {
     let stmts = parse("CHART bar SUM(invoices.amount) BY invoices.status").unwrap();
     assert_eq!(stmts.len(), 1);
-    let Expr::Chart { chart_type, aggregate, dimension } = &stmts[0].expr else { panic!("expected Chart") };
+    let Expr::Chart {
+        chart_type,
+        aggregate,
+        dimension,
+    } = &stmts[0].expr
+    else {
+        panic!("expected Chart")
+    };
     assert_eq!(chart_type, "bar");
-    assert!(matches!(aggregate.as_ref(), Expr::Aggregate { func: AggFunc::Sum, .. }));
+    assert!(matches!(
+        aggregate.as_ref(),
+        Expr::Aggregate {
+            func: AggFunc::Sum,
+            ..
+        }
+    ));
     assert!(matches!(dimension.as_ref(), Expr::ColumnRef(s) if s == "invoices.status"));
 }
 
@@ -112,18 +151,25 @@ fn test_parse_chart_simple() {
 fn test_parse_chart_with_label() {
     let stmts = parse("revenue: CHART pie SUM(invoices.amount) BY invoices.category").unwrap();
     assert_eq!(stmts[0].label.as_deref(), Some("revenue"));
-    let Expr::Chart { chart_type, .. } = &stmts[0].expr else { panic!("expected Chart") };
+    let Expr::Chart { chart_type, .. } = &stmts[0].expr else {
+        panic!("expected Chart")
+    };
     assert_eq!(chart_type, "pie");
 }
 
 #[test]
 fn test_parse_section_block() {
-    let stmts = parse(r#"SECTION "Reconciliation" {
+    let stmts = parse(
+        r#"SECTION "Reconciliation" {
         acb_only: ASSERT SUM(invoices.amount) = 1500
         total: SUM(invoices.amount)
-    }"#).unwrap();
+    }"#,
+    )
+    .unwrap();
     assert_eq!(stmts.len(), 1);
-    let Expr::Section { title, statements } = &stmts[0].expr else { panic!("expected Section") };
+    let Expr::Section { title, statements } = &stmts[0].expr else {
+        panic!("expected Section")
+    };
     assert_eq!(title, "Reconciliation");
     assert_eq!(statements.len(), 2);
     assert_eq!(statements[0].label.as_deref(), Some("acb_only"));
@@ -134,12 +180,17 @@ fn test_parse_section_block() {
 
 #[test]
 fn test_parse_section_with_string_literal_labels() {
-    let stmts = parse(r#"SECTION "Reconciliation" {
+    let stmts = parse(
+        r#"SECTION "Reconciliation" {
         "Check 1": ASSERT SUM(a) = 10
         "Check 2": ASSERT b > 5
-    }"#).unwrap();
+    }"#,
+    )
+    .unwrap();
     assert_eq!(stmts.len(), 1);
-    let Expr::Section { statements, .. } = &stmts[0].expr else { panic!("expected Section") };
+    let Expr::Section { statements, .. } = &stmts[0].expr else {
+        panic!("expected Section")
+    };
     assert_eq!(statements.len(), 2);
     assert_eq!(statements[0].label.as_deref(), Some("Check 1"));
     assert_eq!(statements[1].label.as_deref(), Some("Check 2"));
@@ -147,16 +198,26 @@ fn test_parse_section_with_string_literal_labels() {
 
 #[test]
 fn test_parse_nested_section() {
-    let stmts = parse(r#"SECTION "Outer" {
+    let stmts = parse(
+        r#"SECTION "Outer" {
         SECTION "Inner" {
             ASSERT SUM(invoices.amount) = 1500
         }
-    }"#).unwrap();
+    }"#,
+    )
+    .unwrap();
     assert_eq!(stmts.len(), 1);
-    let Expr::Section { title, statements } = &stmts[0].expr else { panic!("expected Section") };
+    let Expr::Section { title, statements } = &stmts[0].expr else {
+        panic!("expected Section")
+    };
     assert_eq!(title, "Outer");
     assert_eq!(statements.len(), 1);
-    let Expr::Section { title: inner_title, .. } = &statements[0].expr else { panic!("expected nested Section") };
+    let Expr::Section {
+        title: inner_title, ..
+    } = &statements[0].expr
+    else {
+        panic!("expected nested Section")
+    };
     assert_eq!(inner_title, "Inner");
 }
 
@@ -173,14 +234,18 @@ fn test_parse_sa_id_valid() {
 fn test_parse_not_sa_id_valid() {
     let stmts = parse("NOT SA_ID_VALID(employee.SA_ID_Number)").unwrap();
     assert_eq!(stmts.len(), 1);
-    assert!(matches!(&stmts[0].expr, Expr::Not(inner) if matches!(inner.as_ref(), Expr::SaIdValid { .. })));
+    assert!(
+        matches!(&stmts[0].expr, Expr::Not(inner) if matches!(inner.as_ref(), Expr::SaIdValid { .. }))
+    );
 }
 
 #[test]
 fn test_ident_starting_with_digit() {
     let stmts = parse("SUM(employee.13th_Cheque_Provision)").unwrap();
     assert_eq!(stmts.len(), 1);
-    let Expr::Aggregate { expr, .. } = &stmts[0].expr else { panic!("expected Aggregate") };
+    let Expr::Aggregate { expr, .. } = &stmts[0].expr else {
+        panic!("expected Aggregate")
+    };
     assert!(matches!(expr.as_ref(), Expr::ColumnRef(s) if s == "employee.13th_Cheque_Provision"));
 }
 
@@ -188,17 +253,20 @@ fn test_ident_starting_with_digit() {
 fn test_number_not_confused_with_ident() {
     // Pure numbers should still parse as numbers
     let stmts = parse("value = 13").unwrap();
-    let Expr::Compare { rhs, .. } = &stmts[0].expr else { panic!("expected Compare") };
+    let Expr::Compare { rhs, .. } = &stmts[0].expr else {
+        panic!("expected Compare")
+    };
     assert!(matches!(rhs.as_ref(), Expr::Number(n) if *n == dec!(13)));
 }
 
 #[test]
 fn test_decimal_not_confused_with_ident() {
     let stmts = parse("value = 13.5").unwrap();
-    let Expr::Compare { rhs, .. } = &stmts[0].expr else { panic!("expected Compare") };
+    let Expr::Compare { rhs, .. } = &stmts[0].expr else {
+        panic!("expected Compare")
+    };
     assert!(matches!(rhs.as_ref(), Expr::Number(n) if *n == dec!(13.5)));
 }
-
 
 #[test]
 fn test_parse_substr() {
@@ -213,5 +281,3 @@ fn test_parse_concat() {
     assert_eq!(stmts.len(), 1);
     assert!(matches!(&stmts[0].expr, Expr::Concat { .. }));
 }
-
-

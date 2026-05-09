@@ -1,43 +1,44 @@
-use std::collections::HashMap;
 use leptos::prelude::*;
+use std::collections::HashMap;
 
+use super::prompts::{
+    build_example_section, build_plan_section, build_schema_section, build_table_names_section,
+};
+use super::types::{Phase, ScriptState, ScriptStatus};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
 use crate::ollama::{ask_ollama_structured, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::types::{AuditProcessWithControls, DslScript, PbcGroup, SessionSchema};
 use vinrouge::audit_prompts::{build_generate_dsl_prompt, dsl_script_schema, GENERATE_DSL_RULES};
 use vinrouge::dsl::{parse as dsl_parse, resolve, Schema};
-use super::types::{Phase, ScriptStatus, ScriptState};
-use super::prompts::{build_schema_section, build_table_names_section, build_plan_section, build_example_section};
 
 // Note: relationship detection is handled directly in step4a/view.rs.
 // This pipeline only contains do_load_or_generate (used by step4b).
 
 pub async fn do_load_or_generate(
-    audit_plan:     RwSignal<Vec<AuditProcessWithControls>>,
-    phase:          RwSignal<Phase>,
-    schemas:        RwSignal<Vec<SessionSchema>>,
-    scripts:        RwSignal<Vec<DslScript>>,
-    script_states:  RwSignal<HashMap<String, ScriptState>>,
-    progress_msg:   RwSignal<String>,
-    status:         RwSignal<String>,
-    selected_id:    RwSignal<Option<String>>,
-    preview_cols:   RwSignal<Vec<String>>,
-    preview_rows:   RwSignal<Vec<Vec<String>>>,
+    audit_plan: RwSignal<Vec<AuditProcessWithControls>>,
+    phase: RwSignal<Phase>,
+    schemas: RwSignal<Vec<SessionSchema>>,
+    scripts: RwSignal<Vec<DslScript>>,
+    script_states: RwSignal<HashMap<String, ScriptState>>,
+    progress_msg: RwSignal<String>,
+    status: RwSignal<String>,
+    selected_id: RwSignal<Option<String>>,
+    preview_cols: RwSignal<Vec<String>>,
+    preview_rows: RwSignal<Vec<Vec<String>>>,
     preview_source: RwSignal<String>,
-    generate_new:   bool,
+    generate_new: bool,
 ) {
     phase.set(Phase::Loading);
     progress_msg.set("Loading imported data…".to_string());
 
     // 1. Load session schemas
-    let session_schemas: Vec<SessionSchema> =
-        match tauri_invoke("get_session_schemas").await {
-            Ok(s) => s,
-            Err(e) => {
-                phase.set(Phase::Error(format!("Could not load data: {e}")));
-                return;
-            }
-        };
+    let session_schemas: Vec<SessionSchema> = match tauri_invoke("get_session_schemas").await {
+        Ok(s) => s,
+        Err(e) => {
+            phase.set(Phase::Error(format!("Could not load data: {e}")));
+            return;
+        }
+    };
     if session_schemas.is_empty() {
         phase.set(Phase::Error(
             "No data imported yet. Go back to Step 4 and upload files.".to_string(),
@@ -49,8 +50,7 @@ pub async fn do_load_or_generate(
     // 2. Preview data is loaded by the tab-selection Effect in the view.
 
     // 3. Load PBC context
-    let pbc_groups: Vec<PbcGroup> =
-        tauri_invoke("list_pbc_groups").await.unwrap_or_default();
+    let pbc_groups: Vec<PbcGroup> = tauri_invoke("list_pbc_groups").await.unwrap_or_default();
 
     // 4. Try to load existing scripts from database (unless forcing regeneration)
     if !generate_new {
@@ -60,10 +60,13 @@ pub async fn do_load_or_generate(
                 // Build script states from existing scripts
                 let mut new_states: HashMap<String, ScriptState> = HashMap::new();
                 for script in &existing_scripts {
-                    new_states.insert(script.id.clone(), ScriptState {
-                        status: ScriptStatus::Generated,
-                        text:   script.script_text.clone(),
-                    });
+                    new_states.insert(
+                        script.id.clone(),
+                        ScriptState {
+                            status: ScriptStatus::Generated,
+                            text: script.script_text.clone(),
+                        },
+                    );
                 }
 
                 // Set state and select first script
@@ -87,15 +90,20 @@ pub async fn do_load_or_generate(
 
     // Filter out master_record — it's a stale join artifact with pbc_test_data_* columns
     // that confuse the AI. Keep it in dsl_schema for validation of existing scripts.
-    let prompt_schemas: Vec<&SessionSchema> = session_schemas.iter()
+    let prompt_schemas: Vec<&SessionSchema> = session_schemas
+        .iter()
         .filter(|s| s.source_type != "master" && s.table_name != "master_record")
         .collect();
     let prompt_schemas_owned: Vec<SessionSchema> = prompt_schemas.into_iter().cloned().collect();
 
-    let schema_section      = build_schema_section(&prompt_schemas_owned);
+    let schema_section = build_schema_section(&prompt_schemas_owned);
     let table_names_section = build_table_names_section(&prompt_schemas_owned);
-    let example_section     = build_example_section(&prompt_schemas_owned);
-    let plan_section        = build_plan_section(&audit_plan.get_untracked(), &pbc_groups, &prompt_schemas_owned);
+    let example_section = build_example_section(&prompt_schemas_owned);
+    let plan_section = build_plan_section(
+        &audit_plan.get_untracked(),
+        &pbc_groups,
+        &prompt_schemas_owned,
+    );
     // Use prompt_schemas for fallback column selection too (avoids picking master_record)
     let fallback_schemas = &prompt_schemas_owned;
     let dsl_intro = build_generate_dsl_prompt();
@@ -118,8 +126,13 @@ pub async fn do_load_or_generate(
 
     let ollama_schema = dsl_script_schema();
     let raw = match ask_ollama_structured(
-        OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &prompt, ollama_schema.clone()
-    ).await {
+        OLLAMA_DEFAULT_URL,
+        OLLAMA_DEFAULT_MODEL,
+        &prompt,
+        ollama_schema.clone(),
+    )
+    .await
+    {
         Ok(r) => r,
         Err(e) => {
             phase.set(Phase::Error(format!("AI generation failed: {e}")));
@@ -131,7 +144,9 @@ pub async fn do_load_or_generate(
     let mut script_dtos: Vec<(String, String, String)> = parse_script_json(&raw);
 
     if script_dtos.is_empty() {
-        phase.set(Phase::Error("AI did not generate any valid DSL scripts.".to_string()));
+        phase.set(Phase::Error(
+            "AI did not generate any valid DSL scripts.".to_string(),
+        ));
         return;
     }
 
@@ -143,7 +158,8 @@ pub async fn do_load_or_generate(
         let mut seen: HM<String, String> = HM::new(); // body → first control_ref
         let mut dup_refs: Vec<String> = vec![];
         for (ctrl, _, body) in &script_dtos {
-            let norm = body.lines()
+            let norm = body
+                .lines()
                 .map(|l| l.trim())
                 .filter(|l| !l.starts_with("--") && !l.is_empty())
                 .collect::<Vec<_>>()
@@ -158,13 +174,15 @@ pub async fn do_load_or_generate(
         }
         if !dup_refs.is_empty() {
             progress_msg.set(format!(
-                "Re-generating {} duplicate script(s)…", dup_refs.len()
+                "Re-generating {} duplicate script(s)…",
+                dup_refs.len()
             ));
             let plan_snap = audit_plan.get_untracked();
             let pbc_groups_dedup: Vec<crate::types::PbcGroup> =
                 tauri_invoke("list_pbc_groups").await.unwrap_or_default();
             // Build a filtered plan containing only the duplicate controls
-            let mini_plan: Vec<AuditProcessWithControls> = plan_snap.iter()
+            let mini_plan: Vec<AuditProcessWithControls> = plan_snap
+                .iter()
                 .map(|p| {
                     let mut p2 = p.clone();
                     p2.controls.retain(|c| dup_refs.contains(&c.control_ref));
@@ -172,7 +190,8 @@ pub async fn do_load_or_generate(
                 })
                 .filter(|p| !p.controls.is_empty())
                 .collect();
-            let mini_plan_section = build_plan_section(&mini_plan, &pbc_groups_dedup, &session_schemas);
+            let mini_plan_section =
+                build_plan_section(&mini_plan, &pbc_groups_dedup, &session_schemas);
             let dup_prompt = format!(
                 "{dsl_intro}\
                  AVAILABLE DATA:\n{schema_section}\
@@ -193,10 +212,16 @@ pub async fn do_load_or_generate(
             );
             let dup_ollama_schema = dsl_script_schema();
             if let Ok(dup_raw) = ask_ollama_structured(
-                OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &dup_prompt, dup_ollama_schema
-            ).await {
+                OLLAMA_DEFAULT_URL,
+                OLLAMA_DEFAULT_MODEL,
+                &dup_prompt,
+                dup_ollama_schema,
+            )
+            .await
+            {
                 let fixed = parse_script_json(&dup_raw);
-                let fixed_map: std::collections::HashMap<String, (String, String)> = fixed.into_iter()
+                let fixed_map: std::collections::HashMap<String, (String, String)> = fixed
+                    .into_iter()
                     .map(|(ctrl, label, script)| (ctrl, (label, script)))
                     .collect();
                 for dto in script_dtos.iter_mut() {
@@ -232,28 +257,41 @@ pub async fn do_load_or_generate(
     for dto in script_dtos.iter_mut() {
         for _ in 0..3 {
             let errs = validate_script(&dto.2, &dsl_schema);
-            if errs.is_empty() { break; }
+            if errs.is_empty() {
+                break;
+            }
 
             let mut changed = false;
 
             if errs.iter().any(|e| e.starts_with("unknown table '")) {
                 let repaired = repair_unknown_tables(&dto.2, &errs, &session_schemas);
-                if repaired != dto.2 { dto.2 = repaired; changed = true; }
+                if repaired != dto.2 {
+                    dto.2 = repaired;
+                    changed = true;
+                }
             }
 
             if errs.iter().any(|e| e.starts_with("unknown column '")) {
                 let repaired = repair_column_in_wrong_table(&dto.2, &errs, &session_schemas);
-                if repaired != dto.2 { dto.2 = repaired; changed = true; }
+                if repaired != dto.2 {
+                    dto.2 = repaired;
+                    changed = true;
+                }
             }
 
-            if !changed { break; }
+            if !changed {
+                break;
+            }
         }
     }
 
-    let broken: Vec<(String, String, String, String)> = script_dtos.iter()
+    let broken: Vec<(String, String, String, String)> = script_dtos
+        .iter()
         .filter_map(|(ctrl, label, script)| {
             let errs = validate_script(script, &dsl_schema);
-            if errs.is_empty() { None } else {
+            if errs.is_empty() {
+                None
+            } else {
                 Some((ctrl.clone(), label.clone(), script.clone(), errs.join("; ")))
             }
         })
@@ -261,13 +299,25 @@ pub async fn do_load_or_generate(
 
     if !broken.is_empty() {
         progress_msg.set(format!("Fixing {} broken script(s)…", broken.len()));
-        let fix_prompt = build_fix_prompt(&broken, &schema_section, &table_names_section, &example_section, &session_schemas);
+        let fix_prompt = build_fix_prompt(
+            &broken,
+            &schema_section,
+            &table_names_section,
+            &example_section,
+            &session_schemas,
+        );
         if let Ok(fix_raw) = ask_ollama_structured(
-            OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &fix_prompt, ollama_schema
-        ).await {
+            OLLAMA_DEFAULT_URL,
+            OLLAMA_DEFAULT_MODEL,
+            &fix_prompt,
+            ollama_schema,
+        )
+        .await
+        {
             let fixed = parse_script_json(&fix_raw);
             // Replace broken scripts with fixed versions (matched by control_ref)
-            let fixed_map: HashMap<String, (String, String)> = fixed.into_iter()
+            let fixed_map: HashMap<String, (String, String)> = fixed
+                .into_iter()
                 .map(|(ctrl, label, script)| (ctrl, (label, script)))
                 .collect();
             for dto in script_dtos.iter_mut() {
@@ -284,13 +334,14 @@ pub async fn do_load_or_generate(
     }
 
     // 8. Save scripts to DB, build frontend state
-    let plan         = audit_plan.get_untracked();
-    let ctrl_lookup: HashMap<String, String> = plan.iter()
+    let plan = audit_plan.get_untracked();
+    let ctrl_lookup: HashMap<String, String> = plan
+        .iter()
         .flat_map(|p| p.controls.iter())
         .map(|c| (c.control_ref.clone(), c.id.clone()))
         .collect();
 
-    let mut saved: Vec<DslScript>              = vec![];
+    let mut saved: Vec<DslScript> = vec![];
     let mut new_states: HashMap<String, ScriptState> = HashMap::new();
 
     for (control_ref, label, script_text) in &script_dtos {
@@ -311,24 +362,33 @@ pub async fn do_load_or_generate(
             } else if salvaged.trim().is_empty() {
                 // All statements were dropped — generate a real executable fallback
                 // using the best-matching available column so auditors have something runnable.
-                let mut missing: Vec<String> = final_errors.iter()
+                let mut missing: Vec<String> = final_errors
+                    .iter()
                     .filter_map(|e| {
                         let col_rest = e.strip_prefix("unknown column '")?;
                         let col = col_rest.split('\'').next()?.to_string();
-                        let exists_anywhere = fallback_schemas.iter()
+                        let exists_anywhere = fallback_schemas
+                            .iter()
                             .any(|s| s.columns.iter().any(|c| c.eq_ignore_ascii_case(&col)));
-                        if exists_anywhere { None } else { Some(col) }
+                        if exists_anywhere {
+                            None
+                        } else {
+                            Some(col)
+                        }
                     })
                     .collect();
                 missing.sort();
                 missing.dedup();
 
-                let fallback_col = fallback_sample_col(&final_errors, &script_text, label, fallback_schemas);
+                let fallback_col =
+                    fallback_sample_col(&final_errors, &script_text, label, fallback_schemas);
                 let note = if missing.is_empty() {
                     String::new()
                 } else {
-                    format!("-- NOTE: Ideal columns ({}) not in uploads; using best available.\n",
-                        missing.join(", "))
+                    format!(
+                        "-- NOTE: Ideal columns ({}) not in uploads; using best available.\n",
+                        missing.join(", ")
+                    )
                 };
                 let real_script = format!(
                     "{note}ASSERT COUNT({fallback_col}) > 0\nSAMPLE RANDOM FROM {fallback_col} SIZE 10"
@@ -338,27 +398,39 @@ pub async fn do_load_or_generate(
                     (real_script, ScriptStatus::Generated)
                 } else {
                     // Truly nothing usable — last resort comment block
-                    let available_hint: String = fallback_schemas.iter()
+                    let available_hint: String = fallback_schemas
+                        .iter()
                         .map(|s| format!("--   {} : {}", s.table_name, s.columns.join(", ")))
                         .collect::<Vec<_>>()
                         .join("\n");
                     let placeholder = format!(
                         "-- Required columns not found in any uploaded data file:\n\
                          {}\n--\n-- AVAILABLE DATA:\n{available_hint}",
-                        missing.iter().map(|c| format!("--   {c}")).collect::<Vec<_>>().join("\n")
+                        missing
+                            .iter()
+                            .map(|c| format!("--   {c}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
                     );
-                    (placeholder, ScriptStatus::ValidationError(final_errors.join("; ")))
+                    (
+                        placeholder,
+                        ScriptStatus::ValidationError(final_errors.join("; ")),
+                    )
                 }
             } else {
                 // Some statements remain but still have errors (e.g. a parse error that
                 // survived all repair passes). Fall back to a semantically-relevant SAMPLE.
-                let fallback_col = fallback_sample_col(&final_errors, &script_text, label, &session_schemas);
+                let fallback_col =
+                    fallback_sample_col(&final_errors, &script_text, label, &session_schemas);
                 let placeholder = format!(
                     "-- Validation failed: {}\n-- Edit this script using the column names in AVAILABLE DATA.\nSAMPLE RANDOM FROM {} SIZE 10",
                     final_errors.join("; "),
                     fallback_col
                 );
-                (placeholder, ScriptStatus::ValidationError(final_errors.join("; ")))
+                (
+                    placeholder,
+                    ScriptStatus::ValidationError(final_errors.join("; ")),
+                )
             }
         };
         // Guard 4: sample-only scripts have no ASSERT so auditors can't see pass/fail
@@ -373,7 +445,11 @@ pub async fn do_load_or_generate(
                 if let Some(col) = extract_sample_table_col(&effective_script) {
                     let candidate = format!("ASSERT COUNT({col}) > 0\n{effective_script}");
                     let g_errs = validate_script(&candidate, &dsl_schema);
-                    if g_errs.is_empty() { candidate } else { effective_script }
+                    if g_errs.is_empty() {
+                        candidate
+                    } else {
+                        effective_script
+                    }
                 } else {
                     effective_script
                 }
@@ -390,16 +466,23 @@ pub async fn do_load_or_generate(
                 "label":      label,
                 "scriptText": effective_script,
             }),
-        ).await {
+        )
+        .await
+        {
             Ok(s) => {
-                new_states.insert(s.id.clone(), ScriptState {
-                    status: script_status,
-                    text:   effective_script.clone(),
-                });
+                new_states.insert(
+                    s.id.clone(),
+                    ScriptState {
+                        status: script_status,
+                        text: effective_script.clone(),
+                    },
+                );
                 saved.push(s);
             }
             Err(e) => {
-                status.set(format!("Warning: could not save script for {control_ref}: {e}"));
+                status.set(format!(
+                    "Warning: could not save script for {control_ref}: {e}"
+                ));
             }
         }
     }
@@ -436,14 +519,21 @@ fn validate_script(script: &str, schema: &Schema) -> Vec<String> {
 
 /// Extract (control_ref, label, script) triples from a raw JSON string.
 fn parse_script_json(raw: &str) -> Vec<(String, String, String)> {
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else { return vec![] };
-    v["scripts"].as_array().cloned().unwrap_or_default()
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return vec![];
+    };
+    v["scripts"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
         .into_iter()
         .filter_map(|item| {
             let control_ref = item["control_ref"].as_str()?.to_string();
-            let label       = item["label"].as_str().unwrap_or(&control_ref).to_string();
-            let script      = item["script"].as_str()?.to_string();
-            if script.trim().is_empty() { return None; }
+            let label = item["label"].as_str().unwrap_or(&control_ref).to_string();
+            let script = item["script"].as_str()?.to_string();
+            if script.trim().is_empty() {
+                return None;
+            }
             Some((control_ref, label, script))
         })
         .collect()
@@ -479,7 +569,10 @@ fn build_fix_prompt(
         // Build a "columns in <table>" hint for each referenced table that exists.
         let mut col_hints = String::new();
         for tbl in &hint_tables {
-            if let Some(s) = schemas.iter().find(|s| s.table_name.eq_ignore_ascii_case(tbl)) {
+            if let Some(s) = schemas
+                .iter()
+                .find(|s| s.table_name.eq_ignore_ascii_case(tbl))
+            {
                 col_hints.push_str(&format!(
                     "  Columns in {}: {}\n",
                     s.table_name,
@@ -487,7 +580,11 @@ fn build_fix_prompt(
                 ));
             } else {
                 // Table doesn't exist — tell the AI to use a valid one instead.
-                let valid = schemas.iter().map(|s| s.table_name.as_str()).collect::<Vec<_>>().join(", ");
+                let valid = schemas
+                    .iter()
+                    .map(|s| s.table_name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 col_hints.push_str(&format!(
                     "  Table '{tbl}' does NOT exist. Use one of: {valid}\n"
                 ));
@@ -536,10 +633,11 @@ fn repair_unknown_tables(
 ) -> String {
     // Extract invented table names from error strings:
     // format: "unknown table 'foo' referenced in 'foo.bar'"
-    let mut invented: Vec<String> = errors.iter()
+    let mut invented: Vec<String> = errors
+        .iter()
         .filter_map(|e| {
             let rest = e.strip_prefix("unknown table '")?;
-            let end  = rest.find('\'')?;
+            let end = rest.find('\'')?;
             Some(rest[..end].to_string())
         })
         .collect();
@@ -567,21 +665,25 @@ fn repair_unknown_tables(
 /// because they appear in nearly every table and would bias the score toward the wrong winner.
 fn best_table_match<'a>(
     invented: &str,
-    script:   &str,
-    schemas:  &'a [crate::types::SessionSchema],
+    script: &str,
+    schemas: &'a [crate::types::SessionSchema],
 ) -> Option<&'a str> {
     // Columns that are too common to use as strong signals
     const GENERIC_COLS: &[&str] = &[
-        "id", "policy_id", "policyholder_id", "name", "date", "ref",
-        "record_id", "row_id", "entry_id",
+        "id",
+        "policy_id",
+        "policyholder_id",
+        "name",
+        "date",
+        "ref",
+        "record_id",
+        "row_id",
+        "entry_id",
     ];
 
     let inv_lower = invented.to_lowercase();
     // Only use keywords ≥4 chars to filter noise ("the", "and", "for", etc.)
-    let keywords: Vec<&str> = inv_lower
-        .split('_')
-        .filter(|w| w.len() >= 4)
-        .collect();
+    let keywords: Vec<&str> = inv_lower.split('_').filter(|w| w.len() >= 4).collect();
 
     let used_cols = cols_used_with(script, invented);
 
@@ -589,8 +691,14 @@ fn best_table_match<'a>(
     // e.g. "grace_period_days" → ["grace", "period", "days"]
     // This lets us match c9_premiumcollection.grace_period_breached even when the
     // column name itself doesn't exist.
-    let col_keywords: Vec<String> = used_cols.iter()
-        .flat_map(|c| c.split('_').filter(|w| w.len() >= 4).map(|w| w.to_lowercase()).collect::<Vec<_>>())
+    let col_keywords: Vec<String> = used_cols
+        .iter()
+        .flat_map(|c| {
+            c.split('_')
+                .filter(|w| w.len() >= 4)
+                .map(|w| w.to_lowercase())
+                .collect::<Vec<_>>()
+        })
         .collect();
 
     let mut best: Option<(&str, i32)> = None;
@@ -612,7 +720,11 @@ fn best_table_match<'a>(
         // Keyword (from AI's attempted column names) → real column name match
         // This catches "grace_period_days" matching "grace_period_breached"
         for kw in &col_keywords {
-            if schema.columns.iter().any(|c| c.to_lowercase().contains(kw.as_str())) {
+            if schema
+                .columns
+                .iter()
+                .any(|c| c.to_lowercase().contains(kw.as_str()))
+            {
                 score += 4;
             }
         }
@@ -636,9 +748,9 @@ fn best_table_match<'a>(
 /// Return the column names used with a given table prefix in the script text.
 fn cols_used_with(script: &str, table: &str) -> Vec<String> {
     let prefix = format!("{}.", table.to_lowercase());
-    let lower   = script.to_lowercase();
+    let lower = script.to_lowercase();
     let mut cols = Vec::new();
-    let mut pos  = 0;
+    let mut pos = 0;
 
     while pos < lower.len() {
         match lower[pos..].find(&prefix) {
@@ -667,7 +779,7 @@ fn cols_used_with(script: &str, table: &str) -> Vec<String> {
 fn replace_table_in_script(script: &str, old_table: &str, new_table: &str) -> String {
     let old_prefix = format!("{}.", old_table.to_lowercase());
     let new_prefix = format!("{}.", new_table);
-    let lower      = script.to_lowercase();
+    let lower = script.to_lowercase();
 
     let mut out = String::with_capacity(script.len());
     let mut pos = 0usize;
@@ -836,20 +948,21 @@ fn normalize_dsl_syntax(script: &str) -> String {
 ///
 /// This fixes the common case where the AI writes the wrong table name for a column.
 fn repair_column_in_wrong_table(
-    script:  &str,
-    errors:  &[String],
+    script: &str,
+    errors: &[String],
     schemas: &[crate::types::SessionSchema],
 ) -> String {
     // Collect (wrong_table, col) pairs from errors
-    let col_errors: Vec<(String, String)> = errors.iter()
+    let col_errors: Vec<(String, String)> = errors
+        .iter()
         .filter_map(|e| {
             let col_rest = e.strip_prefix("unknown column '")?;
-            let col_end  = col_rest.find('\'')?;
-            let col      = col_rest[..col_end].to_string();
+            let col_end = col_rest.find('\'')?;
+            let col = col_rest[..col_end].to_string();
             let tbl_rest = col_rest.find("in table '")?;
-            let after    = &col_rest[tbl_rest + "in table '".len()..];
-            let tbl_end  = after.find('\'')?;
-            let tbl      = after[..tbl_end].to_string();
+            let after = &col_rest[tbl_rest + "in table '".len()..];
+            let tbl_end = after.find('\'')?;
+            let tbl = after[..tbl_end].to_string();
             Some((tbl, col))
         })
         .collect();
@@ -858,13 +971,14 @@ fn repair_column_in_wrong_table(
 
     for (bad_tbl, col) in &col_errors {
         // Tables (other than bad_tbl) that have this column
-        let candidates: Vec<&crate::types::SessionSchema> = schemas.iter()
+        let candidates: Vec<&crate::types::SessionSchema> = schemas
+            .iter()
             .filter(|s| !s.table_name.eq_ignore_ascii_case(bad_tbl))
             .filter(|s| s.columns.iter().any(|c| c.eq_ignore_ascii_case(col)))
             .collect();
 
         let target = match candidates.len() {
-            0 => continue,   // column doesn't exist anywhere — leave for drop logic
+            0 => continue, // column doesn't exist anywhere — leave for drop logic
             1 => candidates[0],
             _ => candidates[0],
         };
@@ -880,14 +994,17 @@ fn repair_column_in_wrong_table(
 fn rewrite_col_ref(script: &str, old_table: &str, col: &str, new_table: &str) -> String {
     let needle = format!("{}.{}", old_table.to_lowercase(), col.to_lowercase());
     let replace = format!("{}.{}", new_table, col);
-    let lower   = script.to_lowercase();
+    let lower = script.to_lowercase();
 
     let mut out = String::with_capacity(script.len());
     let mut pos = 0usize;
 
     while pos < script.len() {
         match lower[pos..].find(&needle) {
-            None => { out.push_str(&script[pos..]); break; }
+            None => {
+                out.push_str(&script[pos..]);
+                break;
+            }
             Some(rel) => {
                 out.push_str(&script[pos..pos + rel]);
                 out.push_str(&replace);
@@ -906,7 +1023,8 @@ fn rewrite_col_ref(script: &str, old_table: &str, col: &str, new_table: &str) ->
 ///
 /// Error format: `"unknown column 'col' in table 'tbl'"`
 fn drop_invalid_column_lines(script: &str, errors: &[String]) -> String {
-    let bad_refs: Vec<String> = errors.iter()
+    let bad_refs: Vec<String> = errors
+        .iter()
         .filter_map(|e| {
             let col_start = e.find("unknown column '")?;
             let rest = &e[col_start + "unknown column '".len()..];
@@ -946,9 +1064,9 @@ fn drop_invalid_column_lines(script: &str, errors: &[String]) -> String {
 ///   2. First real table referenced in the script text
 ///   3. Any available table's first column
 fn fallback_sample_col(
-    errors:  &[String],
-    script:  &str,
-    label:   &str,
+    errors: &[String],
+    script: &str,
+    label: &str,
     schemas: &[crate::types::SessionSchema],
 ) -> String {
     // Collect keywords from the control label and from the invented column names
@@ -972,15 +1090,27 @@ fn fallback_sample_col(
     keywords.dedup();
 
     // Score each real table against the keyword set.
-    let best_by_label = schemas.iter()
+    let best_by_label = schemas
+        .iter()
         .filter_map(|s| {
             let tbl_lower = s.table_name.to_lowercase();
             let mut score = 0i32;
             for kw in &keywords {
-                if tbl_lower.contains(kw.as_str()) { score += 10; }
-                if s.columns.iter().any(|c| c.to_lowercase().contains(kw.as_str())) { score += 4; }
+                if tbl_lower.contains(kw.as_str()) {
+                    score += 10;
+                }
+                if s.columns
+                    .iter()
+                    .any(|c| c.to_lowercase().contains(kw.as_str()))
+                {
+                    score += 4;
+                }
             }
-            if score > 0 { Some((s, score)) } else { None }
+            if score > 0 {
+                Some((s, score))
+            } else {
+                None
+            }
         })
         .max_by_key(|(_, sc)| *sc)
         .map(|(s, _)| s.table_name.clone());
@@ -1000,7 +1130,10 @@ fn fallback_sample_col(
     let tbl = best_by_label.or_else(table_from_script);
 
     if let Some(tbl) = tbl {
-        if let Some(schema) = schemas.iter().find(|s| s.table_name.eq_ignore_ascii_case(&tbl)) {
+        if let Some(schema) = schemas
+            .iter()
+            .find(|s| s.table_name.eq_ignore_ascii_case(&tbl))
+        {
             if let Some(col) = schema.columns.first() {
                 return format!("{}.{}", schema.table_name, col);
             }
@@ -1008,7 +1141,8 @@ fn fallback_sample_col(
     }
 
     // Last resort
-    schemas.iter()
+    schemas
+        .iter()
         .flat_map(|s| s.columns.first().map(|c| format!("{}.{}", s.table_name, c)))
         .next()
         .unwrap_or_else(|| "data.id".to_string())
@@ -1019,12 +1153,18 @@ fn fallback_sample_col(
 fn extract_sample_table_col(script: &str) -> Option<String> {
     for line in script.lines() {
         let t = line.trim();
-        if t.starts_with("--") { continue; }
+        if t.starts_with("--") {
+            continue;
+        }
         let upper = t.to_uppercase();
-        if !upper.starts_with("SAMPLE") { continue; }
+        if !upper.starts_with("SAMPLE") {
+            continue;
+        }
         if let Some(from_pos) = upper.find(" FROM ") {
             let after = t[from_pos + 6..].trim_start();
-            let col_end = after.find(|c: char| c.is_whitespace()).unwrap_or(after.len());
+            let col_end = after
+                .find(|c: char| c.is_whitespace())
+                .unwrap_or(after.len());
             let table_col = &after[..col_end];
             if table_col.contains('.') {
                 return Some(table_col.to_string());

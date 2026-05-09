@@ -10,7 +10,10 @@ use tauri_plugin_dialog::DialogExt;
 #[tauri::command]
 pub fn save_project_vrd(state: State<'_, ProjectsState>) -> Result<String, String> {
     state.sync_vrd()?;
-    Ok(state.get_vrd().map(|p| p.to_string_lossy().to_string()).unwrap_or_default())
+    Ok(state
+        .get_vrd()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default())
 }
 
 // ── Export (Save As, with file dialog) ───────────────────────────────────────
@@ -29,7 +32,9 @@ pub async fn export_project_vrd(
         .file()
         .set_file_name(&default_name)
         .add_filter("VinRouge Project", &["vrd"])
-        .save_file(move |fp| { let _ = tx.send(fp); });
+        .save_file(move |fp| {
+            let _ = tx.send(fp);
+        });
 
     let picked = rx.await.map_err(|e| e.to_string())?;
     if let Some(fp) = picked {
@@ -57,13 +62,17 @@ pub async fn pick_and_open_vrd(
     app.dialog()
         .file()
         .add_filter("VinRouge Project", &["vrd"])
-        .pick_file(move |fp| { let _ = tx.send(fp); });
+        .pick_file(move |fp| {
+            let _ = tx.send(fp);
+        });
 
     let picked = rx.await.map_err(|e| e.to_string())?;
     let vrd_path = match picked {
         None => return Ok(None),
         Some(tauri_plugin_dialog::FilePath::Path(p)) => p,
-        Some(tauri_plugin_dialog::FilePath::Url(u)) => return Err(format!("Invalid file path: {u}")),
+        Some(tauri_plugin_dialog::FilePath::Url(u)) => {
+            return Err(format!("Invalid file path: {u}"))
+        }
     };
 
     let home = vinrouge::projects::vinrouge_home()?;
@@ -89,7 +98,9 @@ pub async fn import_project_vrd(
     app.dialog()
         .file()
         .add_filter("VinRouge Project", &["vrd"])
-        .pick_file(move |fp| { let _ = tx.send(fp); });
+        .pick_file(move |fp| {
+            let _ = tx.send(fp);
+        });
 
     let picked = rx.await.map_err(|e| e.to_string())?;
     if let Some(fp) = picked {

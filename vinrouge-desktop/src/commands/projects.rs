@@ -39,10 +39,7 @@ pub fn create_project(
         materiality,
         risk_framework,
     };
-    vinrouge::projects::save_project_details(
-        &std::path::PathBuf::from(&project.path),
-        &details,
-    )?;
+    vinrouge::projects::save_project_details(&std::path::PathBuf::from(&project.path), &details)?;
     Ok(project)
 }
 
@@ -57,7 +54,9 @@ pub async fn pick_project_folder(app: tauri::AppHandle) -> Result<Option<String>
     if let Some(dir) = default_dir {
         dialog = dialog.set_directory(dir);
     }
-    dialog.pick_folder(move |fp| { let _ = tx.send(fp); });
+    dialog.pick_folder(move |fp| {
+        let _ = tx.send(fp);
+    });
 
     let picked = rx.await.map_err(|e| e.to_string())?;
     Ok(picked.map(|fp| match fp {
@@ -112,7 +111,8 @@ pub fn load_project_details(
 
 #[tauri::command]
 pub fn get_active_project(state: State<ProjectsState>) -> Result<Option<String>, String> {
-    Ok(state.get_vrd()
+    Ok(state
+        .get_vrd()
         .map(|p| p.to_string_lossy().to_string())
         .or_else(|| state.dir().ok().map(|d| d.to_string_lossy().to_string())))
 }

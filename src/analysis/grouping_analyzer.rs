@@ -203,7 +203,7 @@ impl GroupingAnalyzer {
             total_records,
         };
 
-        // Get example groups (top 5 by size)
+        //  Get example groups (top 5 by size)
         let mut group_list: Vec<(String, Vec<usize>)> = groups.into_iter().collect();
         group_list.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
 

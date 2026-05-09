@@ -102,7 +102,11 @@ pub async fn tauri_listen_event(
     }) as Box<dyn Fn(JsValue)>);
 
     listen_fn
-        .call2(&JsValue::UNDEFINED, &JsValue::from_str(event), cb.as_ref().unchecked_ref())
+        .call2(
+            &JsValue::UNDEFINED,
+            &JsValue::from_str(event),
+            cb.as_ref().unchecked_ref(),
+        )
         .map_err(|e| format!("listen call failed: {e:?}"))?;
 
     cb.forget();
@@ -126,8 +130,8 @@ pub async fn tauri_listen_event_payload(
             .map_err(|_| "listen not a function")?;
 
     let cb = Closure::wrap(Box::new(move |ev: JsValue| {
-        let payload = js_sys::Reflect::get(&ev, &JsValue::from_str("payload"))
-            .unwrap_or(JsValue::NULL);
+        let payload =
+            js_sys::Reflect::get(&ev, &JsValue::from_str("payload")).unwrap_or(JsValue::NULL);
         let json: serde_json::Value = js_sys::JSON::stringify(&payload)
             .ok()
             .and_then(|s| s.as_string())
@@ -137,7 +141,11 @@ pub async fn tauri_listen_event_payload(
     }) as Box<dyn Fn(JsValue)>);
 
     listen_fn
-        .call2(&JsValue::UNDEFINED, &JsValue::from_str(event), cb.as_ref().unchecked_ref())
+        .call2(
+            &JsValue::UNDEFINED,
+            &JsValue::from_str(event),
+            cb.as_ref().unchecked_ref(),
+        )
         .map_err(|e| format!("listen call failed: {e:?}"))?;
 
     cb.forget();
@@ -145,9 +153,7 @@ pub async fn tauri_listen_event_payload(
 }
 
 /// Listen for the `settings-saved` event emitted by the native settings window.
-pub async fn tauri_listen_settings_changed(
-    on_changed: impl Fn() + 'static,
-) -> Result<(), String> {
+pub async fn tauri_listen_settings_changed(on_changed: impl Fn() + 'static) -> Result<(), String> {
     let window = web_sys::window().ok_or("no window")?;
     let tauri = js_sys::Reflect::get(&window, &JsValue::from_str("__TAURI__"))
         .map_err(|_| "no __TAURI__")?;
@@ -225,6 +231,26 @@ pub fn tauri_listen_pull_progress(
 /// Returns `true` when the `mistral` model is already available locally.
 pub async fn tauri_check_model() -> Result<bool, String> {
     tauri_invoke::<bool>("check_model").await
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct UpdateInfo {
+    pub current_version: String,
+    pub latest_version: String,
+    pub download_url: String,
+    pub asset_name: String,
+}
+
+pub async fn tauri_check_update() -> Result<Option<UpdateInfo>, String> {
+    tauri_invoke::<Option<UpdateInfo>>("check_for_update").await
+}
+
+pub async fn tauri_download_update(url: String) -> Result<String, String> {
+    tauri_invoke_args::<String>("download_update", serde_json::json!({"url": url})).await
+}
+
+pub async fn tauri_install_update(path: String) -> Result<(), String> {
+    tauri_invoke_args::<()>("install_update", serde_json::json!({"downloadPath": path})).await
 }
 
 /// Pulls `mistral` from the Ollama registry.  Resolves only when the download

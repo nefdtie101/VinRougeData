@@ -59,12 +59,12 @@ pub fn expr_to_sql(expr: &Expr) -> Option<String> {
             let l = atom_to_sql(lhs)?;
             let r = atom_to_sql(rhs)?;
             let op_str = match op {
-                CmpOp::Eq    => "=",
+                CmpOp::Eq => "=",
                 CmpOp::NotEq => "<>",
-                CmpOp::Gt    => ">",
-                CmpOp::Gte   => ">=",
-                CmpOp::Lt    => "<",
-                CmpOp::Lte   => "<=",
+                CmpOp::Gt => ">",
+                CmpOp::Gte => ">=",
+                CmpOp::Lt => "<",
+                CmpOp::Lte => "<=",
             };
             Some(format!("{l} {op_str} {r}"))
         }
@@ -74,7 +74,7 @@ pub fn expr_to_sql(expr: &Expr) -> Option<String> {
             let r = expr_to_sql(rhs)?;
             let op_str = match op {
                 LogicOp::And => "AND",
-                LogicOp::Or  => "OR",
+                LogicOp::Or => "OR",
             };
             Some(format!("({l}) {op_str} ({r})"))
         }
@@ -93,9 +93,14 @@ pub fn expr_to_sql(expr: &Expr) -> Option<String> {
             }
         }
 
-        Expr::InList { expr, values, negated } => {
-            let col  = atom_to_sql(expr)?;
-            let list = values.iter()
+        Expr::InList {
+            expr,
+            values,
+            negated,
+        } => {
+            let col = atom_to_sql(expr)?;
+            let list = values
+                .iter()
                 .map(atom_to_sql)
                 .collect::<Option<Vec<_>>>()?
                 .join(", ");
@@ -106,10 +111,15 @@ pub fn expr_to_sql(expr: &Expr) -> Option<String> {
             }
         }
 
-        Expr::Between { expr, low, high, negated } => {
+        Expr::Between {
+            expr,
+            low,
+            high,
+            negated,
+        } => {
             let col = atom_to_sql(expr)?;
-            let lo  = atom_to_sql(low)?;
-            let hi  = atom_to_sql(high)?;
+            let lo = atom_to_sql(low)?;
+            let hi = atom_to_sql(high)?;
             if *negated {
                 Some(format!("{col} NOT BETWEEN {lo} AND {hi}"))
             } else {
@@ -117,7 +127,11 @@ pub fn expr_to_sql(expr: &Expr) -> Option<String> {
             }
         }
 
-        Expr::Like { expr, pattern, negated } => {
+        Expr::Like {
+            expr,
+            pattern,
+            negated,
+        } => {
             let col = atom_to_sql(expr)?;
             let pat = atom_to_sql(pattern)?;
             if *negated {
@@ -135,13 +149,16 @@ pub fn expr_to_sql(expr: &Expr) -> Option<String> {
 fn atom_to_sql(expr: &Expr) -> Option<String> {
     match expr {
         Expr::ColumnRef(name) => {
-            let col = name.find('.').map(|d| &name[d + 1..]).unwrap_or(name.as_str());
+            let col = name
+                .find('.')
+                .map(|d| &name[d + 1..])
+                .unwrap_or(name.as_str());
             Some(format!("\"{}\"", col.replace('"', "\"\"")))
         }
         Expr::Number(d) => Some(d.to_string()),
-        Expr::Str(s)    => Some(format!("'{}'", s.replace('\'', "''"))),
-        Expr::Bool(b)   => Some(b.to_string()),
-        Expr::Null      => Some("NULL".to_string()),
+        Expr::Str(s) => Some(format!("'{}'", s.replace('\'', "''"))),
+        Expr::Bool(b) => Some(b.to_string()),
+        Expr::Null => Some("NULL".to_string()),
         _ => None,
     }
 }
@@ -180,27 +197,39 @@ impl EvalDataSource for InMemoryDataSource {
     }
 
     fn schema_tables(&self) -> Vec<SchemaTable> {
-        let mut tables: Vec<SchemaTable> = self.tables.iter().map(|(name, rows)| {
-            let mut col_names: Vec<String> = rows
-                .first()
-                .map(|r| r.keys().cloned().collect())
-                .unwrap_or_default();
-            col_names.sort();
-            let columns = col_names.into_iter().map(|c| SchemaColumn {
-                col_type: rows.first()
-                    .and_then(|r| r.get(&c))
-                    .map(|v| match v {
-                        Value::Decimal(_) => "numeric",
-                        Value::Bool(_)    => "boolean",
-                        Value::Null       => "null",
-                        _                 => "text",
+        let mut tables: Vec<SchemaTable> = self
+            .tables
+            .iter()
+            .map(|(name, rows)| {
+                let mut col_names: Vec<String> = rows
+                    .first()
+                    .map(|r| r.keys().cloned().collect())
+                    .unwrap_or_default();
+                col_names.sort();
+                let columns = col_names
+                    .into_iter()
+                    .map(|c| SchemaColumn {
+                        col_type: rows
+                            .first()
+                            .and_then(|r| r.get(&c))
+                            .map(|v| match v {
+                                Value::Decimal(_) => "numeric",
+                                Value::Bool(_) => "boolean",
+                                Value::Null => "null",
+                                _ => "text",
+                            })
+                            .unwrap_or("text")
+                            .to_string(),
+                        name: c,
                     })
-                    .unwrap_or("text")
-                    .to_string(),
-                name: c,
-            }).collect();
-            SchemaTable { name: name.clone(), columns, row_count: rows.len() }
-        }).collect();
+                    .collect();
+                SchemaTable {
+                    name: name.clone(),
+                    columns,
+                    row_count: rows.len(),
+                }
+            })
+            .collect();
         tables.sort_by(|a, b| a.name.cmp(&b.name));
         tables
     }

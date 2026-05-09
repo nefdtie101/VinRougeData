@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use crate::dsl::ast::{AggFunc, Expr};
 use crate::dsl::value::{EvalError, EvalResult, Row, Value};
 
-use super::Evaluator;
 use super::result::ChartResult;
+use super::Evaluator;
 
 impl<'ds> Evaluator<'ds> {
     pub(super) fn eval_chart(
@@ -62,29 +62,36 @@ impl<'ds> Evaluator<'ds> {
     }
 
     /// Evaluate an aggregate expression over a specific set of rows.
-    fn eval_aggregate_over_rows(
-        &self,
-        expr: &Expr,
-        rows: &[&Row],
-    ) -> EvalResult<Value> {
+    fn eval_aggregate_over_rows(&self, expr: &Expr, rows: &[&Row]) -> EvalResult<Value> {
         let (func, distinct, inner_expr, filter) = match expr {
-            Expr::Aggregate { func, distinct, expr, filter } => (func, *distinct, expr.as_ref(), filter.as_ref()),
-            other => return Err(EvalError::AggregateError(
-                format!("expected aggregate expression, got {other:?}")
-            )),
+            Expr::Aggregate {
+                func,
+                distinct,
+                expr,
+                filter,
+            } => (func, *distinct, expr.as_ref(), filter.as_ref()),
+            other => {
+                return Err(EvalError::AggregateError(format!(
+                    "expected aggregate expression, got {other:?}"
+                )))
+            }
         };
 
-        let filtered: Vec<&&Row> = rows.iter()
+        let filtered: Vec<&&Row> = rows
+            .iter()
             .filter(|row| {
-                filter.map(|f| {
-                    self.eval(f, row)
-                        .map(|v| v.as_bool().unwrap_or(false))
-                        .unwrap_or(false)
-                }).unwrap_or(true)
+                filter
+                    .map(|f| {
+                        self.eval(f, row)
+                            .map(|v| v.as_bool().unwrap_or(false))
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(true)
             })
             .collect();
 
-        let values: Vec<Value> = filtered.iter()
+        let values: Vec<Value> = filtered
+            .iter()
             .map(|row| self.eval(inner_expr, row))
             .collect::<EvalResult<Vec<_>>>()?;
 
@@ -92,7 +99,10 @@ impl<'ds> Evaluator<'ds> {
 
         let effective: Vec<&Value> = if distinct {
             let mut seen = std::collections::HashSet::new();
-            non_null.iter().filter(|v| seen.insert(v.to_string())).collect()
+            non_null
+                .iter()
+                .filter(|v| seen.insert(v.to_string()))
+                .collect()
         } else {
             non_null.iter().collect()
         };
@@ -101,7 +111,8 @@ impl<'ds> Evaluator<'ds> {
         match func {
             AggFunc::Count => Ok(Value::Decimal(Decimal::from(effective.len()))),
             AggFunc::Sum => {
-                let sum = effective.iter()
+                let sum = effective
+                    .iter()
                     .map(|v| v.as_decimal())
                     .collect::<EvalResult<Vec<_>>>()?
                     .into_iter()
@@ -112,7 +123,8 @@ impl<'ds> Evaluator<'ds> {
                 if effective.is_empty() {
                     return Ok(Value::Null);
                 }
-                let sum = effective.iter()
+                let sum = effective
+                    .iter()
                     .map(|v| v.as_decimal())
                     .collect::<EvalResult<Vec<_>>>()?
                     .into_iter()
@@ -161,22 +173,35 @@ fn find_table_in_expr(expr: &Expr) -> Option<&str> {
     match expr {
         Expr::ColumnRef(name) => name.find('.').map(|d| &name[..d]),
         Expr::BinOp { lhs, rhs, .. } => find_table_in_expr(lhs).or_else(|| find_table_in_expr(rhs)),
-        Expr::Compare { lhs, rhs, .. } => find_table_in_expr(lhs).or_else(|| find_table_in_expr(rhs)),
-        Expr::Logical { lhs, rhs, .. } => find_table_in_expr(lhs).or_else(|| find_table_in_expr(rhs)),
+        Expr::Compare { lhs, rhs, .. } => {
+            find_table_in_expr(lhs).or_else(|| find_table_in_expr(rhs))
+        }
+        Expr::Logical { lhs, rhs, .. } => {
+            find_table_in_expr(lhs).or_else(|| find_table_in_expr(rhs))
+        }
         Expr::Not(inner) => find_table_in_expr(inner),
-        Expr::Case { branches, else_expr } => {
-            branches.iter().find_map(|(c, r)| find_table_in_expr(c).or_else(|| find_table_in_expr(r)))
-                .or_else(|| else_expr.as_deref().and_then(find_table_in_expr))
-        }
+        Expr::Case {
+            branches,
+            else_expr,
+        } => branches
+            .iter()
+            .find_map(|(c, r)| find_table_in_expr(c).or_else(|| find_table_in_expr(r)))
+            .or_else(|| else_expr.as_deref().and_then(find_table_in_expr)),
         Expr::Coalesce { exprs } => exprs.iter().find_map(|e| find_table_in_expr(e)),
-        Expr::NullIf { expr, compare } => find_table_in_expr(expr).or_else(|| find_table_in_expr(compare)),
-        Expr::MathFn { expr, scale, .. } => find_table_in_expr(expr).or_else(|| scale.as_deref().and_then(find_table_in_expr)),
-        Expr::StringFn { expr, .. } => find_table_in_expr(expr),
-        Expr::SubStr { expr, start, length } => {
-            find_table_in_expr(expr)
-                .or_else(|| find_table_in_expr(start))
-                .or_else(|| length.as_deref().and_then(find_table_in_expr))
+        Expr::NullIf { expr, compare } => {
+            find_table_in_expr(expr).or_else(|| find_table_in_expr(compare))
         }
+        Expr::MathFn { expr, scale, .. } => {
+            find_table_in_expr(expr).or_else(|| scale.as_deref().and_then(find_table_in_expr))
+        }
+        Expr::StringFn { expr, .. } => find_table_in_expr(expr),
+        Expr::SubStr {
+            expr,
+            start,
+            length,
+        } => find_table_in_expr(expr)
+            .or_else(|| find_table_in_expr(start))
+            .or_else(|| length.as_deref().and_then(find_table_in_expr)),
         Expr::Concat { exprs } => exprs.iter().find_map(|e| find_table_in_expr(e)),
         Expr::DateFn { expr } => find_table_in_expr(expr),
         Expr::IsNull { expr, .. } => find_table_in_expr(expr),
@@ -185,9 +210,17 @@ fn find_table_in_expr(expr: &Expr) -> Option<&str> {
         Expr::IsDate { expr, .. } => find_table_in_expr(expr),
         Expr::SaIdValid { expr } => find_table_in_expr(expr),
         Expr::Duplicated { exprs } => exprs.iter().find_map(|e| find_table_in_expr(e)),
-        Expr::Like { expr, pattern, .. } => find_table_in_expr(expr).or_else(|| find_table_in_expr(pattern)),
-        Expr::InList { expr, values, .. } => find_table_in_expr(expr).or_else(|| values.iter().find_map(find_table_in_expr)),
-        Expr::Between { expr, low, high, .. } => find_table_in_expr(expr).or_else(|| find_table_in_expr(low)).or_else(|| find_table_in_expr(high)),
+        Expr::Like { expr, pattern, .. } => {
+            find_table_in_expr(expr).or_else(|| find_table_in_expr(pattern))
+        }
+        Expr::InList { expr, values, .. } => {
+            find_table_in_expr(expr).or_else(|| values.iter().find_map(find_table_in_expr))
+        }
+        Expr::Between {
+            expr, low, high, ..
+        } => find_table_in_expr(expr)
+            .or_else(|| find_table_in_expr(low))
+            .or_else(|| find_table_in_expr(high)),
         _ => None,
     }
 }

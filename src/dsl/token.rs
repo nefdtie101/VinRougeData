@@ -21,7 +21,7 @@ pub enum Token {
     Null,
     True,
     False,
-    Mus,        // Monetary Unit Sampling
+    Mus, // Monetary Unit Sampling
     Random,
     Systematic,
     Stratified,
@@ -62,9 +62,9 @@ pub enum Token {
     Schema,     // SCHEMA — prints all imported table schemas
 
     // Identifiers and literals
-    Ident(String),      // table.column or plain name
+    Ident(String), // table.column or plain name
     Number(Decimal),
-    StringLit(String),  // "some string"
+    StringLit(String), // "some string"
 
     // Arithmetic operators
     Plus,
@@ -74,12 +74,12 @@ pub enum Token {
     Percent,
 
     // Comparison operators
-    Eq,     // =
-    NotEq,  // <>
-    Gt,     // >
-    Gte,    // >=
-    Lt,     // <
-    Lte,    // <=
+    Eq,    // =
+    NotEq, // <>
+    Gt,    // >
+    Gte,   // >=
+    Lt,    // <
+    Lte,   // <=
 
     // Delimiters
     LParen,
@@ -87,8 +87,8 @@ pub enum Token {
     Comma,
     Dot,
     Colon,
-    LBrace,     // {
-    RBrace,     // }
+    LBrace, // {
+    RBrace, // }
 
     // End of input
     Eof,
@@ -97,26 +97,26 @@ pub enum Token {
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Token::Ident(s)     => write!(f, "identifier '{s}'"),
-            Token::Number(n)    => write!(f, "number {n}"),
+            Token::Ident(s) => write!(f, "identifier '{s}'"),
+            Token::Number(n) => write!(f, "number {n}"),
             Token::StringLit(s) => write!(f, "string \"{s}\""),
-            Token::Plus         => write!(f, "'+'"),
-            Token::Minus        => write!(f, "'-'"),
-            Token::Star         => write!(f, "'*'"),
-            Token::Slash        => write!(f, "'/'"),
-            Token::Eq           => write!(f, "'='"),
-            Token::NotEq        => write!(f, "'<>'"),
-            Token::Gt           => write!(f, "'>'"),
-            Token::Gte          => write!(f, "'>='"),
-            Token::Lt           => write!(f, "'<'"),
-            Token::Lte          => write!(f, "'<='"),
-            Token::LParen       => write!(f, "'('"),
-            Token::RParen       => write!(f, "')'"),
-            Token::LBrace       => write!(f, "'{{'"),
-            Token::RBrace       => write!(f, "'}}'"),
-            Token::Comma        => write!(f, "','"),
-            Token::Eof          => write!(f, "end of input"),
-            other               => write!(f, "{other:?}"),
+            Token::Plus => write!(f, "'+'"),
+            Token::Minus => write!(f, "'-'"),
+            Token::Star => write!(f, "'*'"),
+            Token::Slash => write!(f, "'/'"),
+            Token::Eq => write!(f, "'='"),
+            Token::NotEq => write!(f, "'<>'"),
+            Token::Gt => write!(f, "'>'"),
+            Token::Gte => write!(f, "'>='"),
+            Token::Lt => write!(f, "'<'"),
+            Token::Lte => write!(f, "'<='"),
+            Token::LParen => write!(f, "'('"),
+            Token::RParen => write!(f, "')'"),
+            Token::LBrace => write!(f, "'{{'"),
+            Token::RBrace => write!(f, "'}}'"),
+            Token::Comma => write!(f, "','"),
+            Token::Eof => write!(f, "end of input"),
+            other => write!(f, "{other:?}"),
         }
     }
 }

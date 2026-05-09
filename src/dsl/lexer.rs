@@ -47,66 +47,70 @@ impl<'a> Lexer<'a> {
         while matches!(self.peek_char(), Some(c) if c.is_alphanumeric() || c == '_' || c == '.') {
             self.next_char();
         }
-        let end = self.chars.peek().map(|(i, _)| *i).unwrap_or(self.input.len());
+        let end = self
+            .chars
+            .peek()
+            .map(|(i, _)| *i)
+            .unwrap_or(self.input.len());
         let word = &self.input[start..end];
 
         match word.to_uppercase().as_str() {
-            "SUM"        => Token::Sum,
-            "AVG"        => Token::Avg,
-            "COUNT"      => Token::Count,
-            "MIN"        => Token::Min,
-            "MAX"        => Token::Max,
-            "ASSERT"     => Token::Assert,
-            "SAMPLE"     => Token::Sample,
-            "WHERE"      => Token::Where,
-            "AND"        => Token::And,
-            "OR"         => Token::Or,
-            "NOT"        => Token::Not,
-            "IN"         => Token::In,
-            "BETWEEN"    => Token::Between,
-            "IS"         => Token::Is,
-            "NULL"       => Token::Null,
-            "TRUE"       => Token::True,
-            "FALSE"      => Token::False,
-            "MUS"        => Token::Mus,
-            "RANDOM"     => Token::Random,
+            "SUM" => Token::Sum,
+            "AVG" => Token::Avg,
+            "COUNT" => Token::Count,
+            "MIN" => Token::Min,
+            "MAX" => Token::Max,
+            "ASSERT" => Token::Assert,
+            "SAMPLE" => Token::Sample,
+            "WHERE" => Token::Where,
+            "AND" => Token::And,
+            "OR" => Token::Or,
+            "NOT" => Token::Not,
+            "IN" => Token::In,
+            "BETWEEN" => Token::Between,
+            "IS" => Token::Is,
+            "NULL" => Token::Null,
+            "TRUE" => Token::True,
+            "FALSE" => Token::False,
+            "MUS" => Token::Mus,
+            "RANDOM" => Token::Random,
             "SYSTEMATIC" => Token::Systematic,
             "STRATIFIED" => Token::Stratified,
-            "TOP"        => Token::Top,
-            "FROM"       => Token::From,
-            "SIZE"       => Token::Size,
-            "DISTINCT"   => Token::Distinct,
-            "LIKE"       => Token::Like,
-            "COUNTIF"    => Token::CountIf,
-            "SUMIF"      => Token::SumIf,
-            "RELATION"   => Token::Relation,
-            "IS_BLANK"   => Token::IsBlank,
+            "TOP" => Token::Top,
+            "FROM" => Token::From,
+            "SIZE" => Token::Size,
+            "DISTINCT" => Token::Distinct,
+            "LIKE" => Token::Like,
+            "COUNTIF" => Token::CountIf,
+            "SUMIF" => Token::SumIf,
+            "RELATION" => Token::Relation,
+            "IS_BLANK" => Token::IsBlank,
             "IS_NUMERIC" => Token::IsNumeric,
-            "IS_DATE"    => Token::IsDate,
+            "IS_DATE" => Token::IsDate,
             "DUPLICATED" => Token::Duplicated,
             "SA_ID_VALID" => Token::SaIdValid,
-            "CHART"      => Token::Chart,
-            "SECTION"    => Token::Section,
-            "BY"         => Token::By,
-            "SCHEMA"     => Token::Schema,
-            "COALESCE"   => Token::Coalesce,
-            "NULLIF"     => Token::NullIf,
-            "IIF"        => Token::Iif,
-            "ABS"        => Token::Abs,
-            "ROUND"      => Token::Round,
-            "UPPER"      => Token::Upper,
-            "LOWER"      => Token::Lower,
-            "TRIM"       => Token::Trim,
-            "LENGTH"     => Token::Length,
-            "SUBSTR"     => Token::SubStr,
-            "CONCAT"     => Token::Concat,
-            "DATE"       => Token::Date,
-            "CASE"       => Token::Case,
-            "WHEN"       => Token::When,
-            "THEN"       => Token::Then,
-            "ELSE"       => Token::Else,
-            "END"        => Token::End,
-            _            => Token::Ident(word.to_string()),
+            "CHART" => Token::Chart,
+            "SECTION" => Token::Section,
+            "BY" => Token::By,
+            "SCHEMA" => Token::Schema,
+            "COALESCE" => Token::Coalesce,
+            "NULLIF" => Token::NullIf,
+            "IIF" => Token::Iif,
+            "ABS" => Token::Abs,
+            "ROUND" => Token::Round,
+            "UPPER" => Token::Upper,
+            "LOWER" => Token::Lower,
+            "TRIM" => Token::Trim,
+            "LENGTH" => Token::Length,
+            "SUBSTR" => Token::SubStr,
+            "CONCAT" => Token::Concat,
+            "DATE" => Token::Date,
+            "CASE" => Token::Case,
+            "WHEN" => Token::When,
+            "THEN" => Token::Then,
+            "ELSE" => Token::Else,
+            "END" => Token::End,
+            _ => Token::Ident(word.to_string()),
         }
     }
 
@@ -120,7 +124,11 @@ impl<'a> Lexer<'a> {
                 self.next_char();
             }
         }
-        let end = self.chars.peek().map(|(i, _)| *i).unwrap_or(self.input.len());
+        let end = self
+            .chars
+            .peek()
+            .map(|(i, _)| *i)
+            .unwrap_or(self.input.len());
         let s = &self.input[start..end];
         Decimal::from_str(s)
             .map(Token::Number)
@@ -143,10 +151,17 @@ impl<'a> Lexer<'a> {
         let mut tokens = Vec::new();
         loop {
             self.skip_whitespace();
-            let pos = self.chars.peek().map(|(i, _)| *i).unwrap_or(self.input.len());
+            let pos = self
+                .chars
+                .peek()
+                .map(|(i, _)| *i)
+                .unwrap_or(self.input.len());
 
             match self.next_char() {
-                None => { tokens.push((pos, Token::Eof)); break; }
+                None => {
+                    tokens.push((pos, Token::Eof));
+                    break;
+                }
                 Some((_, '-')) if self.peek_char() == Some('-') => {
                     self.skip_line_comment();
                 }
@@ -199,19 +214,26 @@ impl<'a> Lexer<'a> {
                         tokens.push((i, Token::Gt));
                     }
                 }
-                Some((i, '<')) => {
-                    match self.peek_char() {
-                        Some('=') => { self.next_char(); tokens.push((i, Token::Lte)); }
-                        Some('>') => { self.next_char(); tokens.push((i, Token::NotEq)); }
-                        _         => tokens.push((i, Token::Lt)),
+                Some((i, '<')) => match self.peek_char() {
+                    Some('=') => {
+                        self.next_char();
+                        tokens.push((i, Token::Lte));
                     }
-                }
+                    Some('>') => {
+                        self.next_char();
+                        tokens.push((i, Token::NotEq));
+                    }
+                    _ => tokens.push((i, Token::Lt)),
+                },
                 Some((i, '!')) => {
                     if self.peek_char() == Some('=') {
                         self.next_char();
                         tokens.push((i, Token::NotEq));
                     } else {
-                        return Err(ParseError::new(i, "unexpected character '!' — did you mean '<>'?".to_string()));
+                        return Err(ParseError::new(
+                            i,
+                            "unexpected character '!' — did you mean '<>'?".to_string(),
+                        ));
                     }
                 }
                 Some((i, c)) => {

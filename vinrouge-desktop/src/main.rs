@@ -7,10 +7,10 @@ mod helpers;
 mod session_db;
 mod state;
 
-use tauri::Manager;
 use commands::terminal::PtyState;
-use state::{DslCacheState, OllamaState, ProjectsState};
 use commands::*;
+use state::{DslCacheState, OllamaState, ProjectsState};
+use tauri::Manager;
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -97,6 +97,9 @@ fn main() {
             pty_write,
             pty_resize,
             pty_update_scripts,
+            check_for_update,
+            download_update,
+            install_update,
         ])
         .setup(|app| {
             // Auto-start Ollama when the desktop app launches.

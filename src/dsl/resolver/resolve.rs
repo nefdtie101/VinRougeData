@@ -1,6 +1,6 @@
-use crate::dsl::ast::*;
 use super::errors::ResolveError;
 use super::schema::Schema;
+use crate::dsl::ast::*;
 
 const VALID_CHART_TYPES: &[&str] = &["bar", "line", "pie", "scatter"];
 
@@ -15,7 +15,10 @@ pub struct Resolver<'s> {
 
 impl<'s> Resolver<'s> {
     pub fn new(schema: &'s Schema) -> Self {
-        Self { schema, errors: Vec::new() }
+        Self {
+            schema,
+            errors: Vec::new(),
+        }
     }
 
     /// Validate a list of statements and return all resolve errors found.
@@ -56,7 +59,9 @@ impl<'s> Resolver<'s> {
                 }
             }
 
-            Expr::Between { expr, low, high, .. } => {
+            Expr::Between {
+                expr, low, high, ..
+            } => {
                 self.check_expr(expr);
                 self.check_expr(low);
                 self.check_expr(high);
@@ -64,16 +69,23 @@ impl<'s> Resolver<'s> {
 
             Expr::IsNull { expr, .. } => self.check_expr(expr),
 
-            Expr::IsBlank  { expr, .. } => self.check_expr(expr),
-            Expr::IsNumeric{ expr, .. } => self.check_expr(expr),
-            Expr::IsDate   { expr, .. } => self.check_expr(expr),
-            Expr::SaIdValid{ expr }     => self.check_expr(expr),
+            Expr::IsBlank { expr, .. } => self.check_expr(expr),
+            Expr::IsNumeric { expr, .. } => self.check_expr(expr),
+            Expr::IsDate { expr, .. } => self.check_expr(expr),
+            Expr::SaIdValid { expr } => self.check_expr(expr),
 
             Expr::Duplicated { exprs } => {
-                for e in exprs { self.check_expr(e); }
+                for e in exprs {
+                    self.check_expr(e);
+                }
             }
 
-            Expr::InTableCol { expr, table, column, .. } => {
+            Expr::InTableCol {
+                expr,
+                table,
+                column,
+                ..
+            } => {
                 self.check_expr(expr);
                 if !self.schema.has_table(table) {
                     self.errors.push(ResolveError::UnknownTable {
@@ -88,7 +100,12 @@ impl<'s> Resolver<'s> {
                 }
             }
 
-            Expr::RelationDecl { from_table, from_col, to_table, to_col } => {
+            Expr::RelationDecl {
+                from_table,
+                from_col,
+                to_table,
+                to_col,
+            } => {
                 if !self.schema.has_table(from_table) {
                     self.errors.push(ResolveError::UnknownTable {
                         table: from_table.clone(),
@@ -121,7 +138,9 @@ impl<'s> Resolver<'s> {
             }
 
             Expr::Coalesce { exprs } => {
-                for e in exprs { self.check_expr(e); }
+                for e in exprs {
+                    self.check_expr(e);
+                }
             }
 
             Expr::NullIf { expr, compare } => {
@@ -131,7 +150,9 @@ impl<'s> Resolver<'s> {
 
             Expr::MathFn { expr, scale, .. } => {
                 self.check_expr(expr);
-                if let Some(s) = scale { self.check_expr(s); }
+                if let Some(s) = scale {
+                    self.check_expr(s);
+                }
             }
 
             Expr::Like { expr, pattern, .. } => {
@@ -141,19 +162,30 @@ impl<'s> Resolver<'s> {
 
             Expr::StringFn { expr, .. } => self.check_expr(expr),
 
-            Expr::SubStr { expr, start, length } => {
+            Expr::SubStr {
+                expr,
+                start,
+                length,
+            } => {
                 self.check_expr(expr);
                 self.check_expr(start);
-                if let Some(l) = length { self.check_expr(l); }
+                if let Some(l) = length {
+                    self.check_expr(l);
+                }
             }
 
             Expr::Concat { exprs } => {
-                for e in exprs { self.check_expr(e); }
+                for e in exprs {
+                    self.check_expr(e);
+                }
             }
 
             Expr::DateFn { expr } => self.check_expr(expr),
 
-            Expr::Case { branches, else_expr } => {
+            Expr::Case {
+                branches,
+                else_expr,
+            } => {
                 for (cond, result) in branches {
                     self.check_expr(cond);
                     self.check_expr(result);
@@ -168,21 +200,32 @@ impl<'s> Resolver<'s> {
                 self.check_expr(rhs);
             }
 
-            Expr::Sample { population, value_column, filter, .. } => {
+            Expr::Sample {
+                population,
+                value_column,
+                filter,
+                ..
+            } => {
                 self.check_sample_column(population, value_column);
                 if let Some(f) = filter {
                     self.check_expr(f);
                 }
             }
 
-            Expr::Chart { chart_type, aggregate, dimension } => {
+            Expr::Chart {
+                chart_type,
+                aggregate,
+                dimension,
+            } => {
                 if !VALID_CHART_TYPES.contains(&chart_type.to_lowercase().as_str()) {
-                    self.errors.push(ResolveError::InvalidChartType(chart_type.clone()));
+                    self.errors
+                        .push(ResolveError::InvalidChartType(chart_type.clone()));
                 }
                 if !matches!(aggregate.as_ref(), Expr::Aggregate { .. }) {
-                    self.errors.push(ResolveError::InvalidChartAggregate(
-                        format!("{aggregate:?}")
-                    ));
+                    self.errors
+                        .push(ResolveError::InvalidChartAggregate(format!(
+                            "{aggregate:?}"
+                        )));
                 }
                 self.check_expr(aggregate);
                 self.check_expr(dimension);
@@ -216,14 +259,18 @@ impl<'s> Resolver<'s> {
                 }
             }
             None if require_prefix => {
-                self.errors.push(ResolveError::BareColumnInAggregate(name.to_string()));
+                self.errors
+                    .push(ResolveError::BareColumnInAggregate(name.to_string()));
             }
             None => {
-                let found = self.schema.tables.values().any(|cols| {
-                    cols.contains(&name.to_lowercase())
-                });
+                let found = self
+                    .schema
+                    .tables
+                    .values()
+                    .any(|cols| cols.contains(&name.to_lowercase()));
                 if !found && !self.schema.tables.is_empty() {
-                    self.errors.push(ResolveError::AmbiguousColumn(name.to_string()));
+                    self.errors
+                        .push(ResolveError::AmbiguousColumn(name.to_string()));
                 }
             }
         }

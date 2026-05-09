@@ -1,14 +1,14 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use crate::components::{DataGrid, SettingsModal};
 use crate::components::data_grid::open_data_window;
+use crate::components::{DataGrid, SettingsModal};
 use crate::file_analysis::{analyze_bytes, read_file_bytes};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
 use crate::ollama::ask_ai;
-use crate::storage::{AiProvider, AppSettings, sync_settings_from_tauri};
-use vinrouge::audit_prompts::DSL_LANGUAGE_REFERENCE;
+use crate::storage::{sync_settings_from_tauri, AiProvider, AppSettings};
 use crate::types::{DslScript, Project, ProjectFile, SessionSchema};
 use leptos::prelude::*;
+use std::collections::HashMap;
+use std::sync::Arc;
+use vinrouge::audit_prompts::DSL_LANGUAGE_REFERENCE;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
@@ -16,23 +16,43 @@ use wasm_bindgen_futures::spawn_local;
 const EDITOR_ID: &str = "studio-dsl-editor";
 
 mod dsl_results;
-use dsl_results::{render_dsl_result, count_results};
+use dsl_results::{count_results, render_dsl_result};
 
 fn call_dsl(name: &str, args: &[&str]) {
-    let Some(window) = web_sys::window() else { return };
-    let Ok(f) = js_sys::Reflect::get(&window, &JsValue::from_str(name)) else { return };
-    let Ok(f) = f.dyn_into::<js_sys::Function>() else { return };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(f) = js_sys::Reflect::get(&window, &JsValue::from_str(name)) else {
+        return;
+    };
+    let Ok(f) = f.dyn_into::<js_sys::Function>() else {
+        return;
+    };
     match args {
-        [a] => { let _ = f.call1(&JsValue::UNDEFINED, &JsValue::from_str(a)); }
-        [a, b] => { let _ = f.call2(&JsValue::UNDEFINED, &JsValue::from_str(a), &JsValue::from_str(b)); }
+        [a] => {
+            let _ = f.call1(&JsValue::UNDEFINED, &JsValue::from_str(a));
+        }
+        [a, b] => {
+            let _ = f.call2(
+                &JsValue::UNDEFINED,
+                &JsValue::from_str(a),
+                &JsValue::from_str(b),
+            );
+        }
         _ => {}
     }
 }
 
 fn dsl_get_value() -> String {
-    let Some(window) = web_sys::window() else { return String::new() };
-    let Ok(f) = js_sys::Reflect::get(&window, &JsValue::from_str("vrDslGetValue")) else { return String::new() };
-    let Ok(f) = f.dyn_into::<js_sys::Function>() else { return String::new() };
+    let Some(window) = web_sys::window() else {
+        return String::new();
+    };
+    let Ok(f) = js_sys::Reflect::get(&window, &JsValue::from_str("vrDslGetValue")) else {
+        return String::new();
+    };
+    let Ok(f) = f.dyn_into::<js_sys::Function>() else {
+        return String::new();
+    };
     f.call1(&JsValue::UNDEFINED, &JsValue::from_str(EDITOR_ID))
         .ok()
         .and_then(|v| v.as_string())
@@ -74,7 +94,9 @@ fn parse_code_blocks(text: &str) -> Vec<(bool, String)> {
         if let Some(end) = remaining.find("```") {
             segments.push((true, remaining[..end].trim_end().to_string()));
             remaining = &remaining[end + 3..];
-            if remaining.starts_with('\n') { remaining = &remaining[1..]; }
+            if remaining.starts_with('\n') {
+                remaining = &remaining[1..];
+            }
         } else {
             segments.push((true, remaining.to_string()));
             remaining = "";
@@ -141,7 +163,10 @@ pub fn StudioView() -> impl IntoView {
 
     // ── AI assistant state ────────────────────────────────────────────────────
     #[derive(Clone)]
-    struct AiMsg { role: &'static str, text: String }
+    struct AiMsg {
+        role: &'static str,
+        text: String,
+    }
     let ai_messages: RwSignal<Vec<AiMsg>> = RwSignal::new(vec![]);
     let ai_input: RwSignal<String> = RwSignal::new(String::new());
     let ai_loading: RwSignal<bool> = RwSignal::new(false);
@@ -170,7 +195,9 @@ pub fn StudioView() -> impl IntoView {
             if let Ok(raw) = tauri_invoke_args::<Vec<HashMap<String, String>>>(
                 "get_session_rows",
                 serde_json::json!({ "importId": id }),
-            ).await {
+            )
+            .await
+            {
                 let cols: Vec<String> = if raw.is_empty() {
                     fallback_cols
                 } else {
@@ -178,9 +205,14 @@ pub fn StudioView() -> impl IntoView {
                     c.sort();
                     c
                 };
-                let rows = raw.into_iter().map(|row| {
-                    cols.iter().map(|k| row.get(k).cloned().unwrap_or_default()).collect()
-                }).collect();
+                let rows = raw
+                    .into_iter()
+                    .map(|row| {
+                        cols.iter()
+                            .map(|k| row.get(k).cloned().unwrap_or_default())
+                            .collect()
+                    })
+                    .collect();
                 preview_cols.set(cols);
                 preview_rows.set(rows);
             }
@@ -210,7 +242,9 @@ pub fn StudioView() -> impl IntoView {
         let name = file.name();
         let ext = name.rsplit('.').next().unwrap_or("").to_lowercase();
         if !matches!(ext.as_str(), "csv" | "xlsx" | "xls") {
-            status.set(format!("Unsupported file type (.{ext}) — drop a CSV or Excel file"));
+            status.set(format!(
+                "Unsupported file type (.{ext}) — drop a CSV or Excel file"
+            ));
             return;
         }
         data_uploading.set(true);
@@ -226,9 +260,13 @@ pub fn StudioView() -> impl IntoView {
             let columns = match analyze_bytes(bytes.clone(), &name).await {
                 Ok(r) => {
                     let mut seen = std::collections::HashSet::new();
-                    r.tables.into_iter()
+                    r.tables
+                        .into_iter()
                         .flat_map(|t| t.columns.into_iter().map(|c| c.name))
-                        .filter(|h| { let t = h.trim(); !t.is_empty() && seen.insert(t.to_string()) })
+                        .filter(|h| {
+                            let t = h.trim();
+                            !t.is_empty() && seen.insert(t.to_string())
+                        })
                         .collect::<Vec<_>>()
                 }
                 Err(_) => vec![],
@@ -236,7 +274,9 @@ pub fn StudioView() -> impl IntoView {
             let file_id = match tauri_invoke_args::<ProjectFile>(
                 "add_data_file",
                 serde_json::json!({ "name": name, "bytes": bytes }),
-            ).await {
+            )
+            .await
+            {
                 Ok(pf) => pf.id,
                 Err(e) => {
                     status.set(format!("Upload error: {e}"));
@@ -244,11 +284,13 @@ pub fn StudioView() -> impl IntoView {
                     return;
                 }
             };
-            let mappings: Vec<(String, String)> = columns.iter().map(|c| (c.clone(), c.clone())).collect();
+            let mappings: Vec<(String, String)> =
+                columns.iter().map(|c| (c.clone(), c.clone())).collect();
             let _ = tauri_invoke_args::<serde_json::Value>(
                 "import_data_file",
                 serde_json::json!({ "fileId": file_id, "mappings": mappings, "sheet": null }),
-            ).await;
+            )
+            .await;
             load_schemas();
             // Refresh IntelliSense schema too
             if let Ok(sj) = tauri_invoke::<serde_json::Value>("get_session_schemas").await {
@@ -285,7 +327,8 @@ pub fn StudioView() -> impl IntoView {
                 spawn_local(async move {
                     sync_settings_from_tauri().await;
                 });
-            }).await;
+            })
+            .await;
         });
     }
 
@@ -298,15 +341,20 @@ pub fn StudioView() -> impl IntoView {
                         scripts.set(list);
                     }
                 });
-            }).await;
+            })
+            .await;
         });
     }
 
     // ── Listen for run-phase events emitted by the backend ───────────────────
     if crate::ipc::is_tauri() {
         spawn_local(async move {
-            let _ = crate::ipc::tauri_listen_event_payload("dsl-status", move |payload| {
-                match payload["phase"].as_str().unwrap_or("") {
+            let _ =
+                crate::ipc::tauri_listen_event_payload("dsl-status", move |payload| match payload
+                    ["phase"]
+                    .as_str()
+                    .unwrap_or("")
+                {
                     "loading" => {
                         dsl_phase.set("loading".into());
                         dsl_phase_label.set("Loading data into engine…".into());
@@ -314,15 +362,14 @@ pub fn StudioView() -> impl IntoView {
                     "running" => {
                         dsl_phase.set("running".into());
                         let label = payload["label"].as_str().unwrap_or("");
-                        let n     = payload["n"].as_u64();
+                        let n = payload["n"].as_u64();
                         let total = payload["total"].as_u64();
                         let msg = match (n, total) {
-                            (Some(n), Some(t)) if !label.is_empty() =>
-                                format!("Running {n}/{t}: {label}"),
-                            (Some(n), Some(t)) =>
-                                format!("Running script {n}/{t}…"),
-                            _ if !label.is_empty() =>
-                                format!("Running: {label}"),
+                            (Some(n), Some(t)) if !label.is_empty() => {
+                                format!("Running {n}/{t}: {label}")
+                            }
+                            (Some(n), Some(t)) => format!("Running script {n}/{t}…"),
+                            _ if !label.is_empty() => format!("Running: {label}"),
                             _ => "Running…".into(),
                         };
                         dsl_phase_label.set(msg);
@@ -331,21 +378,24 @@ pub fn StudioView() -> impl IntoView {
                         dsl_phase.set(String::new());
                         dsl_phase_label.set(String::new());
                     }
-                }
-            }).await;
+                })
+                .await;
         });
     }
 
     // ── Keep .vinrouge/scripts.json in sync with the live scripts signal ─────
     Effect::new(move |_| {
         let list = scripts.get();
-        if !crate::ipc::is_tauri() { return; }
+        if !crate::ipc::is_tauri() {
+            return;
+        }
         if let Ok(json) = serde_json::to_string(&list) {
             spawn_local(async move {
                 let _ = tauri_invoke_args::<()>(
                     "pty_update_scripts",
                     serde_json::json!({ "scriptsJson": json }),
-                ).await;
+                )
+                .await;
             });
         }
     });
@@ -374,10 +424,17 @@ pub fn StudioView() -> impl IntoView {
             match tauri_invoke_args::<()>("rename_dsl_script", args).await {
                 Ok(_) => {
                     // Update the editor tab label if this is the active script
-                    if active_script.get().as_ref().map(|s| s.id == id).unwrap_or(false) {
+                    if active_script
+                        .get()
+                        .as_ref()
+                        .map(|s| s.id == id)
+                        .unwrap_or(false)
+                    {
                         script_label.set(label_for_tab.clone());
                         active_script.update(|s| {
-                            if let Some(s) = s { s.label = label_for_tab; }
+                            if let Some(s) = s {
+                                s.label = label_for_tab;
+                            }
                         });
                     }
                     load_scripts();
@@ -390,7 +447,9 @@ pub fn StudioView() -> impl IntoView {
     // ── Open a project ────────────────────────────────────────────────────────
     let open_project = move |path: String| {
         spawn_local(async move {
-            match tauri_invoke_args::<Project>("open_project", serde_json::json!({ "path": path })).await {
+            match tauri_invoke_args::<Project>("open_project", serde_json::json!({ "path": path }))
+                .await
+            {
                 Ok(p) => {
                     active_project.set(Some(p));
                     active_script.set(None);
@@ -407,7 +466,9 @@ pub fn StudioView() -> impl IntoView {
                     search.set(String::new());
                     load_scripts();
                     // Load session schemas for IntelliSense
-                    if let Ok(schemas) = tauri_invoke::<serde_json::Value>("get_session_schemas").await {
+                    if let Ok(schemas) =
+                        tauri_invoke::<serde_json::Value>("get_session_schemas").await
+                    {
                         if let Ok(json) = serde_json::to_string(&schemas) {
                             dsl_set_schema(&json);
                         }
@@ -432,11 +493,13 @@ pub fn StudioView() -> impl IntoView {
             dsl_code.set(code.clone());
             panel.set(StudioPanel::Editor);
             let code2 = code.clone();
-            let _ = web_sys::window().unwrap()
+            let _ = web_sys::window()
+                .unwrap()
                 .set_timeout_with_callback_and_timeout_and_arguments_0(
                     &wasm_bindgen::closure::Closure::once_into_js(move || {
                         dsl_init(&code2);
-                    }).unchecked_into(),
+                    })
+                    .unchecked_into(),
                     50,
                 );
         }
@@ -472,7 +535,8 @@ pub fn StudioView() -> impl IntoView {
                     let _ = tauri_invoke_args::<Project>(
                         "open_project",
                         serde_json::json!({ "path": p.path }),
-                    ).await;
+                    )
+                    .await;
                     new_name.set(String::new());
                     if let Ok(list) = tauri_invoke::<Vec<Project>>("list_projects").await {
                         projects.set(list);
@@ -536,7 +600,9 @@ pub fn StudioView() -> impl IntoView {
     // ── Run DSL (save first so backend sees latest text) ──────────────────────
     let on_run = move |_: web_sys::MouseEvent| {
         if let Some(s) = active_script.get() {
-            if dsl_running.get() { return; }
+            if dsl_running.get() {
+                return;
+            }
             // Persist latest editor content before running
             let code = dsl_get_value();
             let save_args = serde_json::json!({ "scriptId": s.id.clone(), "scriptText": code });
@@ -548,9 +614,8 @@ pub fn StudioView() -> impl IntoView {
                 let _ = tauri_invoke_args::<()>("update_dsl_script", save_args).await;
                 let args = serde_json::json!({ "scriptId": script_id });
                 match tauri_invoke_args::<serde_json::Value>("run_dsl_script", args).await {
-                    Ok(v) => dsl_output.set(
-                        serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()),
-                    ),
+                    Ok(v) => dsl_output
+                        .set(serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string())),
                     Err(e) => dsl_output.set(format!("Error: {e}")),
                 }
                 dsl_running.set(false);
@@ -560,7 +625,9 @@ pub fn StudioView() -> impl IntoView {
 
     // ── Run ALL DSL scripts ───────────────────────────────────────────────────
     let on_run_all = move |_: web_sys::MouseEvent| {
-        if dsl_running.get() { return; }
+        if dsl_running.get() {
+            return;
+        }
         dsl_running.set(true);
         dsl_output.set("saving".into());
         bottom_tab.set("output");
@@ -576,10 +643,14 @@ pub fn StudioView() -> impl IntoView {
             if let Some(f) = save_fut {
                 let _ = f.await;
             }
-            match tauri_invoke_args::<serde_json::Value>("run_all_dsl_scripts", serde_json::json!({})).await {
-                Ok(v) => dsl_output.set(
-                    serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()),
-                ),
+            match tauri_invoke_args::<serde_json::Value>(
+                "run_all_dsl_scripts",
+                serde_json::json!({}),
+            )
+            .await
+            {
+                Ok(v) => dsl_output
+                    .set(serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string())),
                 Err(e) => dsl_output.set(format!("Error: {e}")),
             }
             dsl_running.set(false);
@@ -589,7 +660,9 @@ pub fn StudioView() -> impl IntoView {
     // ── AI send ───────────────────────────────────────────────────────────────
     let do_ai_send = move || {
         let q = ai_input.get();
-        if q.trim().is_empty() || ai_loading.get() { return; }
+        if q.trim().is_empty() || ai_loading.get() {
+            return;
+        }
         ai_loading.set(true);
         ai_input.set(String::new());
 
@@ -614,14 +687,24 @@ pub fn StudioView() -> impl IntoView {
              Answer concisely. When writing DSL, use only the functions documented above."
         );
 
-        ai_messages.update(|v| v.push(AiMsg { role: "user", text: q.clone() }));
+        ai_messages.update(|v| {
+            v.push(AiMsg {
+                role: "user",
+                text: q.clone(),
+            })
+        });
 
         spawn_local(async move {
             let reply = match ask_ai(&ctx, &q).await {
                 Ok(r) => r,
                 Err(e) => format!("Error: {e}"),
             };
-            ai_messages.update(|v| v.push(AiMsg { role: "assistant", text: reply }));
+            ai_messages.update(|v| {
+                v.push(AiMsg {
+                    role: "assistant",
+                    text: reply,
+                })
+            });
             ai_loading.set(false);
         });
     };

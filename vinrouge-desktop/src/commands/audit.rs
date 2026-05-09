@@ -16,7 +16,12 @@ pub fn save_audit_plan(
         control_ref: String,
         #[serde(alias = "controlObjective", alias = "objective")]
         control_objective: String,
-        #[serde(alias = "controlDescription", alias = "description", alias = "how_it_operates", alias = "howItOperates")]
+        #[serde(
+            alias = "controlDescription",
+            alias = "description",
+            alias = "how_it_operates",
+            alias = "howItOperates"
+        )]
         control_description: String,
         #[serde(alias = "testProcedure", alias = "test", alias = "procedure")]
         test_procedure: String,
@@ -36,8 +41,14 @@ pub fn save_audit_plan(
     }
     #[derive(serde::Deserialize)]
     struct PlanDto {
-        #[serde(alias = "plan", alias = "audit_plan", alias = "auditPlan",
-                alias = "processList", alias = "process_list", alias = "items")]
+        #[serde(
+            alias = "plan",
+            alias = "audit_plan",
+            alias = "auditPlan",
+            alias = "processList",
+            alias = "process_list",
+            alias = "items"
+        )]
         processes: Vec<ProcessDto>,
     }
 
@@ -86,15 +97,30 @@ pub fn save_audit_plan(
     };
 
     let mut ctrl_counter = 1usize;
-    let batch: Vec<(String, String, Vec<(String, String, String, String, String, bool)>)> = plan
+    let batch: Vec<(
+        String,
+        String,
+        Vec<(String, String, String, String, String, bool)>,
+    )> = plan
         .processes
         .into_iter()
         .map(|p| {
-            let controls = p.controls.into_iter().map(|c| {
-                let normalised_ref = format!("C-{}", ctrl_counter);
-                ctrl_counter += 1;
-                (normalised_ref, c.control_objective, c.control_description, c.test_procedure, c.risk_level, c.sop_gap)
-            }).collect();
+            let controls = p
+                .controls
+                .into_iter()
+                .map(|c| {
+                    let normalised_ref = format!("C-{}", ctrl_counter);
+                    ctrl_counter += 1;
+                    (
+                        normalised_ref,
+                        c.control_objective,
+                        c.control_description,
+                        c.test_procedure,
+                        c.risk_level,
+                        c.sop_gap,
+                    )
+                })
+                .collect();
             (p.process_name, p.description, controls)
         })
         .collect();
@@ -122,18 +148,20 @@ pub fn add_control(
 ) -> Result<vinrouge::projects::Control, String> {
     let project_dir = state.dir()?;
     let ctrl = vinrouge::projects::add_control(
-        &project_dir, &process_id, &control_ref,
-        &control_objective, &control_description, &test_procedure, &risk_level,
+        &project_dir,
+        &process_id,
+        &control_ref,
+        &control_objective,
+        &control_description,
+        &test_procedure,
+        &risk_level,
     )?;
     state.sync_vrd()?;
     Ok(ctrl)
 }
 
 #[tauri::command]
-pub fn delete_control(
-    control_id: String,
-    state: State<ProjectsState>,
-) -> Result<(), String> {
+pub fn delete_control(control_id: String, state: State<ProjectsState>) -> Result<(), String> {
     let project_dir = state.dir()?;
     vinrouge::projects::delete_control(&project_dir, &control_id)?;
     state.sync_vrd()
@@ -182,18 +210,22 @@ pub fn save_pbc_item(
 ) -> Result<vinrouge::projects::PbcItem, String> {
     let project_dir = state.dir()?;
     let item = vinrouge::projects::save_pbc_item(
-        &project_dir, &control_id, &control_ref, &name, &item_type,
-        table_name.as_deref(), &fields, &purpose, &scope_format,
+        &project_dir,
+        &control_id,
+        &control_ref,
+        &name,
+        &item_type,
+        table_name.as_deref(),
+        &fields,
+        &purpose,
+        &scope_format,
     )?;
     state.sync_vrd()?;
     Ok(item)
 }
 
 #[tauri::command]
-pub fn delete_pbc_item(
-    item_id: String,
-    state: State<ProjectsState>,
-) -> Result<(), String> {
+pub fn delete_pbc_item(item_id: String, state: State<ProjectsState>) -> Result<(), String> {
     let project_dir = state.dir()?;
     vinrouge::projects::delete_pbc_item(&project_dir, &item_id)?;
     state.sync_vrd()
@@ -219,8 +251,14 @@ pub fn update_pbc_item(
 ) -> Result<(), String> {
     let project_dir = state.dir()?;
     vinrouge::projects::update_pbc_item(
-        &project_dir, &item_id, &name, &item_type,
-        table_name.as_deref(), &fields, &purpose, &scope_format,
+        &project_dir,
+        &item_id,
+        &name,
+        &item_type,
+        table_name.as_deref(),
+        &fields,
+        &purpose,
+        &scope_format,
     )?;
     state.sync_vrd()
 }
@@ -248,9 +286,6 @@ pub fn get_pbc_list_approved(state: State<ProjectsState>) -> Result<bool, String
 }
 
 #[tauri::command]
-pub fn set_pbc_list_approved(
-    approved: bool,
-    state: State<ProjectsState>,
-) -> Result<(), String> {
+pub fn set_pbc_list_approved(approved: bool, state: State<ProjectsState>) -> Result<(), String> {
     vinrouge::projects::set_pbc_list_approved(&state.dir()?, approved)
 }

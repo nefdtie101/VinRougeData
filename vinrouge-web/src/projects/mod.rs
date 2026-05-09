@@ -1,5 +1,5 @@
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{ask_ollama_json, ask_ai, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
+use crate::ollama::{ask_ai, ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::step1;
 use crate::step2;
 use crate::step3;
@@ -340,7 +340,9 @@ pub fn ProjectsView() -> impl IntoView {
 
     // ── Save to current .vrd (Ctrl+S equivalent) ──────────────────────────────
     let on_save_vrd = move |_: web_sys::MouseEvent| {
-        if vrd_busy.get() { return; }
+        if vrd_busy.get() {
+            return;
+        }
         vrd_busy.set(true);
         spawn_local(async move {
             status.set("Saving…".to_string());
@@ -358,7 +360,9 @@ pub fn ProjectsView() -> impl IntoView {
 
     // ── Export active project as .vrd (Save As) ───────────────────────────────
     let on_export_vrd = move |_: web_sys::MouseEvent| {
-        if vrd_busy.get() { return; }
+        if vrd_busy.get() {
+            return;
+        }
         vrd_busy.set(true);
         spawn_local(async move {
             status.set("Saving .vrd…".to_string());
@@ -372,7 +376,7 @@ pub fn ProjectsView() -> impl IntoView {
                     });
                     status.set("Saved as .vrd".to_string());
                 }
-                Ok(_)  => status.set(String::new()), // cancelled
+                Ok(_) => status.set(String::new()), // cancelled
                 Err(e) => status.set(format!("Export failed: {e}")),
             }
             vrd_busy.set(false);
@@ -381,7 +385,9 @@ pub fn ProjectsView() -> impl IntoView {
 
     // ── Open a .vrd file (pick → extract → activate) ──────────────────────────
     let on_import_vrd = move |_: web_sys::MouseEvent| {
-        if vrd_busy.get() { return; }
+        if vrd_busy.get() {
+            return;
+        }
         vrd_busy.set(true);
         spawn_local(async move {
             status.set("Opening .vrd…".to_string());
@@ -395,8 +401,8 @@ pub fn ProjectsView() -> impl IntoView {
                         projects.set(list);
                     }
                 }
-                Ok(None)   => status.set(String::new()),
-                Err(e)     => status.set(format!("Open failed: {e}")),
+                Ok(None) => status.set(String::new()),
+                Err(e) => status.set(format!("Open failed: {e}")),
             }
             vrd_busy.set(false);
         });
@@ -415,11 +421,10 @@ pub fn ProjectsView() -> impl IntoView {
                 serde_json::json!({ "role": "user", "content": q.clone() }),
             )
             .await;
-            let reply =
-                match ask_ai("", &q).await {
-                    Ok(r) => r,
-                    Err(e) => format!("Error: {e}"),
-                };
+            let reply = match ask_ai("", &q).await {
+                Ok(r) => r,
+                Err(e) => format!("Error: {e}"),
+            };
             let _ = tauri_invoke_args::<AiMessage>(
                 "save_ai_message",
                 serde_json::json!({ "role": "assistant", "content": reply }),

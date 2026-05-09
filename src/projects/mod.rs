@@ -1162,10 +1162,8 @@ pub fn delete_dsl_script(project_dir: &Path, script_id: &str) -> Result<(), Stri
 
 pub fn clear_dsl_scripts(project_dir: &Path) -> Result<(), String> {
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
-    conn.execute_batch(
-        "DELETE FROM test_results; DELETE FROM dsl_scripts;",
-    )
-    .map_err(|e| format!("DB clear dsl_scripts: {e}"))
+    conn.execute_batch("DELETE FROM test_results; DELETE FROM dsl_scripts;")
+        .map_err(|e| format!("DB clear dsl_scripts: {e}"))
 }
 
 pub fn update_dsl_script(
@@ -1182,11 +1180,7 @@ pub fn update_dsl_script(
     Ok(())
 }
 
-pub fn rename_dsl_script(
-    project_dir: &Path,
-    script_id: &str,
-    label: &str,
-) -> Result<(), String> {
+pub fn rename_dsl_script(project_dir: &Path, script_id: &str, label: &str) -> Result<(), String> {
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;
     conn.execute(
         "UPDATE dsl_scripts SET label = ?1 WHERE id = ?2",
@@ -1214,8 +1208,7 @@ pub fn save_test_result(
         rusqlite::params![id, script_id, result_json, passed, failed, errors, now],
     )
     .map_err(|e| format!("DB insert test_result: {e}"))?;
-    let results: Vec<serde_json::Value> =
-        serde_json::from_str(result_json).unwrap_or_default();
+    let results: Vec<serde_json::Value> = serde_json::from_str(result_json).unwrap_or_default();
     Ok(TestResult {
         id,
         script_id: script_id.to_string(),
@@ -1251,18 +1244,20 @@ pub fn list_test_results(project_dir: &Path) -> Result<Vec<TestResult>, String> 
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
     rows.into_iter()
-        .map(|(id, script_id, result_json, passed, failed, errors, run_at)| {
-            let results: Vec<serde_json::Value> =
-                serde_json::from_str(&result_json).unwrap_or_default();
-            Ok(TestResult {
-                id,
-                script_id,
-                results,
-                passed_count: passed,
-                failed_count: failed,
-                error_count: errors,
-                run_at,
-            })
-        })
+        .map(
+            |(id, script_id, result_json, passed, failed, errors, run_at)| {
+                let results: Vec<serde_json::Value> =
+                    serde_json::from_str(&result_json).unwrap_or_default();
+                Ok(TestResult {
+                    id,
+                    script_id,
+                    results,
+                    passed_count: passed,
+                    failed_count: failed,
+                    error_count: errors,
+                    run_at,
+                })
+            },
+        )
         .collect()
 }

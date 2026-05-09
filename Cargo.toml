@@ -50,9 +50,12 @@ tracing = "0.1"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Project archive format (.vrd = zip)
 zip = "0.6"
+tar = "0.4"
+flate2 = "1"
 # CLI
 clap = { version = "4.5", features = ["derive"] }
 rayon = "1"
+semver = "1"
 
 # HTTP client (for Ollama integration)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
@@ -76,6 +79,9 @@ ureq           = "2"     # lightweight sync HTTP — used to auto-download OCR m
 # Configuration
 config = "0.14"
 toml = "0.8"
+
+# Self-update
+tempfile = "3"
 
 # Logging subscriber
 tracing-subscriber = "0.3"

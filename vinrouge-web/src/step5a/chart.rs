@@ -9,7 +9,9 @@ pub fn call_js(fn_name: &str, args: &[JsValue]) {
     let fn_val = js_sys::Reflect::get(&window, &JsValue::from_str(fn_name)).ok();
     if let Some(f) = fn_val.and_then(|v| v.dyn_into::<js_sys::Function>().ok()) {
         let arr = js_sys::Array::new();
-        for a in args { arr.push(a); }
+        for a in args {
+            arr.push(a);
+        }
         let _ = f.apply(&window, &arr);
     }
 }
@@ -17,7 +19,8 @@ pub fn call_js(fn_name: &str, args: &[JsValue]) {
 fn build_option(tab: ChartTab, data: &[DistPoint]) -> String {
     match tab {
         ChartTab::Bar => {
-            let cats: Vec<String> = data.iter()
+            let cats: Vec<String> = data
+                .iter()
                 .map(|d| format!("\"{}\"", d.value.replace('"', "\\\"")))
                 .collect();
             let vals: Vec<String> = data.iter().map(|d| d.count.to_string()).collect();
@@ -34,12 +37,15 @@ fn build_option(tab: ChartTab, data: &[DistPoint]) -> String {
             )
         }
         ChartTab::Pie => {
-            let items: Vec<String> = data.iter()
-                .map(|d| format!(
-                    "{{\"name\":\"{}\",\"value\":{}}}",
-                    d.value.replace('"', "\\\""),
-                    d.count
-                ))
+            let items: Vec<String> = data
+                .iter()
+                .map(|d| {
+                    format!(
+                        "{{\"name\":\"{}\",\"value\":{}}}",
+                        d.value.replace('"', "\\\""),
+                        d.count
+                    )
+                })
                 .collect();
             format!(
                 concat!(
@@ -72,10 +78,10 @@ pub fn EChart(
             return;
         }
         let option = build_option(t, &d);
-        call_js("vinrougeInitChart", &[
-            JsValue::from_str(&id),
-            JsValue::from_str(&option),
-        ]);
+        call_js(
+            "vinrougeInitChart",
+            &[JsValue::from_str(&id), JsValue::from_str(&option)],
+        );
     });
 
     on_cleanup(move || {
@@ -96,7 +102,7 @@ pub fn RawChart(
     option_json: Signal<String>,
     #[prop(default = 180)] height: u32,
 ) -> impl IntoView {
-    let id         = chart_id.clone();
+    let id = chart_id.clone();
     let id_cleanup = chart_id.clone();
 
     Effect::new(move |_| {
@@ -104,10 +110,10 @@ pub fn RawChart(
         if opt.is_empty() {
             call_js("vinrougeDisposeChart", &[JsValue::from_str(&id)]);
         } else {
-            call_js("vinrougeInitChart", &[
-                JsValue::from_str(&id),
-                JsValue::from_str(&opt),
-            ]);
+            call_js(
+                "vinrougeInitChart",
+                &[JsValue::from_str(&id), JsValue::from_str(&opt)],
+            );
         }
     });
 
@@ -123,11 +129,29 @@ pub fn RawChart(
 
 /// Build a stacked bar chart showing passed / failed / error counts per control.
 pub fn build_summary_option(items: &[(&str, i64, i64, i64)]) -> String {
-    if items.is_empty() { return String::new(); }
-    let cats  = items.iter().map(|(r,..)| format!("\"{}\"", r)).collect::<Vec<_>>().join(",");
-    let pass  = items.iter().map(|(_,p,..)| p.to_string()).collect::<Vec<_>>().join(",");
-    let fail  = items.iter().map(|(_,_,f,_)| f.to_string()).collect::<Vec<_>>().join(",");
-    let errs  = items.iter().map(|(_,_,_,e)| e.to_string()).collect::<Vec<_>>().join(",");
+    if items.is_empty() {
+        return String::new();
+    }
+    let cats = items
+        .iter()
+        .map(|(r, ..)| format!("\"{}\"", r))
+        .collect::<Vec<_>>()
+        .join(",");
+    let pass = items
+        .iter()
+        .map(|(_, p, ..)| p.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let fail = items
+        .iter()
+        .map(|(_, _, f, _)| f.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let errs = items
+        .iter()
+        .map(|(_, _, _, e)| e.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
         concat!(
             r##"{{"backgroundColor":"transparent","grid":{{"left":55,"right":12,"top":10,"bottom":48}},"##,
@@ -141,7 +165,10 @@ pub fn build_summary_option(items: &[(&str, i64, i64, i64)]) -> String {
             r##"{{"name":"Errors","type":"bar","stack":"s","data":[{errs}],"itemStyle":{{"color":"#f0a500"}}}}"##,
             r##"]}}"##,
         ),
-        cats = cats, pass = pass, fail = fail, errs = errs,
+        cats = cats,
+        pass = pass,
+        fail = fail,
+        errs = errs,
     )
 }
 
@@ -151,15 +178,18 @@ pub fn build_summary_option(items: &[(&str, i64, i64, i64)]) -> String {
 /// (2–15 distinct values) and skip ID/date/amount columns.
 pub fn pick_sample_column(rows: &[serde_json::Value]) -> Option<String> {
     let first = rows.first()?.as_object()?;
-    const SKIP: &[&str] = &["_id", "id", "date", "desc", "ref", "amt", "pct", "amount", "disc", "score"];
+    const SKIP: &[&str] = &[
+        "_id", "id", "date", "desc", "ref", "amt", "pct", "amount", "disc", "score",
+    ];
 
     let mut best: Option<(String, usize)> = None;
     for col in first.keys() {
         let lower = col.to_lowercase();
-        if SKIP.iter().any(|s| lower.ends_with(s) || lower == *s) { continue; }
-        let distinct: std::collections::HashSet<&str> = rows.iter()
-            .filter_map(|r| r[col].as_str())
-            .collect();
+        if SKIP.iter().any(|s| lower.ends_with(s) || lower == *s) {
+            continue;
+        }
+        let distinct: std::collections::HashSet<&str> =
+            rows.iter().filter_map(|r| r[col].as_str()).collect();
         let card = distinct.len();
         if card >= 2 && card <= 15 {
             if best.as_ref().map(|(_, c)| card < *c).unwrap_or(true) {
@@ -173,19 +203,24 @@ pub fn pick_sample_column(rows: &[serde_json::Value]) -> Option<String> {
 
 /// Build an ECharts option from DSL ChartResult data.
 pub fn build_dsl_chart_option(chart_type: &str, labels: &[String], values: &[String]) -> String {
-    let cats: Vec<String> = labels.iter()
+    let cats: Vec<String> = labels
+        .iter()
         .map(|l| format!("\"{}\"", l.replace('"', "\\\"")))
         .collect();
     let vals: Vec<String> = values.iter().map(|v| v.to_string()).collect();
 
     match chart_type {
         "pie" => {
-            let items: Vec<String> = labels.iter().zip(values.iter())
-                .map(|(l, v)| format!(
-                    "{{\"name\":\"{}\",\"value\":{}}}",
-                    l.replace('"', "\\\""),
-                    v
-                ))
+            let items: Vec<String> = labels
+                .iter()
+                .zip(values.iter())
+                .map(|(l, v)| {
+                    format!(
+                        "{{\"name\":\"{}\",\"value\":{}}}",
+                        l.replace('"', "\\\""),
+                        v
+                    )
+                })
                 .collect();
             format!(
                 concat!(
@@ -245,9 +280,12 @@ pub fn sample_distribution(rows: &[serde_json::Value], col: &str) -> Vec<super::
     let mut counts: std::collections::HashMap<String, usize> = Default::default();
     for row in rows {
         let val = row[col].as_str().unwrap_or("").to_string();
-        if !val.is_empty() { *counts.entry(val).or_default() += 1; }
+        if !val.is_empty() {
+            *counts.entry(val).or_default() += 1;
+        }
     }
-    let mut pts: Vec<super::types::DistPoint> = counts.into_iter()
+    let mut pts: Vec<super::types::DistPoint> = counts
+        .into_iter()
         .map(|(value, count)| super::types::DistPoint { value, count })
         .collect();
     pts.sort_by(|a, b| b.count.cmp(&a.count).then(a.value.cmp(&b.value)));

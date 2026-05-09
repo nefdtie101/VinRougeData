@@ -69,7 +69,9 @@ fn test_resolve_sample_unknown_table() {
     let s = schema();
     let stmts = parse("SAMPLE MUS ghost.amount 50").unwrap();
     let errs = resolve(&stmts, &s);
-    assert!(errs.iter().any(|e| matches!(e, ResolveError::UnknownTable { table, .. } if table == "ghost")));
+    assert!(errs
+        .iter()
+        .any(|e| matches!(e, ResolveError::UnknownTable { table, .. } if table == "ghost")));
 }
 
 #[test]
@@ -77,16 +79,16 @@ fn test_resolve_sample_unknown_column() {
     let s = schema();
     let stmts = parse("SAMPLE MUS invoices.nope 50").unwrap();
     let errs = resolve(&stmts, &s);
-    assert!(errs.iter().any(|e| matches!(e, ResolveError::UnknownColumn { column, .. } if column == "nope")));
+    assert!(errs
+        .iter()
+        .any(|e| matches!(e, ResolveError::UnknownColumn { column, .. } if column == "nope")));
 }
 
 #[test]
 fn test_resolve_collects_all_errors() {
     let s = schema();
     // Two bad refs — both should be reported
-    let stmts = parse(
-        "SUM(bad_table.amount)\nSUM(invoices.bad_col)",
-    ).unwrap();
+    let stmts = parse("SUM(bad_table.amount)\nSUM(invoices.bad_col)").unwrap();
     let errs = resolve(&stmts, &s);
     assert_eq!(errs.len(), 2);
 }
@@ -110,10 +112,13 @@ fn test_resolve_filter_unknown_column() {
 #[test]
 fn test_resolve_section() {
     let s = schema();
-    let stmts = parse(r#"SECTION "Reconciliation" {
+    let stmts = parse(
+        r#"SECTION "Reconciliation" {
         ASSERT SUM(invoices.amount) = SUM(sub_ledger.balance)
         bad: SUM(invoices.nope)
-    }"#).unwrap();
+    }"#,
+    )
+    .unwrap();
     let errs = resolve(&stmts, &s);
     assert_eq!(errs.len(), 1);
     assert!(matches!(&errs[0], ResolveError::UnknownColumn { column, .. } if column == "nope"));

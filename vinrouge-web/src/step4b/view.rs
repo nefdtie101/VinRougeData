@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use leptos::prelude::*;
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
@@ -7,10 +7,10 @@ use wasm_bindgen_futures::spawn_local;
 use crate::components::{Banner, DataGrid, GhostButton, Spinner};
 use crate::ipc::tauri_invoke_args;
 use crate::ollama::ask_ai;
-use crate::types::{AuditProcessWithControls, DslScript, SessionSchema};
-use crate::step4a::types::{Phase, ScriptStatus, ScriptState, RunResult, ChatMsg};
-use crate::step4a::helpers::{parse_run_result, extract_dsl_code};
+use crate::step4a::helpers::{extract_dsl_code, parse_run_result};
 use crate::step4a::pipeline::do_load_or_generate;
+use crate::step4a::types::{ChatMsg, Phase, RunResult, ScriptState, ScriptStatus};
+use crate::types::{AuditProcessWithControls, DslScript, SessionSchema};
 use vinrouge::dsl::{parse as dsl_parse, resolve, Schema};
 
 /// Load ALL rows for an import and populate the preview signals.
@@ -24,9 +24,12 @@ async fn load_table_rows(
     match tauri_invoke_args::<Vec<HashMap<String, String>>>(
         "get_session_rows",
         serde_json::json!({ "importId": id }),
-    ).await {
+    )
+    .await
+    {
         Ok(raw) if raw.is_empty() => {
-            let disp: Vec<String> = fallback_cols.iter()
+            let disp: Vec<String> = fallback_cols
+                .iter()
                 .map(|c| rev_map.get(c).cloned().unwrap_or_else(|| c.clone()))
                 .collect();
             preview_cols.set(disp);
@@ -39,12 +42,19 @@ async fn load_table_rows(
                 let db = rev_map.get(b).map(String::as_str).unwrap_or(b.as_str());
                 da.cmp(db)
             });
-            let disp_cols: Vec<String> = pbc_cols.iter()
+            let disp_cols: Vec<String> = pbc_cols
+                .iter()
                 .map(|k| rev_map.get(k).cloned().unwrap_or_else(|| k.clone()))
                 .collect();
-            let rows = raw.into_iter().map(|row| {
-                pbc_cols.iter().map(|k| row.get(k).cloned().unwrap_or_default()).collect()
-            }).collect();
+            let rows = raw
+                .into_iter()
+                .map(|row| {
+                    pbc_cols
+                        .iter()
+                        .map(|k| row.get(k).cloned().unwrap_or_default())
+                        .collect()
+                })
+                .collect();
             preview_cols.set(disp_cols);
             preview_rows.set(rows);
         }
@@ -59,33 +69,32 @@ pub fn Step4bView(
     status: RwSignal<String>,
 ) -> impl IntoView {
     // ── Core signals ──────────────────────────────────────────────────────────
-    let phase: RwSignal<Phase>                                = RwSignal::new(Phase::Loading);
-    let schemas: RwSignal<Vec<SessionSchema>>                  = RwSignal::new(vec![]);
-    let scripts: RwSignal<Vec<DslScript>>                      = RwSignal::new(vec![]);
-    let script_states: RwSignal<HashMap<String, ScriptState>>  = RwSignal::new(HashMap::new());
-    let progress_msg: RwSignal<String>                        = RwSignal::new("Loading data…".to_string());
-
+    let phase: RwSignal<Phase> = RwSignal::new(Phase::Loading);
+    let schemas: RwSignal<Vec<SessionSchema>> = RwSignal::new(vec![]);
+    let scripts: RwSignal<Vec<DslScript>> = RwSignal::new(vec![]);
+    let script_states: RwSignal<HashMap<String, ScriptState>> = RwSignal::new(HashMap::new());
+    let progress_msg: RwSignal<String> = RwSignal::new("Loading data…".to_string());
 
     // ── Three-zone signals ────────────────────────────────────────────────────
-    let selected_id: RwSignal<Option<String>>                 = RwSignal::new(None);
-    let preview_cols: RwSignal<Vec<String>>                   = RwSignal::new(vec![]);
-    let preview_rows: RwSignal<Vec<Vec<String>>>              = RwSignal::new(vec![]);
-    let preview_source: RwSignal<String>                      = RwSignal::new(String::new());
-    let last_result: RwSignal<Option<RunResult>>              = RwSignal::new(None);
-    let run_loading: RwSignal<bool>                           = RwSignal::new(false);
-    let chat_msgs: RwSignal<Vec<ChatMsg>>                     = RwSignal::new(vec![]);
-    let chat_input: RwSignal<String>                          = RwSignal::new(String::new());
-    let chat_loading: RwSignal<bool>                          = RwSignal::new(false);
+    let selected_id: RwSignal<Option<String>> = RwSignal::new(None);
+    let preview_cols: RwSignal<Vec<String>> = RwSignal::new(vec![]);
+    let preview_rows: RwSignal<Vec<Vec<String>>> = RwSignal::new(vec![]);
+    let preview_source: RwSignal<String> = RwSignal::new(String::new());
+    let last_result: RwSignal<Option<RunResult>> = RwSignal::new(None);
+    let run_loading: RwSignal<bool> = RwSignal::new(false);
+    let chat_msgs: RwSignal<Vec<ChatMsg>> = RwSignal::new(vec![]);
+    let chat_input: RwSignal<String> = RwSignal::new(String::new());
+    let chat_loading: RwSignal<bool> = RwSignal::new(false);
 
     // ── Resize state ──────────────────────────────────────────────────────────
-    let left_width: RwSignal<f64>                             = RwSignal::new(60.0);
-    let is_resizing: RwSignal<bool>                           = RwSignal::new(false);
-    let is_popped_out: RwSignal<bool>                         = RwSignal::new(false);
-    let selected_cell: RwSignal<Option<(usize, usize)>>       = RwSignal::new(None);
-    let hide_empty_cols: RwSignal<bool>                       = RwSignal::new(false);
+    let left_width: RwSignal<f64> = RwSignal::new(60.0);
+    let is_resizing: RwSignal<bool> = RwSignal::new(false);
+    let is_popped_out: RwSignal<bool> = RwSignal::new(false);
+    let selected_cell: RwSignal<Option<(usize, usize)>> = RwSignal::new(None);
+    let hide_empty_cols: RwSignal<bool> = RwSignal::new(false);
 
     // ── Active table tab ──────────────────────────────────────────────────────
-    let selected_preview_id: RwSignal<Option<String>>     = RwSignal::new(None);
+    let selected_preview_id: RwSignal<Option<String>> = RwSignal::new(None);
     let active_rev_map: RwSignal<HashMap<String, String>> = RwSignal::new(HashMap::new());
 
     // ── Auto-select first tab when schemas load, and load its data ────────────
@@ -99,7 +108,9 @@ pub fn Step4bView(
                 preview_source.set(s.table_name.clone());
                 preview_cols.set(vec![]);
                 preview_rows.set(vec![]);
-                let rev_map: HashMap<String, String> = s.col_map.iter()
+                let rev_map: HashMap<String, String> = s
+                    .col_map
+                    .iter()
                     .map(|(orig, pbc)| (pbc.clone(), orig.clone()))
                     .collect();
                 active_rev_map.set(rev_map.clone());
@@ -111,15 +122,23 @@ pub fn Step4bView(
         }
     });
 
-
     // ── Mount ─────────────────────────────────────────────────────────────────
     spawn_local(async move {
         do_load_or_generate(
-            audit_plan, phase, schemas, scripts, script_states,
-            progress_msg, status, selected_id,
-            preview_cols, preview_rows, preview_source,
+            audit_plan,
+            phase,
+            schemas,
+            scripts,
+            script_states,
+            progress_msg,
+            status,
+            selected_id,
+            preview_cols,
+            preview_rows,
+            preview_source,
             false,
-        ).await;
+        )
+        .await;
     });
 
     // ── Listen for pop-out close ──────────────────────────────────────────────
@@ -134,64 +153,114 @@ pub fn Step4bView(
                 .and_then(|e| js_sys::Reflect::get(&e, &JsValue::from_str("listen")))
                 .and_then(|f| {
                     let listen = f.dyn_ref::<js_sys::Function>().unwrap();
-                    listen.call2(&JsValue::NULL, &JsValue::from_str("data-preview-closed"), closure.as_ref())
+                    listen.call2(
+                        &JsValue::NULL,
+                        &JsValue::from_str("data-preview-closed"),
+                        closure.as_ref(),
+                    )
                 });
         }
         closure.forget();
     });
 
     // ── Derived counts ────────────────────────────────────────────────────────
-    let total_count    = move || scripts.get().len();
+    let total_count = move || scripts.get().len();
     let approved_count = move || {
-        script_states.get().values().filter(|s| s.status == ScriptStatus::Approved).count()
+        script_states
+            .get()
+            .values()
+            .filter(|s| s.status == ScriptStatus::Approved)
+            .count()
     };
     let pending_count = move || {
         let ss = script_states.get();
-        let decided = ss.values()
-            .filter(|s| matches!(s.status, ScriptStatus::Approved | ScriptStatus::Rejected | ScriptStatus::ValidationError(_)))
+        let decided = ss
+            .values()
+            .filter(|s| {
+                matches!(
+                    s.status,
+                    ScriptStatus::Approved
+                        | ScriptStatus::Rejected
+                        | ScriptStatus::ValidationError(_)
+                )
+            })
             .count();
         scripts.get().len().saturating_sub(decided)
     };
     let can_run = move || {
-        if !matches!(phase.get(), Phase::Review) { return false; }
+        if !matches!(phase.get(), Phase::Review) {
+            return false;
+        }
         let ss = script_states.get();
-        let non_runnable = ss.values().filter(|s| matches!(
-            s.status, ScriptStatus::Rejected | ScriptStatus::ValidationError(_)
-        )).count();
+        let non_runnable = ss
+            .values()
+            .filter(|s| {
+                matches!(
+                    s.status,
+                    ScriptStatus::Rejected | ScriptStatus::ValidationError(_)
+                )
+            })
+            .count();
         !scripts.get().is_empty() && scripts.get().len() > non_runnable
     };
 
     let on_generate_all = move |_| {
         spawn_local(async move {
             do_load_or_generate(
-                audit_plan, phase, schemas, scripts, script_states,
-                progress_msg, status, selected_id,
-                preview_cols, preview_rows, preview_source,
+                audit_plan,
+                phase,
+                schemas,
+                scripts,
+                script_states,
+                progress_msg,
+                status,
+                selected_id,
+                preview_cols,
+                preview_rows,
+                preview_source,
                 true,
-            ).await;
+            )
+            .await;
         });
     };
 
     // ── Zone 2 handlers ───────────────────────────────────────────────────────
     let on_z2_run = move |_| {
-        let sid = match selected_id.get_untracked() { Some(s) => s, None => return };
-        let text = script_states.get_untracked().get(&sid).map(|s| s.text.clone()).unwrap_or_default();
-        if text.trim().is_empty() { return; }
+        let sid = match selected_id.get_untracked() {
+            Some(s) => s,
+            None => return,
+        };
+        let text = script_states
+            .get_untracked()
+            .get(&sid)
+            .map(|s| s.text.clone())
+            .unwrap_or_default();
+        if text.trim().is_empty() {
+            return;
+        }
         run_loading.set(true);
         let t0 = js_sys::Date::now();
         spawn_local(async move {
             let _ = tauri_invoke_args::<()>(
                 "update_dsl_script",
                 serde_json::json!({ "scriptId": sid, "scriptText": text }),
-            ).await;
+            )
+            .await;
             match tauri_invoke_args::<Vec<serde_json::Value>>(
                 "run_dsl_script",
                 serde_json::json!({ "scriptId": sid }),
-            ).await {
-                Ok(results) => last_result.set(Some(parse_run_result(&results, js_sys::Date::now() - t0))),
+            )
+            .await
+            {
+                Ok(results) => {
+                    last_result.set(Some(parse_run_result(&results, js_sys::Date::now() - t0)))
+                }
                 Err(e) => last_result.set(Some(RunResult {
-                    expr_type: "ERROR".to_string(), expected: "—".to_string(),
-                    actual: e, passed: false, duration_ms: js_sys::Date::now() - t0,
+                    expr_type: "ERROR".to_string(),
+                    expected: "—".to_string(),
+                    actual: e,
+                    passed: false,
+                    duration_ms: js_sys::Date::now() - t0,
                 })),
             }
             run_loading.set(false);
@@ -199,31 +268,57 @@ pub fn Step4bView(
     };
 
     let on_z2_clear = move |_| {
-        let sid = match selected_id.get_untracked() { Some(s) => s, None => return };
-        let original = scripts.get_untracked().into_iter()
-            .find(|s| s.id == sid).map(|s| s.script_text.clone()).unwrap_or_default();
+        let sid = match selected_id.get_untracked() {
+            Some(s) => s,
+            None => return,
+        };
+        let original = scripts
+            .get_untracked()
+            .into_iter()
+            .find(|s| s.id == sid)
+            .map(|s| s.script_text.clone())
+            .unwrap_or_default();
         script_states.update(|m| {
-            if let Some(st) = m.get_mut(&sid) { st.text = original; st.status = ScriptStatus::Generated; }
+            if let Some(st) = m.get_mut(&sid) {
+                st.text = original;
+                st.status = ScriptStatus::Generated;
+            }
         });
         last_result.set(None);
     };
 
     let on_z2_save = move |_| {
-        let sid = match selected_id.get_untracked() { Some(s) => s, None => return };
-        let text = script_states.get_untracked().get(&sid).map(|s| s.text.clone()).unwrap_or_default();
+        let sid = match selected_id.get_untracked() {
+            Some(s) => s,
+            None => return,
+        };
+        let text = script_states
+            .get_untracked()
+            .get(&sid)
+            .map(|s| s.text.clone())
+            .unwrap_or_default();
         spawn_local(async move {
             let _ = tauri_invoke_args::<()>(
                 "update_dsl_script",
                 serde_json::json!({ "scriptId": sid, "scriptText": text }),
-            ).await;
+            )
+            .await;
         });
     };
 
     // ── Chat handler ──────────────────────────────────────────────────────────
     let on_chat_send = move |_| {
         let msg = chat_input.get_untracked().trim().to_string();
-        if msg.is_empty() || chat_loading.get_untracked() { return; }
-        chat_msgs.update(|v| v.push(ChatMsg { is_user: true, text: msg.clone(), code: None }));
+        if msg.is_empty() || chat_loading.get_untracked() {
+            return;
+        }
+        chat_msgs.update(|v| {
+            v.push(ChatMsg {
+                is_user: true,
+                text: msg.clone(),
+                code: None,
+            })
+        });
         chat_input.set(String::new());
         chat_loading.set(true);
 
@@ -231,27 +326,48 @@ pub fn Step4bView(
         let session_schemas = schemas.get_untracked();
 
         // Current script text + its validation status
-        let current_script = sid.as_ref()
-            .and_then(|id| script_states.get_untracked().get(id).map(|s| s.text.clone()))
+        let current_script = sid
+            .as_ref()
+            .and_then(|id| {
+                script_states
+                    .get_untracked()
+                    .get(id)
+                    .map(|s| s.text.clone())
+            })
             .unwrap_or_default();
-        let validation_errs = sid.as_ref()
-            .and_then(|id| script_states.get_untracked().get(id).and_then(|s| {
-                if let ScriptStatus::ValidationError(e) = &s.status { Some(e.clone()) } else { None }
-            }));
+        let validation_errs = sid.as_ref().and_then(|id| {
+            script_states.get_untracked().get(id).and_then(|s| {
+                if let ScriptStatus::ValidationError(e) = &s.status {
+                    Some(e.clone())
+                } else {
+                    None
+                }
+            })
+        });
 
         // Control metadata (label)
-        let control_label = sid.as_ref()
+        let control_label = sid
+            .as_ref()
             .and_then(|id| scripts.get_untracked().into_iter().find(|s| &s.id == id))
             .map(|s| format!("{} — {}", s.control_ref, s.label))
             .unwrap_or_default();
 
         // Schema section: one line per table listing every available column
-        let schema_ctx = session_schemas.iter()
-            .map(|s| format!("  {} ({}r): {}", s.table_name, s.row_count, s.columns.join(", ")))
+        let schema_ctx = session_schemas
+            .iter()
+            .map(|s| {
+                format!(
+                    "  {} ({}r): {}",
+                    s.table_name,
+                    s.row_count,
+                    s.columns.join(", ")
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
 
-        let validation_section = validation_errs.as_ref()
+        let validation_section = validation_errs
+            .as_ref()
             .map(|e| format!("\nCURRENT SCRIPT HAS ERRORS — fix these:\n{e}\n"))
             .unwrap_or_default();
 
@@ -287,15 +403,22 @@ pub fn Step4bView(
                         // Build schema for validation
                         let mut schema = Schema::new();
                         for tbl in &schemas_for_validation {
-                            schema.add_table(&tbl.table_name, tbl.columns.iter().map(String::as_str));
+                            schema
+                                .add_table(&tbl.table_name, tbl.columns.iter().map(String::as_str));
                         }
 
                         let validation_result = match dsl_parse(&raw_code) {
-                            Err(e)   => Err(format!("Parse error: {}", e.message)),
+                            Err(e) => Err(format!("Parse error: {}", e.message)),
                             Ok(stmts) => {
                                 let errs: Vec<String> = resolve(&stmts, &schema)
-                                    .into_iter().map(|e| e.to_string()).collect();
-                                if errs.is_empty() { Ok(()) } else { Err(errs.join("; ")) }
+                                    .into_iter()
+                                    .map(|e| e.to_string())
+                                    .collect();
+                                if errs.is_empty() {
+                                    Ok(())
+                                } else {
+                                    Err(errs.join("; "))
+                                }
                             }
                         };
 
@@ -304,7 +427,7 @@ pub fn Step4bView(
                                 // Valid script — inject it and clear the error status
                                 script_states.update(|m| {
                                     if let Some(st) = m.get_mut(&script_id) {
-                                        st.text   = raw_code;
+                                        st.text = raw_code;
                                         st.status = ScriptStatus::Edited;
                                     }
                                 });
@@ -316,43 +439,74 @@ pub fn Step4bView(
                             }
                             Err(errs) => {
                                 // Still has errors — show the code as clickable but warn
-                                chat_msgs.update(|v| v.push(ChatMsg {
-                                    is_user: false,
-                                    text: format!("{resp}\n\n⚠ Script has validation errors: {errs}"),
-                                    code,
-                                }));
+                                chat_msgs.update(|v| {
+                                    v.push(ChatMsg {
+                                        is_user: false,
+                                        text: format!(
+                                            "{resp}\n\n⚠ Script has validation errors: {errs}"
+                                        ),
+                                        code,
+                                    })
+                                });
                             }
                         }
                     } else {
                         // No code block returned — just show the text response
-                        chat_msgs.update(|v| v.push(ChatMsg { is_user: false, text: resp, code }));
+                        chat_msgs.update(|v| {
+                            v.push(ChatMsg {
+                                is_user: false,
+                                text: resp,
+                                code,
+                            })
+                        });
                     }
                 }
-                Err(e) => chat_msgs.update(|v| v.push(ChatMsg {
-                    is_user: false, text: format!("Could not reach AI: {e}"), code: None,
-                })),
+                Err(e) => chat_msgs.update(|v| {
+                    v.push(ChatMsg {
+                        is_user: false,
+                        text: format!("Could not reach AI: {e}"),
+                        code: None,
+                    })
+                }),
             }
             chat_loading.set(false);
         });
     };
 
     let inject_code = move |code: String| {
-        let sid = match selected_id.get_untracked() { Some(s) => s, None => return };
+        let sid = match selected_id.get_untracked() {
+            Some(s) => s,
+            None => return,
+        };
         script_states.update(|m| {
-            if let Some(st) = m.get_mut(&sid) { st.text = code; st.status = ScriptStatus::Edited; }
+            if let Some(st) = m.get_mut(&sid) {
+                st.text = code;
+                st.status = ScriptStatus::Edited;
+            }
         });
     };
 
     // ── Resize handlers ───────────────────────────────────────────────────────
-    let on_resize_start = move |ev: web_sys::MouseEvent| { ev.prevent_default(); is_resizing.set(true); };
+    let on_resize_start = move |ev: web_sys::MouseEvent| {
+        ev.prevent_default();
+        is_resizing.set(true);
+    };
     let on_resize_move = move |ev: web_sys::MouseEvent| {
-        if !is_resizing.get() { return; }
+        if !is_resizing.get() {
+            return;
+        }
         if let Some(window) = web_sys::window() {
-            let w = window.inner_width().ok().and_then(|w| w.as_f64()).unwrap_or(1200.0);
+            let w = window
+                .inner_width()
+                .ok()
+                .and_then(|w| w.as_f64())
+                .unwrap_or(1200.0);
             left_width.set((ev.client_x() as f64 / w * 100.0).max(30.0).min(80.0));
         }
     };
-    let on_resize_end = move |_ev: web_sys::MouseEvent| { is_resizing.set(false); };
+    let on_resize_end = move |_ev: web_sys::MouseEvent| {
+        is_resizing.set(false);
+    };
 
     // ── Pop-out ────────────────────────────────────────────────────────────────
     let on_popout = move |_| {
@@ -362,8 +516,13 @@ pub fn Step4bView(
             "source":  preview_source.get_untracked(),
         });
         spawn_local(async move {
-            match tauri_invoke_args::<()>("open_data_preview_window", serde_json::json!({ "data": data })).await {
-                Ok(_)  => is_popped_out.set(true),
+            match tauri_invoke_args::<()>(
+                "open_data_preview_window",
+                serde_json::json!({ "data": data }),
+            )
+            .await
+            {
+                Ok(_) => is_popped_out.set(true),
                 Err(e) => status.set(format!("Could not open pop-out window: {e}")),
             }
         });
@@ -371,17 +530,32 @@ pub fn Step4bView(
 
     // ── Run engine → step 7 (Results) ─────────────────────────────────────────
     let on_run_engine = move |_| {
-        if !can_run() { return; }
-        let ss  = script_states.get_untracked();
+        if !can_run() {
+            return;
+        }
+        let ss = script_states.get_untracked();
         let all = scripts.get_untracked();
         let has_any = ss.values().any(|s| s.status == ScriptStatus::Approved);
-        let to_run: Vec<DslScript> = all.into_iter().filter(|s| {
-            ss.get(&s.id).map(|st| {
-                if matches!(st.status, ScriptStatus::ValidationError(_)) { return false; }
-                if has_any { st.status == ScriptStatus::Approved } else { st.status != ScriptStatus::Rejected }
-            }).unwrap_or(true)
-        }).collect();
-        if to_run.is_empty() { return; }
+        let to_run: Vec<DslScript> = all
+            .into_iter()
+            .filter(|s| {
+                ss.get(&s.id)
+                    .map(|st| {
+                        if matches!(st.status, ScriptStatus::ValidationError(_)) {
+                            return false;
+                        }
+                        if has_any {
+                            st.status == ScriptStatus::Approved
+                        } else {
+                            st.status != ScriptStatus::Rejected
+                        }
+                    })
+                    .unwrap_or(true)
+            })
+            .collect();
+        if to_run.is_empty() {
+            return;
+        }
         let total = to_run.len();
         spawn_local(async move {
             for (i, script) in to_run.iter().enumerate() {
@@ -391,13 +565,15 @@ pub fn Step4bView(
                         let _ = tauri_invoke_args::<()>(
                             "update_dsl_script",
                             serde_json::json!({ "scriptId": script.id, "scriptText": st.text }),
-                        ).await;
+                        )
+                        .await;
                     }
                 }
                 let _ = tauri_invoke_args::<Vec<serde_json::Value>>(
                     "run_dsl_script",
                     serde_json::json!({ "scriptId": script.id }),
-                ).await;
+                )
+                .await;
             }
             audit_ui_step.set(7);
         });

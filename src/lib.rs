@@ -1,7 +1,7 @@
 pub mod analysis;
-pub mod dsl;
 pub mod audit_prompts;
 pub mod config;
+pub mod dsl;
 pub mod export;
 pub mod schema;
 pub mod sources;
@@ -13,6 +13,9 @@ pub mod settings;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod projects;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod update;
 
 pub use analysis::{RelCandidate, RelationshipDetector, RelationshipScorer, WorkflowDetector};
 pub use export::ExportFormat;

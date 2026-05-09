@@ -1,10 +1,10 @@
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
+use super::types::Phase;
 use crate::components::{Banner, GhostButton, Spinner};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
 use crate::types::{AuditProcessWithControls, SessionSchema};
-use super::types::Phase;
 
 #[component]
 pub fn Step4aView(
@@ -15,7 +15,7 @@ pub fn Step4aView(
     let _ = audit_plan;
     let _ = status;
 
-    let phase: RwSignal<Phase>               = RwSignal::new(Phase::Loading);
+    let phase: RwSignal<Phase> = RwSignal::new(Phase::Loading);
     let schemas: RwSignal<Vec<SessionSchema>> = RwSignal::new(vec![]);
 
     // Poll until imports are ready, then auto-advance to Algorithm Review.

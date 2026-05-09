@@ -22,7 +22,10 @@ impl Schema {
     ) {
         self.tables.insert(
             table.into().to_lowercase(),
-            columns.into_iter().map(|c| c.into().to_lowercase()).collect(),
+            columns
+                .into_iter()
+                .map(|c| c.into().to_lowercase())
+                .collect(),
         );
     }
 

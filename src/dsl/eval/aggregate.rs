@@ -24,11 +24,16 @@ impl<'ds> Evaluator<'ds> {
 
         // Ask the datasource to handle the aggregate itself (e.g. push down to DuckDB).
         let col = if let Expr::ColumnRef(name) = expr {
-            name.find('.').map(|d| &name[d + 1..]).unwrap_or(name.as_str())
+            name.find('.')
+                .map(|d| &name[d + 1..])
+                .unwrap_or(name.as_str())
         } else {
             ""
         };
-        if let Some(result) = self.datasource.try_aggregate(func, distinct, table, col, filter) {
+        if let Some(result) = self
+            .datasource
+            .try_aggregate(func, distinct, table, col, filter)
+        {
             return result;
         }
 
@@ -81,7 +86,10 @@ impl<'ds> Evaluator<'ds> {
         // For DISTINCT aggregates deduplicate by string representation
         let effective: Vec<&Value> = if distinct {
             let mut seen = std::collections::HashSet::new();
-            non_null.iter().filter(|v| seen.insert(v.to_string())).collect()
+            non_null
+                .iter()
+                .filter(|v| seen.insert(v.to_string()))
+                .collect()
         } else {
             non_null.iter().collect()
         };

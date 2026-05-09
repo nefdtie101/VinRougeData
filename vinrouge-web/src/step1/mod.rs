@@ -5,9 +5,7 @@ use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{
-    ask_audit_plan, ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL,
-};
+use crate::ollama::{ask_audit_plan, ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::types::{AuditProcessWithControls, ProjectFile};
 
 #[component]

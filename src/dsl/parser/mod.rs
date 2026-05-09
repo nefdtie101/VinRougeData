@@ -21,7 +21,10 @@ impl Parser {
     }
 
     pub(super) fn peek_next(&self) -> &Token {
-        self.tokens.get(self.pos + 1).map(|(_, t)| t).unwrap_or(&Token::Eof)
+        self.tokens
+            .get(self.pos + 1)
+            .map(|(_, t)| t)
+            .unwrap_or(&Token::Eof)
     }
 
     pub(super) fn peek_pos(&self) -> usize {
@@ -43,7 +46,10 @@ impl Parser {
             self.advance();
             Ok(())
         } else {
-            Err(ParseError::new(pos, format!("expected {expected}, got {got}")))
+            Err(ParseError::new(
+                pos,
+                format!("expected {expected}, got {got}"),
+            ))
         }
     }
 

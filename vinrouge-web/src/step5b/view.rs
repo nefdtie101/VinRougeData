@@ -1,10 +1,10 @@
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
+use super::pipeline::do_generate_report;
 use crate::components::{GhostButton, PrimaryButton, Spinner};
 use crate::ipc::tauri_invoke;
 use crate::types::{AuditProcessWithControls, DslScript, TestResult};
-use super::pipeline::do_generate_report;
 
 // ── Step5bView — Audit report generation ─────────────────────────────────────
 
@@ -14,15 +14,15 @@ pub fn Step5bView(
     audit_ui_step: RwSignal<u8>,
     status: RwSignal<String>,
 ) -> impl IntoView {
-    let scripts: RwSignal<Vec<DslScript>>           = RwSignal::new(vec![]);
-    let results: RwSignal<Vec<TestResult>>           = RwSignal::new(vec![]);
-    let loading: RwSignal<bool>                      = RwSignal::new(true);
-    let generating: RwSignal<bool>                   = RwSignal::new(false);
-    let report: RwSignal<Option<serde_json::Value>>  = RwSignal::new(None);
-    let expanded_finding: RwSignal<Option<String>>   = RwSignal::new(None);
+    let scripts: RwSignal<Vec<DslScript>> = RwSignal::new(vec![]);
+    let results: RwSignal<Vec<TestResult>> = RwSignal::new(vec![]);
+    let loading: RwSignal<bool> = RwSignal::new(true);
+    let generating: RwSignal<bool> = RwSignal::new(false);
+    let report: RwSignal<Option<serde_json::Value>> = RwSignal::new(None);
+    let expanded_finding: RwSignal<Option<String>> = RwSignal::new(None);
 
     spawn_local(async move {
-        let s: Vec<DslScript>  = tauri_invoke("list_dsl_scripts").await.unwrap_or_default();
+        let s: Vec<DslScript> = tauri_invoke("list_dsl_scripts").await.unwrap_or_default();
         let r: Vec<TestResult> = tauri_invoke("list_test_results").await.unwrap_or_default();
         scripts.set(s);
         results.set(r);

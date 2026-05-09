@@ -15,12 +15,12 @@ pub mod stat_card;
 
 pub use badges::{CountBadge, RiskBadge};
 pub use banner::Banner;
-pub use data_grid::DataGrid;
-pub use schema_analysis::{OllamaSection, RelItem, Results, TableCard, WorkflowCard};
-pub use settings::SettingsModal;
 pub use buttons::{DashedAddButton, GhostButton, PrimaryButton, SendButton};
+pub use data_grid::DataGrid;
 pub use inputs::{InlineInput, InlineTextarea};
 pub use progress_ring::ProgressRing;
+pub use schema_analysis::{OllamaSection, RelItem, Results, TableCard, WorkflowCard};
 pub use section_prompt::SectionPrompt;
+pub use settings::SettingsModal;
 pub use spinner::Spinner;
 pub use stat_card::StatCard;

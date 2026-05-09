@@ -21,7 +21,7 @@ pub fn do_generate_report(
     spawn_local(async move {
         match ask_audit_report(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &summary).await {
             Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
-                Ok(v)  => report.set(Some(v)),
+                Ok(v) => report.set(Some(v)),
                 Err(_) => status.set("AI returned an invalid report format.".to_string()),
             },
             Err(e) => status.set(format!("Report generation failed: {e}")),
@@ -36,9 +36,15 @@ pub fn build_test_summary(
     results: &[TestResult],
     plan: &[AuditProcessWithControls],
 ) -> String {
-    let plan_map: std::collections::HashMap<&str, (&str, &str)> = plan.iter()
+    let plan_map: std::collections::HashMap<&str, (&str, &str)> = plan
+        .iter()
         .flat_map(|p| p.controls.iter())
-        .map(|c| (c.control_ref.as_str(), (c.control_objective.as_str(), c.risk_level.as_str())))
+        .map(|c| {
+            (
+                c.control_ref.as_str(),
+                (c.control_objective.as_str(), c.risk_level.as_str()),
+            )
+        })
         .collect();
 
     let mut failed_lines = String::new();
@@ -54,7 +60,8 @@ pub fn build_test_summary(
             continue;
         }
 
-        let (obj, risk) = plan_map.get(script.control_ref.as_str())
+        let (obj, risk) = plan_map
+            .get(script.control_ref.as_str())
             .copied()
             .unwrap_or(("", "Medium"));
 
@@ -74,9 +81,9 @@ pub fn build_test_summary(
             match stmt["kind"].as_str().unwrap_or("") {
                 "assert" if !stmt["passed"].as_bool().unwrap_or(true) => {
                     let label = stmt["label"].as_str().unwrap_or("unnamed");
-                    let lhs   = stmt["lhs_value"].as_str().unwrap_or("?");
-                    let op    = stmt["op"].as_str().unwrap_or("=");
-                    let rhs   = stmt["rhs_value"].as_str().unwrap_or("?");
+                    let lhs = stmt["lhs_value"].as_str().unwrap_or("?");
+                    let op = stmt["op"].as_str().unwrap_or("=");
+                    let rhs = stmt["rhs_value"].as_str().unwrap_or("?");
                     failed_lines.push_str(&format!(
                         "    FAIL: \"{label}\" → actual {lhs} {op} {rhs}\n"
                     ));

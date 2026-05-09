@@ -3,7 +3,10 @@ use std::sync::Mutex;
 
 use rust_decimal::Decimal;
 
-use vinrouge::dsl::{expr_to_sql, AggFunc, EvalDataSource, EvalError, EvalResult, Expr, Row, SchemaColumn, SchemaTable, Value};
+use vinrouge::dsl::{
+    expr_to_sql, AggFunc, EvalDataSource, EvalError, EvalResult, Expr, Row, SchemaColumn,
+    SchemaTable, Value,
+};
 
 // ─────────────────────────────────────────────
 // DuckDB data source
@@ -16,9 +19,9 @@ use vinrouge::dsl::{expr_to_sql, AggFunc, EvalDataSource, EvalError, EvalResult,
 /// Row-level operations that need a full `&[Row]` slice (sampling,
 /// `DUPLICATED`, `IN table.col`) still use the in-memory row cache.
 pub struct DuckDbDataSource {
-    conn:       Mutex<duckdb::Connection>,
+    conn: Mutex<duckdb::Connection>,
     rows_cache: HashMap<String, Vec<Row>>,
-    col_types:  HashMap<String, HashMap<String, ColType>>,
+    col_types: HashMap<String, HashMap<String, ColType>>,
 }
 
 #[derive(Clone, Copy)]
@@ -31,9 +34,9 @@ impl DuckDbDataSource {
     pub fn new() -> Result<Self, String> {
         let conn = duckdb::Connection::open_in_memory().map_err(|e| e.to_string())?;
         Ok(Self {
-            conn:       Mutex::new(conn),
+            conn: Mutex::new(conn),
             rows_cache: HashMap::new(),
-            col_types:  HashMap::new(),
+            col_types: HashMap::new(),
         })
     }
 
@@ -54,11 +57,18 @@ impl DuckDbDataSource {
         let mut table_col_types: HashMap<String, ColType> = HashMap::new();
         for col in &col_names {
             let all_numeric = rows.iter().all(|row| {
-                matches!(row.get(col), Some(Value::Decimal(_)) | Some(Value::Null) | None)
+                matches!(
+                    row.get(col),
+                    Some(Value::Decimal(_)) | Some(Value::Null) | None
+                )
             });
             table_col_types.insert(
                 col.clone(),
-                if all_numeric { ColType::Numeric } else { ColType::Text },
+                if all_numeric {
+                    ColType::Numeric
+                } else {
+                    ColType::Text
+                },
             );
         }
 
@@ -68,7 +78,7 @@ impl DuckDbDataSource {
             .map(|n| {
                 let sql_type = match table_col_types[n] {
                     ColType::Numeric => "DOUBLE",
-                    ColType::Text    => "VARCHAR",
+                    ColType::Text => "VARCHAR",
                 };
                 format!("\"{}\" {}", n.replace('"', "\"\""), sql_type)
             })
@@ -132,19 +142,31 @@ impl EvalDataSource for DuckDbDataSource {
     }
 
     fn schema_tables(&self) -> Vec<SchemaTable> {
-        let mut tables: Vec<SchemaTable> = self.col_types.iter().map(|(name, cols)| {
-            let mut col_names: Vec<String> = cols.keys().cloned().collect();
-            col_names.sort();
-            let columns = col_names.into_iter().map(|c| SchemaColumn {
-                col_type: match cols[&c] {
-                    ColType::Numeric => "numeric",
-                    ColType::Text    => "text",
-                }.to_string(),
-                name: c,
-            }).collect();
-            let row_count = self.rows_cache.get(name).map(|r| r.len()).unwrap_or(0);
-            SchemaTable { name: name.clone(), columns, row_count }
-        }).collect();
+        let mut tables: Vec<SchemaTable> = self
+            .col_types
+            .iter()
+            .map(|(name, cols)| {
+                let mut col_names: Vec<String> = cols.keys().cloned().collect();
+                col_names.sort();
+                let columns = col_names
+                    .into_iter()
+                    .map(|c| SchemaColumn {
+                        col_type: match cols[&c] {
+                            ColType::Numeric => "numeric",
+                            ColType::Text => "text",
+                        }
+                        .to_string(),
+                        name: c,
+                    })
+                    .collect();
+                let row_count = self.rows_cache.get(name).map(|r| r.len()).unwrap_or(0);
+                SchemaTable {
+                    name: name.clone(),
+                    columns,
+                    row_count,
+                }
+            })
+            .collect();
         tables.sort_by(|a, b| a.name.cmp(&b.name));
         tables
     }
@@ -174,26 +196,40 @@ impl EvalDataSource for DuckDbDataSource {
         let where_clause = match filter {
             Some(f) => match expr_to_sql(f) {
                 Some(sql) => format!(" WHERE {sql}"),
-                None      => return None, // unsupported filter — fall back to row iteration
+                None => return None, // unsupported filter — fall back to row iteration
             },
             None => String::new(),
         };
 
-        let distinct_kw    = if distinct { "DISTINCT " } else { "" };
-        let quoted_col     = format!("\"{}\"", col.replace('"', "\"\""));
-        let quoted_table   = format!("\"{}\"", table.replace('"', "\"\""));
+        let distinct_kw = if distinct { "DISTINCT " } else { "" };
+        let quoted_col = format!("\"{}\"", col.replace('"', "\"\""));
+        let quoted_table = format!("\"{}\"", table.replace('"', "\"\""));
 
         let query = match func {
-            AggFunc::Sum   => format!("SELECT SUM({distinct_kw}{quoted_col})   FROM {quoted_table}{where_clause}"),
-            AggFunc::Avg   => format!("SELECT AVG({distinct_kw}{quoted_col})   FROM {quoted_table}{where_clause}"),
-            AggFunc::Count => format!("SELECT COUNT({distinct_kw}{quoted_col}) FROM {quoted_table}{where_clause}"),
-            AggFunc::Min   => format!("SELECT MIN({quoted_col})                FROM {quoted_table}{where_clause}"),
-            AggFunc::Max   => format!("SELECT MAX({quoted_col})                FROM {quoted_table}{where_clause}"),
+            AggFunc::Sum => {
+                format!("SELECT SUM({distinct_kw}{quoted_col})   FROM {quoted_table}{where_clause}")
+            }
+            AggFunc::Avg => {
+                format!("SELECT AVG({distinct_kw}{quoted_col})   FROM {quoted_table}{where_clause}")
+            }
+            AggFunc::Count => {
+                format!("SELECT COUNT({distinct_kw}{quoted_col}) FROM {quoted_table}{where_clause}")
+            }
+            AggFunc::Min => {
+                format!("SELECT MIN({quoted_col})                FROM {quoted_table}{where_clause}")
+            }
+            AggFunc::Max => {
+                format!("SELECT MAX({quoted_col})                FROM {quoted_table}{where_clause}")
+            }
         };
 
         let conn = match self.conn.lock() {
-            Ok(c)  => c,
-            Err(_) => return Some(Err(EvalError::AggregateError("duckdb lock poisoned".into()))),
+            Ok(c) => c,
+            Err(_) => {
+                return Some(Err(EvalError::AggregateError(
+                    "duckdb lock poisoned".into(),
+                )))
+            }
         };
 
         let result = conn.query_row(&query, [], |row| row.get::<_, Option<f64>>(0));
@@ -203,13 +239,11 @@ impl EvalDataSource for DuckDbDataSource {
                 // Round-trip via string to avoid f64 imprecision creeping into Decimal.
                 let d = format!("{val:.10}")
                     .parse::<Decimal>()
-                    .unwrap_or_else(|_| {
-                        val.to_string().parse::<Decimal>().unwrap_or_default()
-                    });
+                    .unwrap_or_else(|_| val.to_string().parse::<Decimal>().unwrap_or_default());
                 Ok(Value::Decimal(d))
             }
-            Ok(None)  => Ok(Value::Null),
-            Err(e)    => Err(EvalError::AggregateError(e.to_string())),
+            Ok(None) => Ok(Value::Null),
+            Err(e) => Err(EvalError::AggregateError(e.to_string())),
         })
     }
 }

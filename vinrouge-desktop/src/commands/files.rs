@@ -11,7 +11,10 @@ pub async fn pick_and_add_file(
 ) -> Result<Option<vinrouge::projects::ProjectFile>, String> {
     let project_dir = {
         let guard = state.0.lock().unwrap();
-        guard.as_ref().map(|a| a.dir.clone()).ok_or("No active project")?
+        guard
+            .as_ref()
+            .map(|a| a.dir.clone())
+            .ok_or("No active project")?
     };
 
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -42,16 +45,16 @@ pub fn list_project_files(
 ) -> Result<Vec<vinrouge::projects::ProjectFile>, String> {
     let project_dir = {
         let guard = state.0.lock().unwrap();
-        guard.as_ref().map(|a| a.dir.clone()).ok_or("No active project")?
+        guard
+            .as_ref()
+            .map(|a| a.dir.clone())
+            .ok_or("No active project")?
     };
     vinrouge::projects::list_project_files(&project_dir)
 }
 
 #[tauri::command]
-pub fn read_project_file(
-    file_id: String,
-    state: State<ProjectsState>,
-) -> Result<String, String> {
+pub fn read_project_file(file_id: String, state: State<ProjectsState>) -> Result<String, String> {
     let project_dir = state.dir()?;
     vinrouge::projects::read_project_file_text(&project_dir, &file_id)
 }
@@ -67,10 +70,7 @@ pub fn add_data_file(
 }
 
 #[tauri::command]
-pub fn delete_project_file(
-    file_id: String,
-    state: State<ProjectsState>,
-) -> Result<(), String> {
+pub fn delete_project_file(file_id: String, state: State<ProjectsState>) -> Result<(), String> {
     let project_dir = state.dir()?;
     vinrouge::projects::delete_project_file(&project_dir, &file_id)
 }

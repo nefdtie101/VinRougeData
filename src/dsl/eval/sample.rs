@@ -1,5 +1,5 @@
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 
 use crate::dsl::ast::{Expr, SampleMethod, SampleSize};
 use crate::dsl::value::{EvalError, EvalResult, Row, Value};
@@ -67,9 +67,9 @@ impl<'ds> Evaluator<'ds> {
 
         let n = match size {
             SampleSize::Count(d) => {
-                let n = d.to_usize().ok_or_else(|| {
-                    EvalError::SampleError(format!("invalid sample count: {d}"))
-                })?;
+                let n = d
+                    .to_usize()
+                    .ok_or_else(|| EvalError::SampleError(format!("invalid sample count: {d}")))?;
                 n.min(pop_size)
             }
             SampleSize::Percent(d) => {
@@ -81,16 +81,15 @@ impl<'ds> Evaluator<'ds> {
 
         // For MUS, fall back to random if the value column has no positive values.
         let (effective_method, selected_rows): (&str, Vec<Row>) = match method {
-            SampleMethod::Mus => {
-                match self.sample_mus(&filtered, col, n) {
-                    Ok(rows) => ("Mus", rows),
-                    Err(EvalError::SampleError(ref msg)) if msg.contains("positive total") => {
-                        ("Mus→Random (no positive values in column)", self.sample_random(&filtered, n))
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-            SampleMethod::Random     => ("Random",     self.sample_random(&filtered, n)),
+            SampleMethod::Mus => match self.sample_mus(&filtered, col, n) {
+                Ok(rows) => ("Mus", rows),
+                Err(EvalError::SampleError(ref msg)) if msg.contains("positive total") => (
+                    "Mus→Random (no positive values in column)",
+                    self.sample_random(&filtered, n),
+                ),
+                Err(e) => return Err(e),
+            },
+            SampleMethod::Random => ("Random", self.sample_random(&filtered, n)),
             SampleMethod::Systematic => ("Systematic", self.sample_systematic(&filtered, n)),
             SampleMethod::Stratified => ("Stratified", self.sample_stratified(&filtered, col, n)),
         };
@@ -112,10 +111,7 @@ impl<'ds> Evaluator<'ds> {
 
     /// Monetary Unit Sampling — each currency unit has equal selection probability.
     pub(super) fn sample_mus(&self, rows: &[&Row], col: &str, n: usize) -> EvalResult<Vec<Row>> {
-        let decimals: Vec<Decimal> = rows
-            .iter()
-            .map(|row| col_decimal(row, col))
-            .collect();
+        let decimals: Vec<Decimal> = rows.iter().map(|row| col_decimal(row, col)).collect();
 
         let total: Decimal = decimals.iter().filter(|d| **d > Decimal::ZERO).sum();
 
@@ -131,8 +127,7 @@ impl<'ds> Evaluator<'ds> {
         let mut rng = rand::rngs::SmallRng::from_entropy();
         let r: f64 = rng.gen::<f64>();
         let random_start =
-            Decimal::from_f64_retain(r * interval.to_f64().unwrap_or(1.0))
-                .unwrap_or(Decimal::ZERO);
+            Decimal::from_f64_retain(r * interval.to_f64().unwrap_or(1.0)).unwrap_or(Decimal::ZERO);
 
         let mut selected: Vec<Row> = Vec::with_capacity(n);
         let mut cumulative = Decimal::ZERO;
@@ -159,7 +154,9 @@ impl<'ds> Evaluator<'ds> {
         if selected.len() < n {
             let needed = n - selected.len();
             for row in self.sample_systematic(rows, needed) {
-                if selected.len() >= n { break; }
+                if selected.len() >= n {
+                    break;
+                }
                 selected.push(row);
             }
         }

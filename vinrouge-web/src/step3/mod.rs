@@ -1,8 +1,6 @@
 use crate::components::{DashedAddButton, ProgressRing, SectionPrompt, Spinner, StatCard};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
-use crate::ollama::{
-    ask_ollama_json, ask_pbc_list, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL,
-};
+use crate::ollama::{ask_ollama_json, ask_pbc_list, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
 use crate::step1::prompts::REFINE_PBC_LIST;
 use crate::types::{AuditProcessWithControls, PbcGroup, PbcItem};
 use leptos::prelude::*;
@@ -565,13 +563,13 @@ async fn do_generate(
         return;
     }
 
-    gen_phase.set(format!("Preparing {} processes for data request generation…", plan.len()));
-    let arr = match ask_pbc_list(
-        OLLAMA_DEFAULT_URL,
-        OLLAMA_DEFAULT_MODEL,
-        &plan,
-        |msg| gen_phase.set(msg),
-    )
+    gen_phase.set(format!(
+        "Preparing {} processes for data request generation…",
+        plan.len()
+    ));
+    let arr = match ask_pbc_list(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &plan, |msg| {
+        gen_phase.set(msg)
+    })
     .await
     {
         Ok(items) => items,
@@ -583,87 +581,87 @@ async fn do_generate(
         }
     };
     let mut saved = 0usize;
-            let mut unmatched: Vec<String> = Vec::new();
-            for item_json in &arr {
-                // Accept both snake_case and camelCase keys from models
-                let cref = item_json["control_ref"]
+    let mut unmatched: Vec<String> = Vec::new();
+    for item_json in &arr {
+        // Accept both snake_case and camelCase keys from models
+        let cref = item_json["control_ref"]
+            .as_str()
+            .or_else(|| item_json["controlRef"].as_str())
+            .unwrap_or("");
+        let ctrl = plan
+            .iter()
+            .flat_map(|p| p.controls.iter())
+            .find(|c| c.control_ref == cref);
+        match ctrl {
+            None => {
+                unmatched.push(cref.to_string());
+            }
+            Some(ctrl) => {
+                let fields: Vec<String> = item_json["fields"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|f| f.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let item_type = item_json["item_type"]
                     .as_str()
-                    .or_else(|| item_json["controlRef"].as_str())
-                    .unwrap_or("");
-                let ctrl = plan
-                    .iter()
-                    .flat_map(|p| p.controls.iter())
-                    .find(|c| c.control_ref == cref);
-                match ctrl {
-                    None => {
-                        unmatched.push(cref.to_string());
+                    .or_else(|| item_json["itemType"].as_str())
+                    .or_else(|| item_json["type"].as_str())
+                    .unwrap_or("SQL");
+                let table_name = item_json["table_name"]
+                    .as_str()
+                    .or_else(|| item_json["tableName"].as_str());
+                let scope_format = item_json["scope_format"]
+                    .as_str()
+                    .or_else(|| item_json["scopeFormat"].as_str())
+                    .unwrap_or("Audit period");
+                match tauri_invoke_args::<PbcItem>(
+                    "save_pbc_item",
+                    serde_json::json!({
+                        "controlId":   ctrl.id,
+                        "controlRef":  cref,
+                        "name":        item_json["name"].as_str().unwrap_or(""),
+                        "itemType":    item_type,
+                        "tableName":   table_name,
+                        "fields":      fields,
+                        "purpose":     item_json["purpose"].as_str().unwrap_or(""),
+                        "scopeFormat": scope_format,
+                    }),
+                )
+                .await
+                {
+                    Ok(_) => {
+                        saved += 1;
                     }
-                    Some(ctrl) => {
-                        let fields: Vec<String> = item_json["fields"]
-                            .as_array()
-                            .map(|a| {
-                                a.iter()
-                                    .filter_map(|f| f.as_str().map(|s| s.to_string()))
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        let item_type = item_json["item_type"]
-                            .as_str()
-                            .or_else(|| item_json["itemType"].as_str())
-                            .or_else(|| item_json["type"].as_str())
-                            .unwrap_or("SQL");
-                        let table_name = item_json["table_name"]
-                            .as_str()
-                            .or_else(|| item_json["tableName"].as_str());
-                        let scope_format = item_json["scope_format"]
-                            .as_str()
-                            .or_else(|| item_json["scopeFormat"].as_str())
-                            .unwrap_or("Audit period");
-                        match tauri_invoke_args::<PbcItem>(
-                            "save_pbc_item",
-                            serde_json::json!({
-                                "controlId":   ctrl.id,
-                                "controlRef":  cref,
-                                "name":        item_json["name"].as_str().unwrap_or(""),
-                                "itemType":    item_type,
-                                "tableName":   table_name,
-                                "fields":      fields,
-                                "purpose":     item_json["purpose"].as_str().unwrap_or(""),
-                                "scopeFormat": scope_format,
-                            }),
-                        )
-                        .await
-                        {
-                            Ok(_) => {
-                                saved += 1;
-                            }
-                            Err(e) => {
-                                unmatched.push(format!("{cref} (save error: {e})"));
-                            }
-                        }
+                    Err(e) => {
+                        unmatched.push(format!("{cref} (save error: {e})"));
                     }
                 }
             }
-            if saved == 0 {
-                let detail = if unmatched.is_empty() {
-                    "No items in response.".to_string()
-                } else {
-                    format!("Unmatched/failed control refs: {}", unmatched.join(", "))
-                };
-                gen_error.set(Some(format!("Nothing saved. {detail}")));
-                gen_phase.set(String::new());
-                generating.set(false);
-                return;
-            }
-            if !unmatched.is_empty() {
-                gen_error.set(Some(format!(
-                    "Saved {saved} items. Could not match: {}",
-                    unmatched.join(", ")
-                )));
-            }
-            gen_phase.set("Loading results...".into());
-            reload_groups(groups, approved_ids).await;
-            gen_phase.set(String::new());
+        }
+    }
+    if saved == 0 {
+        let detail = if unmatched.is_empty() {
+            "No items in response.".to_string()
+        } else {
+            format!("Unmatched/failed control refs: {}", unmatched.join(", "))
+        };
+        gen_error.set(Some(format!("Nothing saved. {detail}")));
+        gen_phase.set(String::new());
+        generating.set(false);
+        return;
+    }
+    if !unmatched.is_empty() {
+        gen_error.set(Some(format!(
+            "Saved {saved} items. Could not match: {}",
+            unmatched.join(", ")
+        )));
+    }
+    gen_phase.set("Loading results...".into());
+    reload_groups(groups, approved_ids).await;
+    gen_phase.set(String::new());
     generating.set(false);
 }
 

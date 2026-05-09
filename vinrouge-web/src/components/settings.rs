@@ -4,9 +4,7 @@ use wasm_bindgen::JsCast;
 use crate::storage::{AiProvider, AppSettings};
 
 #[component]
-pub fn SettingsModal(
-    on_close: Callback<()>,
-) -> impl IntoView {
+pub fn SettingsModal(on_close: Callback<()>) -> impl IntoView {
     let settings = AppSettings::load();
 
     let provider: RwSignal<AiProvider> = RwSignal::new(settings.provider);
@@ -24,13 +22,16 @@ pub fn SettingsModal(
         };
         s.save();
         saved.set(true);
-        let _ = web_sys::window()
-            .and_then(|w| w.set_timeout_with_callback_and_timeout_and_arguments_0(
+        let _ = web_sys::window().and_then(|w| {
+            w.set_timeout_with_callback_and_timeout_and_arguments_0(
                 &wasm_bindgen::closure::Closure::once_into_js(move || {
                     saved.set(false);
-                }).unchecked_into(),
+                })
+                .unchecked_into(),
                 1200,
-            ).ok());
+            )
+            .ok()
+        });
     };
 
     view! {

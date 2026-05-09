@@ -1,5 +1,5 @@
-use rust_decimal_macros::dec;
 use crate::dsl::*;
+use rust_decimal_macros::dec;
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -8,11 +8,31 @@ fn ds_invoices() -> InMemoryDataSource {
     ds.insert_table(
         "invoices",
         vec![
-            [("amount".into(), Value::Decimal(dec!(100))), ("status".into(), Value::Text("paid".into()))].into(),
-            [("amount".into(), Value::Decimal(dec!(200))), ("status".into(), Value::Text("open".into()))].into(),
-            [("amount".into(), Value::Decimal(dec!(300))), ("status".into(), Value::Text("paid".into()))].into(),
-            [("amount".into(), Value::Decimal(dec!(400))), ("status".into(), Value::Text("open".into()))].into(),
-            [("amount".into(), Value::Decimal(dec!(500))), ("status".into(), Value::Text("paid".into()))].into(),
+            [
+                ("amount".into(), Value::Decimal(dec!(100))),
+                ("status".into(), Value::Text("paid".into())),
+            ]
+            .into(),
+            [
+                ("amount".into(), Value::Decimal(dec!(200))),
+                ("status".into(), Value::Text("open".into())),
+            ]
+            .into(),
+            [
+                ("amount".into(), Value::Decimal(dec!(300))),
+                ("status".into(), Value::Text("paid".into())),
+            ]
+            .into(),
+            [
+                ("amount".into(), Value::Decimal(dec!(400))),
+                ("status".into(), Value::Text("open".into())),
+            ]
+            .into(),
+            [
+                ("amount".into(), Value::Decimal(dec!(500))),
+                ("status".into(), Value::Text("paid".into())),
+            ]
+            .into(),
         ],
     );
     ds
@@ -38,7 +58,9 @@ fn test_eval_division() {
     let ds = InMemoryDataSource::new();
     let r = eval_str("10 / 4", &ds);
     // rust_decimal may produce "2.5" or "2.50…" — check numeric equality
-    let StatementResult::Value(s) = r else { panic!("expected Value") };
+    let StatementResult::Value(s) = r else {
+        panic!("expected Value")
+    };
     let result: rust_decimal::Decimal = s.parse().expect("not a decimal");
     assert_eq!(result, dec!(2.5));
 }
@@ -102,7 +124,9 @@ fn test_eval_min_max() {
 fn test_assert_pass() {
     let ds = ds_invoices();
     let r = eval_str("ASSERT SUM(invoices.amount) = 1500", &ds);
-    let StatementResult::Assert(a) = r else { panic!("expected Assert") };
+    let StatementResult::Assert(a) = r else {
+        panic!("expected Assert")
+    };
     assert!(a.passed);
     assert_eq!(a.op, "=");
 }
@@ -111,7 +135,9 @@ fn test_assert_pass() {
 fn test_assert_fail() {
     let ds = ds_invoices();
     let r = eval_str("ASSERT SUM(invoices.amount) = 999", &ds);
-    let StatementResult::Assert(a) = r else { panic!("expected Assert") };
+    let StatementResult::Assert(a) = r else {
+        panic!("expected Assert")
+    };
     assert!(!a.passed);
     assert_eq!(a.lhs_value, "1500");
     assert_eq!(a.rhs_value, "999");
@@ -121,7 +147,9 @@ fn test_assert_fail() {
 fn test_assert_with_label() {
     let ds = ds_invoices();
     let r = eval_str(r#"ASSERT "Total check" SUM(invoices.amount) > 1000"#, &ds);
-    let StatementResult::Assert(a) = r else { panic!("expected Assert") };
+    let StatementResult::Assert(a) = r else {
+        panic!("expected Assert")
+    };
     assert!(a.passed);
     assert_eq!(a.label.as_deref(), Some("Total check"));
 }
@@ -132,7 +160,9 @@ fn test_assert_with_label() {
 fn test_sample_random_count() {
     let ds = ds_invoices();
     let r = eval_str("SAMPLE RANDOM invoices.amount 3", &ds);
-    let StatementResult::Sample(s) = r else { panic!("expected Sample") };
+    let StatementResult::Sample(s) = r else {
+        panic!("expected Sample")
+    };
     assert_eq!(s.selected.len(), 3);
     assert_eq!(s.population_size, 5);
 }
@@ -141,7 +171,9 @@ fn test_sample_random_count() {
 fn test_sample_percent() {
     let ds = ds_invoices();
     let r = eval_str("SAMPLE RANDOM invoices.amount 40%", &ds);
-    let StatementResult::Sample(s) = r else { panic!("expected Sample") };
+    let StatementResult::Sample(s) = r else {
+        panic!("expected Sample")
+    };
     // 40% of 5 = 2 (ceil)
     assert_eq!(s.selected.len(), 2);
 }
@@ -150,7 +182,9 @@ fn test_sample_percent() {
 fn test_sample_mus_count() {
     let ds = ds_invoices();
     let r = eval_str("SAMPLE MUS invoices.amount 3", &ds);
-    let StatementResult::Sample(s) = r else { panic!("expected Sample") };
+    let StatementResult::Sample(s) = r else {
+        panic!("expected Sample")
+    };
     assert_eq!(s.selected.len(), 3);
 }
 
@@ -158,7 +192,9 @@ fn test_sample_mus_count() {
 fn test_sample_systematic_count() {
     let ds = ds_invoices();
     let r = eval_str("SAMPLE SYSTEMATIC invoices.amount 3", &ds);
-    let StatementResult::Sample(s) = r else { panic!("expected Sample") };
+    let StatementResult::Sample(s) = r else {
+        panic!("expected Sample")
+    };
     assert_eq!(s.selected.len(), 3);
 }
 
@@ -166,15 +202,22 @@ fn test_sample_systematic_count() {
 fn test_sample_stratified_count() {
     let ds = ds_invoices();
     let r = eval_str("SAMPLE STRATIFIED invoices.amount 4", &ds);
-    let StatementResult::Sample(s) = r else { panic!("expected Sample") };
+    let StatementResult::Sample(s) = r else {
+        panic!("expected Sample")
+    };
     assert_eq!(s.selected.len(), 4);
 }
 
 #[test]
 fn test_sample_with_filter() {
     let ds = ds_invoices();
-    let r = eval_str(r#"SAMPLE RANDOM invoices.amount 2 WHERE status = "paid""#, &ds);
-    let StatementResult::Sample(s) = r else { panic!("expected Sample") };
+    let r = eval_str(
+        r#"SAMPLE RANDOM invoices.amount 2 WHERE status = "paid""#,
+        &ds,
+    );
+    let StatementResult::Sample(s) = r else {
+        panic!("expected Sample")
+    };
     assert_eq!(s.population_size, 3); // only paid rows
     assert_eq!(s.selected.len(), 2);
 }
@@ -211,10 +254,7 @@ fn test_type_mismatch() {
 #[test]
 fn test_run_script_multiple_statements() {
     let ds = ds_invoices();
-    let stmts = parse(
-        "SUM(invoices.amount)\nASSERT SUM(invoices.amount) = 1500",
-    )
-    .unwrap();
+    let stmts = parse("SUM(invoices.amount)\nASSERT SUM(invoices.amount) = 1500").unwrap();
     let results = run_script(&stmts, &ds);
     assert_eq!(results.len(), 2);
     assert!(matches!(&results[0], StatementResult::Value(s) if s == "1500"));
@@ -226,7 +266,9 @@ fn test_assert_statement_label_propagation() {
     let ds = ds_invoices();
     // Statement label `my_check:` has no quoted label inside ASSERT
     let r = eval_str("my_check: ASSERT SUM(invoices.amount) = 1500", &ds);
-    let StatementResult::Assert(a) = r else { panic!("expected Assert") };
+    let StatementResult::Assert(a) = r else {
+        panic!("expected Assert")
+    };
     assert!(a.passed);
     assert_eq!(a.label.as_deref(), Some("my_check"));
     assert_eq!(a.lhs_value, "1500");
@@ -239,7 +281,9 @@ fn test_assert_nested_compare_flattening() {
     // `ASSERT SUM(...) > 0` parses as Assert{lhs: Compare{SUM(..), 0, >}, rhs: true, op: =}
     // We should show the inner comparison values (300 > 0) not (true = true).
     let r = eval_str("check_positive: ASSERT SUM(invoices.amount) > 0", &ds);
-    let StatementResult::Assert(a) = r else { panic!("expected Assert") };
+    let StatementResult::Assert(a) = r else {
+        panic!("expected Assert")
+    };
     assert!(a.passed);
     assert_eq!(a.label.as_deref(), Some("check_positive"));
     assert_eq!(a.lhs_value, "1500");
@@ -251,7 +295,9 @@ fn test_assert_nested_compare_flattening() {
 fn test_assert_nested_compare_flattening_fail() {
     let ds = ds_invoices();
     let r = eval_str("check_huge: ASSERT SUM(invoices.amount) > 2000", &ds);
-    let StatementResult::Assert(a) = r else { panic!("expected Assert") };
+    let StatementResult::Assert(a) = r else {
+        panic!("expected Assert")
+    };
     assert!(!a.passed);
     assert_eq!(a.label.as_deref(), Some("check_huge"));
     assert_eq!(a.lhs_value, "1500");
@@ -265,7 +311,9 @@ fn test_assert_nested_compare_flattening_fail() {
 fn test_eval_chart_sum_by_status() {
     let ds = ds_invoices();
     let r = eval_str("CHART bar SUM(invoices.amount) BY invoices.status", &ds);
-    let StatementResult::Chart(c) = r else { panic!("expected Chart") };
+    let StatementResult::Chart(c) = r else {
+        panic!("expected Chart")
+    };
     assert_eq!(c.chart_type, "bar");
     assert_eq!(c.labels, vec!["open", "paid"]);
     assert_eq!(c.values, vec!["600", "900"]);
@@ -275,7 +323,9 @@ fn test_eval_chart_sum_by_status() {
 fn test_eval_chart_count_by_status() {
     let ds = ds_invoices();
     let r = eval_str("CHART pie COUNT(invoices.amount) BY invoices.status", &ds);
-    let StatementResult::Chart(c) = r else { panic!("expected Chart") };
+    let StatementResult::Chart(c) = r else {
+        panic!("expected Chart")
+    };
     assert_eq!(c.chart_type, "pie");
     assert_eq!(c.labels, vec!["open", "paid"]);
     assert_eq!(c.values, vec!["2", "3"]);
@@ -284,8 +334,13 @@ fn test_eval_chart_count_by_status() {
 #[test]
 fn test_eval_chart_with_label() {
     let ds = ds_invoices();
-    let r = eval_str("revenue: CHART bar SUM(invoices.amount) BY invoices.status", &ds);
-    let StatementResult::Chart(c) = r else { panic!("expected Chart") };
+    let r = eval_str(
+        "revenue: CHART bar SUM(invoices.amount) BY invoices.status",
+        &ds,
+    );
+    let StatementResult::Chart(c) = r else {
+        panic!("expected Chart")
+    };
     assert_eq!(c.label.as_deref(), Some("revenue"));
 }
 
@@ -294,14 +349,19 @@ fn test_eval_chart_with_label() {
 #[test]
 fn test_eval_section_rollup() {
     let ds = ds_invoices();
-    let stmts = parse(r#"SECTION "Reconciliation" {
+    let stmts = parse(
+        r#"SECTION "Reconciliation" {
         pass_assert: ASSERT SUM(invoices.amount) = 1500
         fail_assert: ASSERT SUM(invoices.amount) = 999
         total: SUM(invoices.amount)
-    }"#).unwrap();
+    }"#,
+    )
+    .unwrap();
     let results = run_script(&stmts, &ds);
     assert_eq!(results.len(), 1);
-    let StatementResult::Section(s) = &results[0] else { panic!("expected Section") };
+    let StatementResult::Section(s) = &results[0] else {
+        panic!("expected Section")
+    };
     assert_eq!(s.title, "Reconciliation");
     assert_eq!(s.passed, 1);
     assert_eq!(s.failed, 1);
@@ -312,23 +372,30 @@ fn test_eval_section_rollup() {
 #[test]
 fn test_eval_nested_section_rollup() {
     let ds = ds_invoices();
-    let stmts = parse(r#"SECTION "Outer" {
+    let stmts = parse(
+        r#"SECTION "Outer" {
         SECTION "Inner" {
             pass_assert: ASSERT SUM(invoices.amount) = 1500
             fail_assert: ASSERT SUM(invoices.amount) = 999
         }
         outer_fail: ASSERT SUM(invoices.amount) = 1
-    }"#).unwrap();
+    }"#,
+    )
+    .unwrap();
     let results = run_script(&stmts, &ds);
     assert_eq!(results.len(), 1);
-    let StatementResult::Section(outer) = &results[0] else { panic!("expected Section") };
+    let StatementResult::Section(outer) = &results[0] else {
+        panic!("expected Section")
+    };
     assert_eq!(outer.title, "Outer");
     assert_eq!(outer.passed, 1);
     assert_eq!(outer.failed, 2);
     assert_eq!(outer.errors, 0);
     assert_eq!(outer.results.len(), 2);
 
-    let StatementResult::Section(inner) = &outer.results[0] else { panic!("expected inner Section") };
+    let StatementResult::Section(inner) = &outer.results[0] else {
+        panic!("expected inner Section")
+    };
     assert_eq!(inner.title, "Inner");
     assert_eq!(inner.passed, 1);
     assert_eq!(inner.failed, 1);

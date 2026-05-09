@@ -3,11 +3,23 @@ use crate::state::{DslCacheState, ProjectsState};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
-fn emit_status(app: &AppHandle, phase: &str, label: Option<&str>, n: Option<usize>, total: Option<usize>) {
+fn emit_status(
+    app: &AppHandle,
+    phase: &str,
+    label: Option<&str>,
+    n: Option<usize>,
+    total: Option<usize>,
+) {
     let mut v = serde_json::json!({"phase": phase});
-    if let Some(l) = label { v["label"] = serde_json::Value::String(l.to_string()); }
-    if let Some(n) = n    { v["n"]     = serde_json::Value::Number(n.into()); }
-    if let Some(t) = total { v["total"] = serde_json::Value::Number(t.into()); }
+    if let Some(l) = label {
+        v["label"] = serde_json::Value::String(l.to_string());
+    }
+    if let Some(n) = n {
+        v["n"] = serde_json::Value::Number(n.into());
+    }
+    if let Some(t) = total {
+        v["total"] = serde_json::Value::Number(t.into());
+    }
     let _ = app.emit("dsl-status", v);
 }
 
@@ -27,7 +39,13 @@ pub fn save_dsl_script(
     state: State<ProjectsState>,
 ) -> Result<vinrouge::projects::DslScript, String> {
     let project_dir = state.dir()?;
-    let script = vinrouge::projects::save_dsl_script(&project_dir, &control_id, &control_ref, &label, &script_text)?;
+    let script = vinrouge::projects::save_dsl_script(
+        &project_dir,
+        &control_id,
+        &control_ref,
+        &label,
+        &script_text,
+    )?;
     state.sync_vrd()?;
     Ok(script)
 }
@@ -63,8 +81,8 @@ pub async fn run_dsl_script(
     tokio::task::spawn_blocking(move || {
         let datasource = {
             let mut guard = cache_arc.lock().unwrap();
-            let cache_hit = guard.project_dir.as_ref() == Some(&project_dir)
-                && guard.datasource.is_some();
+            let cache_hit =
+                guard.project_dir.as_ref() == Some(&project_dir) && guard.datasource.is_some();
             if cache_hit {
                 guard.datasource.clone().unwrap()
             } else {
@@ -92,10 +110,7 @@ pub fn list_test_results(
 }
 
 #[tauri::command]
-pub fn delete_dsl_script(
-    script_id: String,
-    state: State<ProjectsState>,
-) -> Result<(), String> {
+pub fn delete_dsl_script(script_id: String, state: State<ProjectsState>) -> Result<(), String> {
     let project_dir = state.dir()?;
     vinrouge::projects::delete_dsl_script(&project_dir, &script_id)?;
     state.sync_vrd()
@@ -135,8 +150,8 @@ pub async fn run_all_dsl_scripts(
     tokio::task::spawn_blocking(move || {
         let datasource = {
             let mut guard = cache_arc.lock().unwrap();
-            let cache_hit = guard.project_dir.as_ref() == Some(&project_dir)
-                && guard.datasource.is_some();
+            let cache_hit =
+                guard.project_dir.as_ref() == Some(&project_dir) && guard.datasource.is_some();
             if cache_hit {
                 guard.datasource.clone().unwrap()
             } else {
@@ -153,7 +168,13 @@ pub async fn run_all_dsl_scripts(
         let mut all_results: Vec<serde_json::Value> = Vec::new();
 
         for (i, script) in scripts.into_iter().enumerate() {
-            emit_status(&app, "running", Some(&script.label), Some(i + 1), Some(total));
+            emit_status(
+                &app,
+                "running",
+                Some(&script.label),
+                Some(i + 1),
+                Some(total),
+            );
             let json_results = run_dsl_script_text_blocking(
                 &script.script_text,
                 &project_dir,
@@ -169,10 +190,7 @@ pub async fn run_all_dsl_scripts(
                 .iter()
                 .filter(|r| r["kind"] == "assert" && r["passed"] == false)
                 .count() as i64;
-            let errors = json_results
-                .iter()
-                .filter(|r| r["kind"] == "error")
-                .count() as i64;
+            let errors = json_results.iter().filter(|r| r["kind"] == "error").count() as i64;
 
             all_results.push(serde_json::json!({
                 "kind": "section",

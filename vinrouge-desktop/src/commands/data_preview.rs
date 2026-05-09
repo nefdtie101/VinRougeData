@@ -2,14 +2,9 @@ use tauri::{AppHandle, Emitter, WebviewWindowBuilder};
 
 /// Open a new window to display data preview with multiple tables, tab-switching, and sorting.
 #[tauri::command]
-pub fn open_data_preview_window(
-    app: AppHandle,
-    data: serde_json::Value,
-) -> Result<(), String> {
+pub fn open_data_preview_window(app: AppHandle, data: serde_json::Value) -> Result<(), String> {
     // Accept multi-table format: { "tables": [{ "name", "columns", "rows" }, ...] }
-    let tables_val = data["tables"]
-        .as_array()
-        .ok_or("Missing tables in data")?;
+    let tables_val = data["tables"].as_array().ok_or("Missing tables in data")?;
 
     // Serialize table data for embedding as JSON in the HTML
     let tables_json = serde_json::to_string(tables_val)
@@ -176,7 +171,10 @@ document.addEventListener('DOMContentLoaded',function(){
     );
 
     for (i, (name, count)) in tab_info.iter().enumerate() {
-        let safe = name.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+        let safe = name
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
         let active = if i == 0 { " active" } else { "" };
         html.push_str(&format!(
             r#"<button class="tab{active}" data-ti="{i}">{safe}<span class="tab-count">{count}</span></button>"#

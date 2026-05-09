@@ -37,7 +37,9 @@ pub enum AiProvider {
 }
 
 impl Default for AiProvider {
-    fn default() -> Self { AiProvider::Ollama }
+    fn default() -> Self {
+        AiProvider::Ollama
+    }
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -52,8 +54,12 @@ pub struct AppSettings {
     pub terminal_command: String,
 }
 
-fn default_ollama_url() -> String { "http://localhost:11434".to_string() }
-fn default_ollama_model() -> String { "mistral".to_string() }
+fn default_ollama_url() -> String {
+    "http://localhost:11434".to_string()
+}
+fn default_ollama_model() -> String {
+    "mistral".to_string()
+}
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -91,7 +97,8 @@ impl AppSettings {
 
     /// Save via Tauri backend (desktop app). Also updates localStorage cache.
     pub async fn save_to_tauri(&self) -> Result<(), String> {
-        crate::ipc::tauri_invoke_args::<()>("save_settings", serde_json::json!({"settings": self})).await?;
+        crate::ipc::tauri_invoke_args::<()>("save_settings", serde_json::json!({"settings": self}))
+            .await?;
         self.save();
         Ok(())
     }

@@ -14,6 +14,7 @@ use vinrouge::export::{
     MarkdownExporter,
 };
 use vinrouge::sources::{CsvSource, DataSource, ExcelSource, FlatfileSource, MssqlSource};
+use vinrouge::update;
 
 #[derive(Parser)]
 #[command(name = "vinrouge")]
@@ -124,6 +125,13 @@ enum Commands {
         #[arg(long)]
         delete_originals: bool,
     },
+
+    /// Check for and install the latest version from GitHub
+    SelfUpdate {
+        /// Only check if an update is available; don't install it
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 #[tokio::main]
@@ -193,8 +201,14 @@ async fn main() -> Result<()> {
         Some(Commands::GenerateConfig { output }) => {
             handle_generate_config(output)?;
         }
-        Some(Commands::MigrateVrd { output_dir, delete_originals }) => {
+        Some(Commands::MigrateVrd {
+            output_dir,
+            delete_originals,
+        }) => {
             handle_migrate_vrd(output_dir, delete_originals)?;
+        }
+        Some(Commands::SelfUpdate { check }) => {
+            handle_self_update(check).await?;
         }
     }
 
@@ -852,5 +866,42 @@ fn handle_generate_config(output_path: PathBuf) -> Result<()> {
     println!("Sample configuration written to {:?}", output_path);
     println!("Edit this file to customize your analysis settings.");
 
+    Ok(())
+}
+
+async fn handle_self_update(check_only: bool) -> Result<()> {
+    match update::check_for_update().await? {
+        None => {
+            println!(
+                "You're already on the latest version ({}).",
+                env!("CARGO_PKG_VERSION")
+            );
+        }
+        Some(info) => {
+            println!(
+                "Update available: {} -> {}",
+                info.current_version, info.latest_version
+            );
+            println!("Asset: {}", info.asset_name);
+
+            if check_only {
+                println!("Run without --check to install the update.");
+                return Ok(());
+            }
+
+            print!("Downloading... ");
+            let archive = update::download_update(&info, |downloaded, total| {
+                if total > 0 {
+                    let pct = (downloaded as f64 / total as f64) * 100.0;
+                    print!("\rDownloading... {:.1}%", pct);
+                }
+            })
+            .await?;
+            println!("\rDownload complete.           ");
+
+            update::install_update(&archive).await?;
+            println!("Update installed successfully. Restart to use the new version.");
+        }
+    }
     Ok(())
 }

@@ -20,7 +20,10 @@ pub fn parse_value(s: String) -> Value {
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum EvalError {
     #[error("type mismatch: expected {expected}, got {actual}")]
-    TypeMismatch { expected: &'static str, actual: String },
+    TypeMismatch {
+        expected: &'static str,
+        actual: String,
+    },
 
     #[error("division by zero")]
     DivisionByZero,
@@ -61,13 +64,15 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Decimal(d) => write!(f, "{d}"),
-            Value::Bool(b)    => write!(f, "{b}"),
-            Value::Text(s)    => write!(f, "{s}"),
-            Value::Null       => write!(f, "NULL"),
-            Value::List(v)    => {
+            Value::Bool(b) => write!(f, "{b}"),
+            Value::Text(s) => write!(f, "{s}"),
+            Value::Null => write!(f, "NULL"),
+            Value::List(v) => {
                 write!(f, "[")?;
                 for (i, item) in v.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{item}")?;
                 }
                 write!(f, "]")
@@ -82,8 +87,8 @@ impl Value {
     pub fn as_decimal(&self) -> EvalResult<Decimal> {
         match self {
             Value::Decimal(d) => Ok(*d),
-            Value::Bool(b)    => Ok(if *b { Decimal::ONE } else { Decimal::ZERO }),
-            Value::Null       => Ok(Decimal::ZERO),
+            Value::Bool(b) => Ok(if *b { Decimal::ONE } else { Decimal::ZERO }),
+            Value::Null => Ok(Decimal::ZERO),
             other => Err(EvalError::TypeMismatch {
                 expected: "Decimal",
                 actual: other.type_name(),
@@ -95,7 +100,7 @@ impl Value {
     pub fn as_bool(&self) -> EvalResult<bool> {
         match self {
             Value::Bool(b) => Ok(*b),
-            Value::Null    => Ok(false),
+            Value::Null => Ok(false),
             other => Err(EvalError::TypeMismatch {
                 expected: "Bool",
                 actual: other.type_name(),
@@ -107,21 +112,21 @@ impl Value {
     pub fn type_name(&self) -> String {
         match self {
             Value::Decimal(_) => "Decimal".to_string(),
-            Value::Bool(_)    => "Bool".to_string(),
-            Value::Text(_)    => "Text".to_string(),
-            Value::Null       => "Null".to_string(),
-            Value::List(_)    => "List".to_string(),
+            Value::Bool(_) => "Bool".to_string(),
+            Value::Text(_) => "Text".to_string(),
+            Value::Null => "Null".to_string(),
+            Value::List(_) => "List".to_string(),
         }
     }
 
     /// Coerce to `String`; any value has a text representation.
     pub fn as_text(&self) -> String {
         match self {
-            Value::Text(s)    => s.clone(),
+            Value::Text(s) => s.clone(),
             Value::Decimal(d) => d.to_string(),
-            Value::Bool(b)    => b.to_string(),
-            Value::Null       => String::new(),
-            Value::List(v)    => v.iter().map(|x| x.as_text()).collect::<Vec<_>>().join(", "),
+            Value::Bool(b) => b.to_string(),
+            Value::Null => String::new(),
+            Value::List(v) => v.iter().map(|x| x.as_text()).collect::<Vec<_>>().join(", "),
         }
     }
 
@@ -130,8 +135,8 @@ impl Value {
         match (a, b) {
             (Value::Null, _) | (_, Value::Null) => false,
             (Value::Decimal(x), Value::Decimal(y)) => x == y,
-            (Value::Bool(x), Value::Bool(y))       => x == y,
-            (Value::Text(x), Value::Text(y))       => x == y,
+            (Value::Bool(x), Value::Bool(y)) => x == y,
+            (Value::Text(x), Value::Text(y)) => x == y,
             _ => false,
         }
     }
@@ -141,8 +146,8 @@ impl Value {
         match (a, b) {
             (Value::Null, _) | (_, Value::Null) => None,
             (Value::Decimal(x), Value::Decimal(y)) => x.partial_cmp(y),
-            (Value::Bool(x), Value::Bool(y))       => x.partial_cmp(y),
-            (Value::Text(x), Value::Text(y))       => x.partial_cmp(y),
+            (Value::Bool(x), Value::Bool(y)) => x.partial_cmp(y),
+            (Value::Text(x), Value::Text(y)) => x.partial_cmp(y),
             _ => None,
         }
     }
