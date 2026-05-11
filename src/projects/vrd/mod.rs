@@ -154,8 +154,8 @@ pub fn import_project_vrd(vrd_path: &Path, parent_dir: &Path) -> Result<super::P
         if entry.name() == "manifest.json" {
             continue; // already read; no need to write to disk
         }
-        let out_path = project_dir.join(entry.name());
-        if entry.name().ends_with('/') {
+        let out_path = project_dir.join(entry.mangled_name());
+        if entry.is_dir() {
             std::fs::create_dir_all(&out_path).map_err(|e| e.to_string())?;
         } else {
             if let Some(p) = out_path.parent() {
