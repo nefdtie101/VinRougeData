@@ -33,6 +33,9 @@ struct GitHubAsset {
 /// Check whether a newer desktop release exists on GitHub.
 #[tauri::command]
 pub async fn check_for_update() -> Result<Option<UpdateInfo>, String> {
+    if cfg!(debug_assertions) {
+        return Ok(None);
+    }
     let current = env!("CARGO_PKG_VERSION").to_string();
 
     println!("Checking for desktop updates...");

@@ -4,7 +4,7 @@
 
 [package]
 name = "vinrouge-desktop"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 
 [build-dependencies]

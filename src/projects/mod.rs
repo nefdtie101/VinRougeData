@@ -297,7 +297,10 @@ pub fn add_file_to_project(project_dir: &Path, src_path: &Path) -> Result<Projec
         .unwrap_or("")
         .to_lowercase();
 
-    let dest = project_dir.join("files").join(&file_name);
+    let files_dir = project_dir.join("files");
+    std::fs::create_dir_all(&files_dir)
+        .map_err(|e| format!("Failed to create files directory: {e}"))?;
+    let dest = files_dir.join(&file_name);
     std::fs::copy(src_path, &dest).map_err(|e| format!("Failed to copy file: {e}"))?;
 
     let conn = db::open_project(project_dir).map_err(|e| e.to_string())?;

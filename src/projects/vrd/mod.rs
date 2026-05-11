@@ -145,6 +145,8 @@ pub fn import_project_vrd(vrd_path: &Path, parent_dir: &Path) -> Result<super::P
     let project_dir = parent_dir.join(&manifest.project_name);
     std::fs::create_dir_all(&project_dir)
         .map_err(|e| format!("Cannot create project directory: {e}"))?;
+    std::fs::create_dir_all(project_dir.join("files"))
+        .map_err(|e| format!("Cannot create files directory: {e}"))?;
 
     // Extract all entries
     for i in 0..archive.len() {

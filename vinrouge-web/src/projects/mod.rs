@@ -588,12 +588,20 @@ pub fn ProjectsView() -> impl IntoView {
                     }}
                 </div>
 
-                <button class="proj-new-btn-dashed" on:click=move |_| open_wiz()>
-                    <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                        <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                    </svg>
-                    "New project"
-                </button>
+                <div style="display:flex;gap:6px;padding:0 10px 10px">
+                    <button class="proj-new-btn-dashed" style="flex:1" on:click=move |_| open_wiz()>
+                        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+                            <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                        </svg>
+                        "New"
+                    </button>
+                    <button class="proj-new-btn-dashed" style="flex:1" on:click=on_import_vrd>
+                        <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+                            <path d="M6 1v7M3 5.5l3 3 3-3M1 10h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        "Import"
+                    </button>
+                </div>
             </div>
 
             // ── Resize handle ─────────────────────────────────────────────────
@@ -623,11 +631,16 @@ pub fn ProjectsView() -> impl IntoView {
                         </div>
                         <div class="proj-empty-title">"No project selected"</div>
                         <div class="proj-empty-sub">
-                            "Select an existing project from the sidebar, or create a new one to get started."
+                            "Select an existing project from the sidebar, create a new one, or import a .vrd file."
                         </div>
-                        <button class="wiz-btn-primary" on:click=move |_| open_wiz()>
-                            "Create new project"
-                        </button>
+                        <div style="display:flex;gap:8px;justify-content:center">
+                            <button class="wiz-btn-primary" on:click=move |_| open_wiz()>
+                                "Create new project"
+                            </button>
+                            <button class="wiz-btn-ghost" on:click=on_import_vrd>
+                                "Import .vrd"
+                            </button>
+                        </div>
                     </div>
                 })}
 

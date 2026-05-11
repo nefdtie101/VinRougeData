@@ -814,6 +814,27 @@ pub fn StudioView() -> impl IntoView {
                                 <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
                             </svg>
                         </button>
+                        <button class="studio-icon-btn" title="Import .vrd"
+                            on:click=move |_| {
+                                spawn_local(async move {
+                                    match tauri_invoke::<Option<Project>>("pick_and_open_vrd").await {
+                                        Ok(Some(p)) => {
+                                            if let Ok(list) = tauri_invoke::<Vec<Project>>("list_projects").await {
+                                                projects.set(list);
+                                            }
+                                            sidebar_collapsed.set(false);
+                                            open_project(p.path.clone());
+                                        }
+                                        Ok(None) => {}
+                                        Err(e) => status.set(format!("Import failed: {e}")),
+                                    }
+                                });
+                            }
+                        >
+                            <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                                <path d="M6 1v7M3 5.5l3 3 3-3M1 10h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </button>
                     </div>
                 })}
 
@@ -834,6 +855,29 @@ pub fn StudioView() -> impl IntoView {
                                     <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
                                 </svg>
                                 "New project"
+                            </button>
+                            <button
+                                class="studio-new-btn"
+                                title="Import .vrd file"
+                                on:click=move |_| {
+                                    spawn_local(async move {
+                                        match tauri_invoke::<Option<Project>>("pick_and_open_vrd").await {
+                                            Ok(Some(p)) => {
+                                                if let Ok(list) = tauri_invoke::<Vec<Project>>("list_projects").await {
+                                                    projects.set(list);
+                                                }
+                                                open_project(p.path.clone());
+                                            }
+                                            Ok(None) => {}
+                                            Err(e) => status.set(format!("Import failed: {e}")),
+                                        }
+                                    });
+                                }
+                            >
+                                <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+                                    <path d="M6 1v7M3 5.5l3 3 3-3M1 10h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                "Import"
                             </button>
                         </div>
 
