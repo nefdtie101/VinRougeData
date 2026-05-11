@@ -127,6 +127,28 @@ fn add_dir_to_zip<W: Write + std::io::Seek>(
 
 // ── Import ────────────────────────────────────────────────────────────────────
 
+/// Make a string safe to use as a single directory-name component on all platforms.
+/// Replaces characters that are forbidden on Windows, and trims trailing spaces/dots
+/// which Windows silently strips (causing path inconsistency on subsequent joins).
+fn sanitize_dir_name(name: &str) -> String {
+    let s: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            c => c,
+        })
+        .collect();
+    // Windows strips trailing spaces/dots from directory names, which makes the
+    // PathBuf inconsistent with the real on-disk path.
+    let s = s.trim_end_matches(|c| c == ' ' || c == '.');
+    let s = s.trim_start_matches(|c| c == ' ' || c == '.');
+    if s.is_empty() {
+        "project".to_string()
+    } else {
+        s.to_string()
+    }
+}
+
 pub fn import_project_vrd(vrd_path: &Path, parent_dir: &Path) -> Result<super::Project, String> {
     let file = std::fs::File::open(vrd_path).map_err(|e| format!("Cannot open .vrd file: {e}"))?;
     let mut archive =
@@ -142,7 +164,7 @@ pub fn import_project_vrd(vrd_path: &Path, parent_dir: &Path) -> Result<super::P
         serde_json::from_str(&buf).map_err(|e| format!("Invalid manifest: {e}"))?
     };
 
-    let project_dir = parent_dir.join(&manifest.project_name);
+    let project_dir = parent_dir.join(sanitize_dir_name(&manifest.project_name));
     std::fs::create_dir_all(&project_dir)
         .map_err(|e| format!("Cannot create project directory: {e}"))?;
     std::fs::create_dir_all(project_dir.join("files"))
