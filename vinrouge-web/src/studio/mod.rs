@@ -771,15 +771,7 @@ pub fn StudioView() -> impl IntoView {
                     <button
                         class="studio-collapse-btn"
                         title="Settings"
-                        on:click=move |_| {
-                            if crate::ipc::is_tauri() {
-                                spawn_local(async move {
-                                    let _ = crate::ipc::tauri_invoke::<()>("open_settings_window").await;
-                                });
-                            } else {
-                                settings_open.set(true);
-                            }
-                        }
+                        on:click=move |_| settings_open.set(true)
                     >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="12" cy="12" r="3"/>

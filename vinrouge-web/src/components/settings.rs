@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use leptos::task::spawn_local;
 use wasm_bindgen::JsCast;
 
 use crate::storage::{AiProvider, AppSettings};
@@ -20,18 +21,28 @@ pub fn SettingsModal(on_close: Callback<()>) -> impl IntoView {
             ollama_model: ollama_model.get().trim().to_string(),
             terminal_command: terminal_command.get().trim().to_string(),
         };
-        s.save();
-        saved.set(true);
-        let _ = web_sys::window().and_then(|w| {
-            w.set_timeout_with_callback_and_timeout_and_arguments_0(
-                &wasm_bindgen::closure::Closure::once_into_js(move || {
-                    saved.set(false);
-                })
-                .unchecked_into(),
-                1200,
-            )
-            .ok()
-        });
+        let flash = move || {
+            saved.set(true);
+            let _ = web_sys::window().and_then(|w| {
+                w.set_timeout_with_callback_and_timeout_and_arguments_0(
+                    &wasm_bindgen::closure::Closure::once_into_js(move || {
+                        saved.set(false);
+                    })
+                    .unchecked_into(),
+                    1200,
+                )
+                .ok()
+            });
+        };
+        if crate::ipc::is_tauri() {
+            spawn_local(async move {
+                let _ = s.save_to_tauri().await;
+                flash();
+            });
+        } else {
+            s.save();
+            flash();
+        }
     };
 
     view! {
@@ -43,7 +54,7 @@ pub fn SettingsModal(on_close: Callback<()>) -> impl IntoView {
 
             // Panel
             <div
-                style="position:relative;background:var(--w-bg-2);border:1px solid var(--w-border-2);
+                style="position:relative;background:var(--w-surface-2);border:1px solid var(--w-border-2);
                        border-radius:8px;width:min(460px,92vw);max-height:88vh;
                        display:flex;flex-direction:column;overflow:hidden"
                 on:click=|e| e.stop_propagation()>
