@@ -2,7 +2,7 @@ use tauri::{AppHandle, Emitter, WebviewWindowBuilder};
 
 /// Open a new window to display DSL results with ECharts-rendered charts.
 #[tauri::command]
-pub fn open_dsl_results_window(
+pub async fn open_dsl_results_window(
     app: AppHandle,
     results: Vec<serde_json::Value>,
 ) -> Result<(), String> {
@@ -91,6 +91,9 @@ document.addEventListener('DOMContentLoaded', function(){
         .map_err(|e| format!("Failed to write temp file: {e}"))?;
 
     // Create window pointing to the temp file
+    #[cfg(target_os = "windows")]
+    let file_url = format!("file:///{}", file_path.display().to_string().replace('\\', "/"));
+    #[cfg(not(target_os = "windows"))]
     let file_url = format!("file://{}", file_path.display());
     let window = WebviewWindowBuilder::new(
         &app,

@@ -26,7 +26,7 @@ pub fn close_settings_window(app: AppHandle) -> Result<(), String> {
 
 /// Open a native settings window (served from the app bundle).
 #[tauri::command]
-pub fn open_settings_window(app: AppHandle) -> Result<(), String> {
+pub async fn open_settings_window(app: AppHandle) -> Result<(), String> {
     // If a settings window already exists, close it first
     if let Some(win) = app.get_webview_window("settings") {
         let _ = win.close();

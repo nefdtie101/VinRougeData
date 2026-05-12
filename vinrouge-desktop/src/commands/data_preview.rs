@@ -2,7 +2,7 @@ use tauri::{AppHandle, Emitter, WebviewWindowBuilder};
 
 /// Open a new window to display data preview with multiple tables, tab-switching, and sorting.
 #[tauri::command]
-pub fn open_data_preview_window(app: AppHandle, data: serde_json::Value) -> Result<(), String> {
+pub async fn open_data_preview_window(app: AppHandle, data: serde_json::Value) -> Result<(), String> {
     // Accept multi-table format: { "tables": [{ "name", "columns", "rows" }, ...] }
     let tables_val = data["tables"].as_array().ok_or("Missing tables in data")?;
 
@@ -196,6 +196,9 @@ document.addEventListener('DOMContentLoaded',function(){
         .map_err(|e| format!("Failed to write temp file: {e}"))?;
 
     // Create window pointing to the temp file
+    #[cfg(target_os = "windows")]
+    let file_url = format!("file:///{}", file_path.display().to_string().replace('\\', "/"));
+    #[cfg(not(target_os = "windows"))]
     let file_url = format!("file://{}", file_path.display());
     let window = WebviewWindowBuilder::new(
         &app,
