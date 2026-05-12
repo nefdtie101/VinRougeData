@@ -14,6 +14,7 @@ use crate::state::ProjectsState;
 pub struct PtyState {
     pub writer: Mutex<Option<Box<dyn Write + Send>>>,
     pub master: Mutex<Option<Box<dyn portable_pty::MasterPty + Send>>>,
+    pub child: Mutex<Option<Box<dyn portable_pty::Child + Send + Sync>>>,
 }
 
 impl Default for PtyState {
@@ -21,6 +22,7 @@ impl Default for PtyState {
         Self {
             writer: Mutex::new(None),
             master: Mutex::new(None),
+            child: Mutex::new(None),
         }
     }
 }
@@ -245,7 +247,7 @@ fn write_helper_script(project_dir: &PathBuf, port: u16) {
 #
 # ============================================================
 VINROUGE_PORT={port}
-_vu_send() {{ printf '%s' "$1" | nc -q1 127.0.0.1 $VINROUGE_PORT 2>/dev/null || printf '%s' "$1" | nc 127.0.0.1 $VINROUGE_PORT; }}
+_vu_send() {{ exec 3<>/dev/tcp/127.0.0.1/$VINROUGE_PORT; printf '%s\n' "$1" >&3; IFS= read -r _vu_r <&3; exec 3>&-; printf '%s\n' "$_vu_r"; }}
 case "$1" in
   list)     _vu_send '{{"action":"list"}}' ;;
   schema)   _vu_send '{{"action":"schema"}}' ;;
@@ -378,6 +380,8 @@ pub async fn pty_create(
     pty_state: State<'_, PtyState>,
     projects: State<'_, ProjectsState>,
     env: Option<HashMap<String, String>>,
+    cols: Option<u16>,
+    rows: Option<u16>,
 ) -> Result<(), String> {
     let project_dir = projects
         .dir()
@@ -389,8 +393,8 @@ pub async fn pty_create(
     let pty_system = portable_pty::native_pty_system();
     let pair = pty_system
         .openpty(PtySize {
-            rows: 24,
-            cols: 80,
+            rows: rows.unwrap_or(24),
+            cols: cols.unwrap_or(80),
             pixel_width: 0,
             pixel_height: 0,
         })
@@ -406,6 +410,8 @@ pub async fn pty_create(
     let scripts_file = project_dir.join(".vinrouge").join("scripts.json");
 
     cmd.cwd(&project_dir);
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
     cmd.env("VINROUGE_PORT", port.to_string());
     cmd.env("VINROUGE_PROJECT", project_dir.to_string_lossy().as_ref());
     cmd.env("DSL_SCRIPTS_FILE", scripts_file.to_string_lossy().as_ref());
@@ -424,7 +430,7 @@ pub async fn pty_create(
         }
     }
 
-    let _child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
     drop(pair.slave);
 
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
@@ -432,18 +438,36 @@ pub async fn pty_create(
 
     *pty_state.writer.lock().unwrap() = Some(writer);
     *pty_state.master.lock().unwrap() = Some(pair.master);
+    *pty_state.child.lock().unwrap() = Some(child);
+
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
 
     std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 65536];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).into_owned();
-                    let _ = app.emit("pty-data", data);
+                    let _ = tx.send(String::from_utf8_lossy(&buf[..n]).into_owned());
                 }
             }
         }
+    });
+
+    std::thread::spawn(move || {
+        let mut pending = String::new();
+        loop {
+            match rx.recv() {
+                Ok(chunk) => pending.push_str(&chunk),
+                Err(_) => break,
+            }
+            while let Ok(more) = rx.try_recv() {
+                pending.push_str(&more);
+                if pending.len() > 65536 { break; }
+            }
+            let _ = app.emit("pty-data", std::mem::take(&mut pending));
+        }
+        let _ = app.emit("pty-exit", ());
     });
 
     Ok(())
