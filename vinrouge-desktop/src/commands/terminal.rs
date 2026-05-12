@@ -397,7 +397,7 @@ pub async fn pty_create(
         .map_err(|e| e.to_string())?;
 
     let shell = if cfg!(target_os = "windows") {
-        "cmd".to_string()
+        std::env::var("COMSPEC").unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".to_string())
     } else {
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
     };
