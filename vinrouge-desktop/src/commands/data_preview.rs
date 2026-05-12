@@ -195,10 +195,11 @@ document.addEventListener('DOMContentLoaded',function(){
         .and_then(|mut f| f.write_all(html.as_bytes()))
         .map_err(|e| format!("Failed to write temp file: {e}"))?;
 
-    // Create window pointing to the temp file
-    #[cfg(target_os = "windows")]
-    let file_url = format!("file:///{}", file_path.display().to_string().replace('\\', "/"));
-    #[cfg(not(target_os = "windows"))]
+    // Build a well-formed file:// URL. On Windows, display() uses backslashes and the
+    // path starts with a drive letter, so we need three slashes and forward slashes.
+    #[cfg(windows)]
+    let file_url = format!("file:///{}", file_path.to_string_lossy().replace('\\', "/"));
+    #[cfg(not(windows))]
     let file_url = format!("file://{}", file_path.display());
     let window = WebviewWindowBuilder::new(
         &app,
