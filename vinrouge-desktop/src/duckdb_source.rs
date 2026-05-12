@@ -33,6 +33,10 @@ enum ColType {
 impl DuckDbDataSource {
     pub fn new() -> Result<Self, String> {
         let conn = duckdb::Connection::open_in_memory().map_err(|e| e.to_string())?;
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get() as i64)
+            .unwrap_or(4);
+        let _ = conn.execute_batch(&format!("SET threads = {threads};"));
         Ok(Self {
             conn: Mutex::new(conn),
             rows_cache: HashMap::new(),
