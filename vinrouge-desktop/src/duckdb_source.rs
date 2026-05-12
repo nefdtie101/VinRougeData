@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use rust_decimal::Decimal;
-
 use vinrouge::dsl::{
     expr_to_sql, AggFunc, EvalDataSource, EvalError, EvalResult, Expr, Row, SchemaColumn,
     SchemaTable, Value,
@@ -97,39 +96,22 @@ impl DuckDbDataSource {
         ))
         .map_err(|e| e.to_string())?;
 
-        // ── Insert rows in batches inside a transaction ───────────────────────
-        // Build VALUES rows as SQL literals and flush in groups of 2 000.
-        const BATCH: usize = 2_000;
-        let quoted_table = format!("\"{}\"", name.replace('"', "\"\""));
-        let quoted_cols: String = col_names
-            .iter()
-            .map(|n| format!("\"{}\"", n.replace('"', "\"\"")))
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
-
-        for chunk in rows.chunks(BATCH) {
-            let values_clause: String = chunk
+        // Use DuckDB's Appender for bulk insert — skips SQL parsing entirely,
+        // writing directly into DuckDB's columnar format (~10-50x faster than
+        // building INSERT ... VALUES strings).
+        let mut appender = conn.appender(&name).map_err(|e| e.to_string())?;
+        for row in &rows {
+            let vals: Vec<SqlVal> = col_names
                 .iter()
-                .map(|row| {
-                    let cells: String = col_names
-                        .iter()
-                        .map(|col| value_to_sql_literal(row.get(col), table_col_types[col]))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    format!("({cells})")
-                })
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            conn.execute_batch(&format!(
-                "INSERT INTO {quoted_table} ({quoted_cols}) VALUES {values_clause};"
-            ))
-            .map_err(|e| e.to_string())?;
+                .map(|col| to_sql_val(row.get(col), table_col_types[col]))
+                .collect();
+            let refs: Vec<&dyn duckdb::types::ToSql> =
+                vals.iter().map(|v| v as &dyn duckdb::types::ToSql).collect();
+            appender
+                .append_row(refs.as_slice())
+                .map_err(|e| e.to_string())?;
         }
-
-        conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
+        appender.flush().map_err(|e| e.to_string())?;
 
         self.col_types.insert(name.clone(), table_col_types);
         self.rows_cache.insert(name, rows);
@@ -256,20 +238,39 @@ impl EvalDataSource for DuckDbDataSource {
 // Helpers
 // ─────────────────────────────────────────────
 
-fn value_to_sql_literal(val: Option<&Value>, col_type: ColType) -> String {
-    match val {
-        None | Some(Value::Null) => "NULL".to_string(),
-        Some(Value::Decimal(d)) => d.to_string(),
-        Some(Value::Bool(b)) => b.to_string(),
-        Some(Value::Text(s)) => match col_type {
-            ColType::Numeric => s
-                .trim()
-                .replace(',', "")
-                .parse::<f64>()
-                .map(|n| n.to_string())
-                .unwrap_or_else(|_| "NULL".to_string()),
-            ColType::Text => format!("'{}'", s.replace('\'', "''")),
-        },
-        Some(Value::List(_)) => "NULL".to_string(),
+/// A DuckDB-bindable value covering the two column types we use (DOUBLE / VARCHAR).
+enum SqlVal {
+    Real(f64),
+    Text(String),
+    Null,
+}
+
+impl duckdb::types::ToSql for SqlVal {
+    fn to_sql(&self) -> duckdb::Result<duckdb::types::ToSqlOutput<'_>> {
+        match self {
+            SqlVal::Real(f) => f.to_sql(),
+            SqlVal::Text(s) => s.to_sql(),
+            SqlVal::Null => Ok(duckdb::types::ToSqlOutput::Owned(
+                duckdb::types::Value::Null,
+            )),
+        }
+    }
+}
+
+fn to_sql_val(val: Option<&Value>, col_type: ColType) -> SqlVal {
+    match (val, col_type) {
+        (None | Some(Value::Null), _) => SqlVal::Null,
+        (Some(Value::Decimal(d)), _) => {
+            SqlVal::Real(d.to_string().parse::<f64>().unwrap_or(f64::NAN))
+        }
+        (Some(Value::Text(s)), ColType::Numeric) => s
+            .trim()
+            .replace(',', "")
+            .parse::<f64>()
+            .map(SqlVal::Real)
+            .unwrap_or(SqlVal::Null),
+        (Some(Value::Text(s)), ColType::Text) => SqlVal::Text(s.clone()),
+        (Some(Value::Bool(b)), _) => SqlVal::Real(*b as i64 as f64),
+        (Some(Value::List(_)), _) => SqlVal::Null,
     }
 }
