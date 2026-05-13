@@ -11,6 +11,9 @@ pub struct AssertResult {
     /// `table.column` extracted from the LHS, used by the frontend to load chart data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_col: Option<String>,
+    /// Rows that failed the assertion, present only when `SHOW FAILURES IN TABLE` was specified.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_rows: Option<Vec<HashMap<String, String>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -20,6 +20,7 @@ const KEYWORDS = new Set([
   'WHERE','FROM','SIZE','TOP','DISTINCT',
   'MUS','RANDOM','SYSTEMATIC','STRATIFIED',
   'RELATION','CHART','SCREEN','BY','SCHEMA',
+  'SHOW','FAILURES','TABLE',
 ]);
 
 const BUILTINS = new Set([
@@ -36,7 +37,7 @@ const ATOMS = new Set([
 
 // Signature hints shown below the cursor when typing a function call
 const FN_SIGNATURES = {
-  ASSERT:     { sig: 'ASSERT <expr>',                           doc: 'Asserts that the expression holds for all rows.' },
+  ASSERT:     { sig: 'ASSERT <expr> [SHOW FAILURES IN TABLE]',  doc: 'Asserts that the expression holds for all rows. Append SHOW FAILURES IN TABLE to list failing rows.' },
   SUM:        { sig: 'SUM(table.column)',                       doc: 'Sum of all values in a column.' },
   AVG:        { sig: 'AVG(table.column)',                       doc: 'Average of all values in a column.' },
   COUNT:      { sig: 'COUNT(table.column)',                     doc: 'Count of non-null values.' },
@@ -485,14 +486,14 @@ window.vrDslInit = function(id, code) {
 
   // Signature tooltip on every cursor/content change
   cm.on('cursorActivity', () => checkSignature(cm));
-  cm.on('change', () => {
+  cm.on('change', (cm, changeObj) => {
     checkSignature(cm);
-    // Auto-trigger completion when user types a letter or dot
+    // Only auto-trigger on actual user input, not programmatic setValue
+    if (changeObj.origin !== '+input') return;
     const cur  = cm.getCursor();
     const line = cm.getLine(cur.line);
     const last = line[cur.ch - 1];
     if (/[A-Za-z_]/.test(last) || last === '.') {
-      // Small delay so the character is committed first
       setTimeout(() => {
         if (!cm.state.completionActive) {
           CodeMirror.showHint(cm, dslHint, { completeSingle: false, renderItem: renderHintItem });

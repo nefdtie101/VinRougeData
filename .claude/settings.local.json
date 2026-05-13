@@ -27,7 +27,9 @@
       "Read(//Users/johannnefdr/VinRouge/vrd/**)",
       "Read(//Users/johannnefdr/VinRouge/_migrated_backup/**)",
       "Bash(cargo search *)",
-      "Bash(git -C /Users/johannnefdr/RustroverProjects/VinRouge diff HEAD~3..HEAD -- src/dsl/ --stat)"
+      "Bash(git -C /Users/johannnefdr/RustroverProjects/VinRouge diff HEAD~3..HEAD -- src/dsl/ --stat)",
+      "Bash(taskkill //F //IM vinrouge-desktop.exe)",
+      "Bash(bash \"C:\\\\Users\\\\johan\\\\RustroverProjects\\\\VinRougeData\\\\build-desktop.sh\")"
     ]
   }
 }

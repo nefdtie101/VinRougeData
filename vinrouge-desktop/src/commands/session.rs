@@ -138,7 +138,32 @@ pub fn delete_session_import(import_id: String, state: State<ProjectsState>) -> 
     state.sync_vrd()
 }
 
-/// Return one SessionSchema per import.
+fn tab_order_path(project_dir: &PathBuf) -> PathBuf {
+    project_dir.join(".vinrouge").join("tab_order.json")
+}
+
+fn load_tab_order(project_dir: &PathBuf) -> Vec<String> {
+    let path = tab_order_path(project_dir);
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Persist the user-defined tab order (list of import_ids in display order).
+#[tauri::command]
+pub fn save_tab_order(
+    import_ids: Vec<String>,
+    state: State<'_, ProjectsState>,
+) -> Result<(), String> {
+    let project_dir = state.dir()?;
+    let dir = project_dir.join(".vinrouge");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string(&import_ids).map_err(|e| e.to_string())?;
+    std::fs::write(tab_order_path(&project_dir), json).map_err(|e| e.to_string())
+}
+
+/// Return one SessionSchema per import, respecting saved tab order.
 #[tauri::command]
 pub async fn get_session_schemas(
     state: State<'_, ProjectsState>,
@@ -148,7 +173,7 @@ pub async fn get_session_schemas(
         let conn = vinrouge::projects::db::open_project(&project_dir).map_err(|e| e.to_string())?;
         let db = SessionDb::new(&conn);
         let imports = db.list_imports()?;
-        imports
+        let mut schemas = imports
             .into_iter()
             .map(|imp| {
                 let table_name = table_name_from_source(&imp.source_name);
@@ -160,11 +185,7 @@ pub async fn get_session_schemas(
                         .iter()
                         .filter(|(src, _)| !src.trim().is_empty())
                         .map(|(src, tgt)| {
-                            let pbc = if tgt.is_empty() {
-                                src.clone()
-                            } else {
-                                tgt.clone()
-                            };
+                            let pbc = if tgt.is_empty() { src.clone() } else { tgt.clone() };
                             (src.clone(), pbc)
                         })
                         .collect()
@@ -178,7 +199,17 @@ pub async fn get_session_schemas(
                     col_map,
                 })
             })
-            .collect()
+            .collect::<Result<Vec<_>, String>>()?;
+
+        // Apply saved tab order: known IDs first (in saved order), unknowns appended at end.
+        let order = load_tab_order(&project_dir);
+        if !order.is_empty() {
+            schemas.sort_by_key(|s| {
+                order.iter().position(|id| id == &s.import_id).unwrap_or(usize::MAX)
+            });
+        }
+
+        Ok(schemas)
     })
     .await
     .map_err(|e| e.to_string())?

@@ -218,6 +218,7 @@ pub enum Expr {
         lhs: Box<Expr>,
         rhs: Box<Expr>,
         op: CmpOp,
+        show_failures: bool,
     },
 
     /// SAMPLE  e.g.  SAMPLE MUS invoices.amount 50 WHERE amount > 0

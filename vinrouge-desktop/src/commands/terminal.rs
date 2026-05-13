@@ -7,7 +7,8 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
-use crate::state::ProjectsState;
+use crate::state::{CurrentScriptState, ProjectsState};
+use tauri::Manager;
 
 // ── PTY state ─────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,14 @@ fn handle_ipc(line: &str, project_dir: &PathBuf, app: &AppHandle) -> String {
                 Err(e) => json_err(&e),
             }
         }
+        "current" => {
+            let state = app.state::<CurrentScriptState>();
+            let guard = state.0.lock().unwrap();
+            match guard.as_ref() {
+                Some(s) => serde_json::to_string(s).unwrap_or_else(|_| "null".into()),
+                None => "null".into(),
+            }
+        }
         other => json_err(&format!("unknown action: {other}")),
     }
 }
@@ -251,10 +260,11 @@ _vu_send() {{ exec 3<>/dev/tcp/127.0.0.1/$VINROUGE_PORT; printf '%s\n' "$1" >&3;
 case "$1" in
   list)     _vu_send '{{"action":"list"}}' ;;
   schema)   _vu_send '{{"action":"schema"}}' ;;
+  current)  _vu_send '{{"action":"current"}}' ;;
   validate) _vu_send "{{\"action\":\"validate\",\"script_text\":\"$2\"}}" ;;
   update)   _vu_send "{{\"action\":\"update\",\"id\":\"$2\",\"script_text\":\"$3\"}}" ;;
   create)   _vu_send "{{\"action\":\"create\",\"label\":\"$2\",\"script_text\":\"$3\",\"control_id\":\"${{4:-}}\",\"control_ref\":\"${{5:-}}\"}}" ;;
-  *)        echo "Usage: vu list | schema | validate '<script>' | update <id> '<script>' | create <label> '<script>' [control_id] [control_ref]" ;;
+  *)        echo "Usage: vu list | schema | current | validate '<script>' | update <id> '<script>' | create <label> '<script>' [control_id] [control_ref]" ;;
 esac
 "#
     );
@@ -268,6 +278,50 @@ esac
         }
     }
 
+    // Windows: write vu.ps1 (PowerShell) + vu.bat (thin launcher) so cmd.exe can call `vu`
+    let ps1 = format!(
+        r#"# VinRouge DSL bridge — auto-generated, do not commit.
+param(
+    [string]$Action,
+    [string]$Arg2,
+    [string]$Arg3,
+    [string]$Arg4,
+    [string]$Arg5
+)
+
+$port = [int]$env:VINROUGE_PORT
+if (-not $port) {{ $port = {port} }}
+
+function Send-Ipc([string]$json) {{
+    $c = New-Object System.Net.Sockets.TcpClient('127.0.0.1', $port)
+    $s = $c.GetStream()
+    $w = New-Object System.IO.StreamWriter($s)
+    $r = New-Object System.IO.StreamReader($s)
+    $w.WriteLine($json)
+    $w.Flush()
+    $result = $r.ReadLine()
+    $c.Close()
+    Write-Output $result
+}}
+
+switch ($Action) {{
+    'list'     {{ Send-Ipc '{{"action":"list"}}' }}
+    'schema'   {{ Send-Ipc '{{"action":"schema"}}' }}
+    'current'  {{ Send-Ipc '{{"action":"current"}}' }}
+    'validate' {{ Send-Ipc (ConvertTo-Json @{{action='validate'; script_text=$Arg2}} -Compress) }}
+    'update'   {{ Send-Ipc (ConvertTo-Json @{{action='update'; id=$Arg2; script_text=$Arg3}} -Compress) }}
+    'create'   {{ Send-Ipc (ConvertTo-Json @{{action='create'; label=$Arg2; script_text=$Arg3; control_id=$Arg4; control_ref=$Arg5}} -Compress) }}
+    default    {{ Write-Host 'Usage: vu list | schema | current | validate "<script>" | update <id> "<script>" | create <label> "<script>" [control_id] [control_ref]' }}
+}}
+"#
+    );
+    let _ = std::fs::write(project_dir.join("vu.ps1"), &ps1);
+
+    let bat = r#"@echo off
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0vu.ps1" %*
+"#;
+    let _ = std::fs::write(project_dir.join("vu.bat"), bat);
+
     let claude_md = r#"# VinRouge DSL Agent
 
 You are a DSL script writer for the VinRouge audit platform running inside a live project.
@@ -275,6 +329,24 @@ The VinRouge app is open and watching this directory — any script you save wil
 display results in the UI immediately.
 
 ## Orientation (do this first)
+
+The UI sets these environment variables before launching this terminal:
+
+| Variable | Contains |
+|---|---|
+| `VU_SCRIPT_ID` | ID of the script currently open in the editor (may be empty if none) |
+| `VU_SCRIPT_LABEL` | Label of that script |
+| `VU_SCRIPT_TEXT` | Full current content of that script |
+
+**Always start by reading these.** They tell you what script was open at terminal launch.
+Use `./vu current` to get the *live* currently-open script (updated whenever the user switches):
+
+```bash
+./vu current                 # live JSON: {id, label, script_text, …} — most reliable
+echo "$VU_SCRIPT_TEXT"       # snapshot from terminal launch — use as fallback only
+```
+
+Then orient yourself further:
 
 ```bash
 git log --oneline -10        # understand what audit work is in progress
@@ -290,6 +362,7 @@ with spaces replaced by underscores.
 
 | Command | What it does |
 |---|---|
+| `./vu current` | Returns the script currently open in the studio (`{id, label, script_text, …}` or `null`) |
 | `./vu list` | Returns JSON array: `[{id, label, script_text}]` |
 | `./vu schema` | Returns live tables + columns from loaded data files |
 | `./vu validate '<dsl>'` | Parses and resolves the script — returns `{"ok":true}` or `{"errors":[...]}` |
@@ -313,6 +386,10 @@ label: EXPR
 rec_check:   ASSERT SUM(invoices.amount) WHERE status = "paid" = payments_control
 blank_ids:   ASSERT COUNT(employees.id) WHERE IS_BLANK(employees.id) = 0
 dup_check:   ASSERT COUNT(invoices.id) WHERE DUPLICATED(invoices.id) = 0
+
+# ASSERT with failing rows table — append SHOW FAILURES IN TABLE to list every row that failed
+neg_check:   ASSERT invoices.amount > 0 SHOW FAILURES IN TABLE
+id_check:    ASSERT NOT IS_BLANK(employees.id) SHOW FAILURES IN TABLE
 
 # SAMPLE — draw an audit sample
 mus_sample:  SAMPLE MUS invoices.amount 50 WHERE amount > 0
@@ -355,18 +432,23 @@ SCHEMA
 `UPPER` `LOWER` `TRIM` `LENGTH` `SUBSTR(t.col, start, len)` `CONCAT(...)` `ABS` `ROUND(t.col, 2)` `COALESCE(t.col, 0)` `NULLIF(t.col, 0)`
 `CASE WHEN cond THEN val ELSE default END`
 
+**ASSERT modifier — show failing rows as a table:**
+`ASSERT <row-level-expr> SHOW FAILURES IN TABLE`
+Only works on row-level expressions (column references, not aggregates). Outputs every failing row as an inline table in the UI. Omit the modifier when you only need the pass/fail count.
+
 **Relations (metadata only):**
 `RELATION invoices.employee_id -> employees.id`
 
 ## Workflow
 
-1. `git log --oneline -10` + `git diff HEAD` — understand the audit and active tables
-2. `./vu schema` — get exact table and column names (use these verbatim in DSL)
-3. `./vu list` — see existing scripts
-4. Draft your DSL script
-5. `./vu validate '<script>'` — must return `{"ok":true}` before proceeding
-6. `./vu update <id> '<script>'` or `./vu create <label> '<script>'`
-7. The UI reruns immediately — iterate as needed
+1. `./vu current` — read the script currently open in the UI (live, always up to date)
+2. `git log --oneline -10` + `git diff HEAD` — understand the audit context
+3. `./vu schema` — get exact table and column names (use these verbatim)
+4. `./vu list` — see all scripts if you need to work across multiple
+5. Draft or edit your DSL script
+6. `./vu validate '<script>'` — must return `{"ok":true}` before writing
+7. `./vu update $VU_SCRIPT_ID '<script>'` to update the open script, or `./vu create <label> '<script>'` for a new one
+8. The UI reruns immediately — iterate as needed
 "#;
 
     let _ = std::fs::write(project_dir.join("CLAUDE.md"), claude_md);
@@ -492,6 +574,17 @@ pub fn pty_resize(state: State<PtyState>, cols: u16, rows: u16) -> Result<(), St
         })
         .map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+/// Called by the frontend whenever the user opens a different script in the studio editor.
+/// Makes that script available to `./vu current` inside the running terminal.
+#[tauri::command]
+pub fn pty_set_current_script(
+    state: State<'_, CurrentScriptState>,
+    script: Option<vinrouge::projects::DslScript>,
+) -> Result<(), String> {
+    *state.0.lock().unwrap() = script;
     Ok(())
 }
 

@@ -463,8 +463,9 @@ impl<'ds> Evaluator<'ds> {
                 lhs,
                 rhs,
                 op,
+                show_failures,
             } => {
-                let result = self.eval_assert(label, lhs, rhs, op)?;
+                let result = self.eval_assert(label, lhs, rhs, op, *show_failures)?;
                 Ok(Value::Bool(result.passed))
             }
 
@@ -483,82 +484,98 @@ impl<'ds> Evaluator<'ds> {
 // SCRIPT RUNNER
 // ─────────────────────────────────────────────
 
+fn eval_statement(stmt: &Statement, datasource: &dyn EvalDataSource) -> StatementResult {
+    let evaluator = Evaluator::new(datasource);
+    match &stmt.expr {
+        Expr::Assert {
+            label,
+            lhs,
+            rhs,
+            op,
+            show_failures,
+        } => {
+            let merged_label = label.clone().or_else(|| stmt.label.clone());
+            match evaluator.eval_assert(&merged_label, lhs, rhs, op, *show_failures) {
+                Ok(r) => StatementResult::Assert(r),
+                Err(e) => StatementResult::Error(e.to_string()),
+            }
+        }
+        Expr::Sample {
+            method,
+            population,
+            value_column,
+            size,
+            filter,
+        } => match evaluator.eval_sample(method, population, value_column, size, filter) {
+            Ok(r) => StatementResult::Sample(r),
+            Err(e) => StatementResult::Error(e.to_string()),
+        },
+        Expr::RelationDecl {
+            from_table,
+            from_col,
+            to_table,
+            to_col,
+        } => StatementResult::Relation {
+            from: format!("{from_table}.{from_col}"),
+            to: format!("{to_table}.{to_col}"),
+        },
+        Expr::Chart {
+            chart_type,
+            aggregate,
+            dimension,
+        } => match evaluator.eval_chart(chart_type, aggregate, dimension, stmt.label.clone()) {
+            Ok(r) => StatementResult::Chart(r),
+            Err(e) => StatementResult::Error(e.to_string()),
+        },
+        Expr::Section { title, statements } => {
+            let inner = run_script(statements, datasource);
+            let (passed, failed, errors) =
+                inner.iter().fold((0, 0, 0), |(p, f, e), r| match r {
+                    StatementResult::Assert(a) if a.passed => (p + 1, f, e),
+                    StatementResult::Assert(_) => (p, f + 1, e),
+                    StatementResult::Error(_) => (p, f, e + 1),
+                    StatementResult::Section(s) => (p + s.passed, f + s.failed, e + s.errors),
+                    _ => (p, f, e),
+                });
+            StatementResult::Section(SectionResult {
+                title: title.clone(),
+                results: inner,
+                passed,
+                failed,
+                errors,
+            })
+        }
+        Expr::Schema => StatementResult::Schema(datasource.schema_tables()),
+
+        other => match evaluator.eval(other, &Row::new()) {
+            Ok(v) => StatementResult::Value(v.to_string()),
+            Err(e) => StatementResult::Error(e.to_string()),
+        },
+    }
+}
+
 /// Evaluate every statement in a parsed script, returning one result per statement.
+/// On native builds statements are evaluated in parallel via Rayon.
 /// Errors are captured per-statement so a failure does not abort the rest of the script.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_script(
     statements: &[Statement],
     datasource: &dyn EvalDataSource,
 ) -> Vec<StatementResult> {
-    let evaluator = Evaluator::new(datasource);
+    use rayon::prelude::*;
+    statements
+        .par_iter()
+        .map(|stmt| eval_statement(stmt, datasource))
+        .collect()
+}
 
+#[cfg(target_arch = "wasm32")]
+pub fn run_script(
+    statements: &[Statement],
+    datasource: &dyn EvalDataSource,
+) -> Vec<StatementResult> {
     statements
         .iter()
-        .map(|stmt| match &stmt.expr {
-            Expr::Assert {
-                label,
-                lhs,
-                rhs,
-                op,
-            } => {
-                // Merge the statement-level label (e.g. `acb_only:`) into the result
-                // when the Assert expression itself has no quoted label.
-                let merged_label = label.clone().or_else(|| stmt.label.clone());
-                match evaluator.eval_assert(&merged_label, lhs, rhs, op) {
-                    Ok(r) => StatementResult::Assert(r),
-                    Err(e) => StatementResult::Error(e.to_string()),
-                }
-            }
-            Expr::Sample {
-                method,
-                population,
-                value_column,
-                size,
-                filter,
-            } => match evaluator.eval_sample(method, population, value_column, size, filter) {
-                Ok(r) => StatementResult::Sample(r),
-                Err(e) => StatementResult::Error(e.to_string()),
-            },
-            Expr::RelationDecl {
-                from_table,
-                from_col,
-                to_table,
-                to_col,
-            } => StatementResult::Relation {
-                from: format!("{from_table}.{from_col}"),
-                to: format!("{to_table}.{to_col}"),
-            },
-            Expr::Chart {
-                chart_type,
-                aggregate,
-                dimension,
-            } => match evaluator.eval_chart(chart_type, aggregate, dimension, stmt.label.clone()) {
-                Ok(r) => StatementResult::Chart(r),
-                Err(e) => StatementResult::Error(e.to_string()),
-            },
-            Expr::Section { title, statements } => {
-                let inner = run_script(statements, datasource);
-                let (passed, failed, errors) =
-                    inner.iter().fold((0, 0, 0), |(p, f, e), r| match r {
-                        StatementResult::Assert(a) if a.passed => (p + 1, f, e),
-                        StatementResult::Assert(_) => (p, f + 1, e),
-                        StatementResult::Error(_) => (p, f, e + 1),
-                        StatementResult::Section(s) => (p + s.passed, f + s.failed, e + s.errors),
-                        _ => (p, f, e),
-                    });
-                StatementResult::Section(SectionResult {
-                    title: title.clone(),
-                    results: inner,
-                    passed,
-                    failed,
-                    errors,
-                })
-            }
-            Expr::Schema => StatementResult::Schema(datasource.schema_tables()),
-
-            other => match evaluator.eval(other, &Row::new()) {
-                Ok(v) => StatementResult::Value(v.to_string()),
-                Err(e) => StatementResult::Error(e.to_string()),
-            },
-        })
+        .map(|stmt| eval_statement(stmt, datasource))
         .collect()
 }

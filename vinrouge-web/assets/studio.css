@@ -911,6 +911,9 @@
 }
 .ide-data-tab:hover { color: var(--w-text); }
 .ide-data-tab--active { color: var(--blue); border-bottom-color: var(--blue); }
+.ide-data-tab--drag-over { border-left: 2px solid var(--blue); background: var(--w-surface-1); }
+.ide-data-tab { cursor: grab; user-select: none; }
+.ide-data-tab:active { cursor: grabbing; }
 
 .ide-data-tab-count {
   background: var(--w-surface-2);

@@ -92,6 +92,14 @@ pub fn export_project_vrd(
         add_dir_to_zip(&mut zip, &files_dir, project_dir, options)?;
     }
 
+    // Write .vinrouge/ config directory (tab order, scripts, etc.)
+    let config_dir = project_dir.join(".vinrouge");
+    if config_dir.exists() {
+        zip.add_directory(".vinrouge/", options)
+            .map_err(|e| e.to_string())?;
+        add_dir_to_zip(&mut zip, &config_dir, project_dir, options)?;
+    }
+
     zip.finish().map_err(|e| e.to_string())?;
     Ok(())
 }

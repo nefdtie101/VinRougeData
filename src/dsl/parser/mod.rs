@@ -62,6 +62,26 @@ impl Parser {
         }
     }
 
+    /// Consume `SHOW FAILURES IN TABLE` and return true, or return false if absent.
+    pub(super) fn eat_show_failures_in_table(&mut self) -> bool {
+        if self.peek() == &Token::Show {
+            let saved = self.pos;
+            self.advance(); // SHOW
+            if self.peek() == &Token::Failures {
+                self.advance(); // FAILURES
+                if self.peek() == &Token::In {
+                    self.advance(); // IN
+                    if self.peek() == &Token::Table {
+                        self.advance(); // TABLE
+                        return true;
+                    }
+                }
+            }
+            self.pos = saved; // not the sequence — back up
+        }
+        false
+    }
+
     pub fn parse_script(&mut self) -> ParseResult<Vec<Statement>> {
         let mut stmts = Vec::new();
         while self.peek() != &Token::Eof {

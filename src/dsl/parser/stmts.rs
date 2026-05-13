@@ -28,19 +28,23 @@ impl super::Parser {
         if let Some(op) = op {
             self.advance();
             let rhs = self.parse_or()?;
+            let show_failures = self.eat_show_failures_in_table();
             return Ok(Expr::Assert {
                 label,
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
                 op,
+                show_failures,
             });
         }
 
+        let show_failures = self.eat_show_failures_in_table();
         Ok(Expr::Assert {
             label,
             lhs: Box::new(lhs),
             rhs: Box::new(Expr::Bool(true)),
             op: CmpOp::Eq,
+            show_failures,
         })
     }
 

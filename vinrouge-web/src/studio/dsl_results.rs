@@ -13,37 +13,92 @@ pub fn render_dsl_result(idx: usize, r: serde_json::Value) -> AnyView {
             let lhs = r["lhs_value"].as_str().unwrap_or("?").to_string();
             let rhs = r["rhs_value"].as_str().unwrap_or("?").to_string();
             let op = r["op"].as_str().unwrap_or("=").to_string();
+
+            let failed_rows: Vec<Vec<(String, String)>> = r["failed_rows"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|rv| {
+                            rv.as_object().map(|obj| {
+                                let mut pairs: Vec<(String, String)> = obj
+                                    .iter()
+                                    .map(|(k, v)| {
+                                        (
+                                            k.clone(),
+                                            v.as_str()
+                                                .map(|s| s.to_string())
+                                                .unwrap_or_else(|| v.to_string()),
+                                        )
+                                    })
+                                    .collect();
+                                pairs.sort_by(|a, b| a.0.cmp(&b.0));
+                                pairs
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let cols: Vec<String> = failed_rows
+                .first()
+                .map(|r| r.iter().map(|(k, _)| k.clone()).collect())
+                .unwrap_or_default();
+
             view! {
-                <div class=if ok { "ide-result ide-result--pass" } else { "ide-result ide-result--fail" }>
-                    <span class="ide-result-icon">
-                        {if ok {
-                            view! {
-                                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                                    <path d="M2 6.5l3.5 3.5 5.5-6"
-                                        stroke="currentColor" stroke-width="1.6"
-                                        stroke-linecap="round" stroke-linejoin="round"/>
-                                </svg>
-                            }.into_any()
-                        } else {
-                            view! {
-                                <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                                    <path d="M2.5 2.5l8 8M10.5 2.5l-8 8"
-                                        stroke="currentColor" stroke-width="1.6"
-                                        stroke-linecap="round"/>
-                                </svg>
-                            }.into_any()
-                        }}
-                    </span>
-                    <div class="ide-result-body">
-                        {lbl.map(|l| view! {
-                            <span class="ide-result-label">{l}</span>
-                        })}
-                        <span class="ide-result-expr">
-                            <span class="ide-result-val">{lhs}</span>
-                            <span class="ide-result-op">{op}</span>
-                            <span class="ide-result-val">{rhs}</span>
+                <div class="ide-result-assert-wrap">
+                    <div class=if ok { "ide-result ide-result--pass" } else { "ide-result ide-result--fail" }>
+                        <span class="ide-result-icon">
+                            {if ok {
+                                view! {
+                                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                                        <path d="M2 6.5l3.5 3.5 5.5-6"
+                                            stroke="currentColor" stroke-width="1.6"
+                                            stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                }.into_any()
+                            } else {
+                                view! {
+                                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                                        <path d="M2.5 2.5l8 8M10.5 2.5l-8 8"
+                                            stroke="currentColor" stroke-width="1.6"
+                                            stroke-linecap="round"/>
+                                    </svg>
+                                }.into_any()
+                            }}
                         </span>
+                        <div class="ide-result-body">
+                            {lbl.map(|l| view! {
+                                <span class="ide-result-label">{l}</span>
+                            })}
+                            <span class="ide-result-expr">
+                                <span class="ide-result-val">{lhs}</span>
+                                <span class="ide-result-op">{op}</span>
+                                <span class="ide-result-val">{rhs}</span>
+                            </span>
+                        </div>
                     </div>
+                    {(!cols.is_empty()).then(|| view! {
+                        <div class="ide-sample-table-wrap ide-failures-table">
+                            <table class="ide-sample-table">
+                                <thead>
+                                    <tr>
+                                        {cols.iter().map(|c| view! {
+                                            <th>{c.clone()}</th>
+                                        }).collect_view()}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {failed_rows.into_iter().map(|row| view! {
+                                        <tr>
+                                            {row.into_iter().map(|(_, v)| view! {
+                                                <td>{v}</td>
+                                            }).collect_view()}
+                                        </tr>
+                                    }).collect_view()}
+                                </tbody>
+                            </table>
+                        </div>
+                    })}
                 </div>
             }.into_any()
         }
@@ -495,6 +550,35 @@ fn result_to_html(r: &serde_json::Value, chart_idx: &mut usize) -> String {
                 val_color, lhs, op, val_color, rhs
             ));
             h.push_str("</div></div>");
+
+            // Failures table
+            if let Some(rows) = r["failed_rows"].as_array() {
+                if !rows.is_empty() {
+                    if let Some(first) = rows.first().and_then(|v| v.as_object()) {
+                        let mut cols: Vec<String> = first.keys().cloned().collect();
+                        cols.sort();
+                        h.push_str("<div style=\"overflow-x:auto;margin-bottom:6px;\">");
+                        h.push_str("<table style=\"width:100%;border-collapse:collapse;font-size:11px;font-family:ui-monospace,monospace;color:#d4c4c8;\">");
+                        h.push_str("<thead><tr>");
+                        for col in &cols {
+                            h.push_str(&format!("<th style=\"padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.08);text-align:left;color:#8a6e74;\">{}</th>", col));
+                        }
+                        h.push_str("</tr></thead><tbody>");
+                        for row in rows {
+                            if let Some(obj) = row.as_object() {
+                                h.push_str("<tr>");
+                                for col in &cols {
+                                    let cell = obj.get(col).and_then(|v| v.as_str()).unwrap_or("");
+                                    h.push_str(&format!("<td style=\"padding:3px 8px;border-bottom:1px solid rgba(255,255,255,0.04);\">{}</td>", cell));
+                                }
+                                h.push_str("</tr>");
+                            }
+                        }
+                        h.push_str("</tbody></table></div>");
+                    }
+                }
+            }
+
             h
         }
         "sample" => {

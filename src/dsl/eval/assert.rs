@@ -25,6 +25,7 @@ impl<'ds> Evaluator<'ds> {
         lhs: &Expr,
         rhs: &Expr,
         op: &CmpOp,
+        show_failures: bool,
     ) -> EvalResult<AssertResult> {
         let empty = Row::new();
 
@@ -54,6 +55,7 @@ impl<'ds> Evaluator<'ds> {
                                 op: cmp_op_display(inner_op).to_string(),
                                 source_col: source_col_from_expr(inner_lhs)
                                     .or_else(|| source_col_from_expr(lhs)),
+                                failed_rows: None,
                             });
                         }
                         _ => {} // fall through to row-level eval
@@ -74,6 +76,7 @@ impl<'ds> Evaluator<'ds> {
                     rhs_value: rv.to_string(),
                     op: cmp_op_display(op).to_string(),
                     source_col: source_col_from_expr(lhs),
+                    failed_rows: None,
                 })
             }
             // Row-level expression — column not found in empty row.
@@ -81,7 +84,7 @@ impl<'ds> Evaluator<'ds> {
             // aggregate failures (e.g. wrong column name in COUNT/SUM) should surface
             // their real error directly rather than producing a confusing "cannot infer table" message.
             Err(EvalError::UnknownColumn(_)) if !contains_aggregate(lhs) => {
-                self.eval_row_assert(label, lhs, rhs, op)
+                self.eval_row_assert(label, lhs, rhs, op, show_failures)
             }
             Err(e) => Err(e),
         }
@@ -95,6 +98,7 @@ impl<'ds> Evaluator<'ds> {
         lhs: &Expr,
         rhs: &Expr,
         op: &CmpOp,
+        show_failures: bool,
     ) -> EvalResult<AssertResult> {
         let table = table_from_expr(lhs).ok_or_else(|| {
             EvalError::AggregateError(
@@ -171,6 +175,23 @@ impl<'ds> Evaluator<'ds> {
             rv.to_string()
         };
 
+        let failed_rows = if show_failures {
+            let failures: Vec<std::collections::HashMap<String, String>> = rows
+                .iter()
+                .filter(|row| {
+                    if is_bool_assert {
+                        !self.eval(lhs, row).map(|v| v.as_bool().unwrap_or(false)).unwrap_or(false)
+                    } else {
+                        !self.eval(lhs, row).map(|lv| self.apply_cmp(op, &lv, &rv)).unwrap_or(false)
+                    }
+                })
+                .map(|row| row.iter().map(|(k, v)| (k.clone(), v.to_string())).collect())
+                .collect();
+            Some(failures)
+        } else {
+            None
+        };
+
         Ok(AssertResult {
             label: label.clone(),
             passed,
@@ -182,6 +203,7 @@ impl<'ds> Evaluator<'ds> {
                 cmp_op_display(op).to_string()
             },
             source_col: source_col_from_expr(lhs),
+            failed_rows,
         })
     }
 }

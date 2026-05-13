@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 use rust_decimal::Decimal;
 use vinrouge::dsl::{
@@ -17,8 +18,19 @@ use vinrouge::dsl::{
 /// down to DuckDB's vectorised engine and never materialise rows in Rust.
 /// Row-level operations that need a full `&[Row]` slice (sampling,
 /// `DUPLICATED`, `IN table.col`) still use the in-memory row cache.
+///
+/// Parallel queries are served by a lazy connection pool (`query_pool`).
+/// All pool connections share the same underlying in-memory database via
+/// `Connection::try_clone()`, so every connection sees the same tables.
 pub struct DuckDbDataSource {
-    conn: Mutex<duckdb::Connection>,
+    /// Used only for DDL / insert during setup (sequential).
+    setup_conn: Mutex<duckdb::Connection>,
+    /// Pool of connections for parallel aggregate queries.
+    /// Initialised lazily on the first `try_aggregate` call so all
+    /// `insert_table` calls complete before any clone is made.
+    query_pool: OnceLock<Vec<Mutex<duckdb::Connection>>>,
+    pool_size: usize,
+    round_robin: AtomicUsize,
     rows_cache: HashMap<String, Vec<Row>>,
     col_types: HashMap<String, HashMap<String, ColType>>,
 }
@@ -32,15 +44,36 @@ enum ColType {
 impl DuckDbDataSource {
     pub fn new() -> Result<Self, String> {
         let conn = duckdb::Connection::open_in_memory().map_err(|e| e.to_string())?;
-        let threads = std::thread::available_parallelism()
-            .map(|n| n.get() as i64)
+        // Pool connections each run single-threaded; parallelism comes from
+        // multiple concurrent connections rather than per-query threading.
+        let _ = conn.execute_batch("SET threads = 1;");
+        let pool_size = std::thread::available_parallelism()
+            .map(|n| n.get())
             .unwrap_or(4);
-        let _ = conn.execute_batch(&format!("SET threads = {threads};"));
         Ok(Self {
-            conn: Mutex::new(conn),
+            setup_conn: Mutex::new(conn),
+            query_pool: OnceLock::new(),
+            pool_size,
+            round_robin: AtomicUsize::new(0),
             rows_cache: HashMap::new(),
             col_types: HashMap::new(),
         })
+    }
+
+    /// Return a pooled connection, initialising the pool on first call.
+    /// Each pool slot is a separate DuckDB connection sharing the same database.
+    fn get_query_conn(&self) -> std::sync::MutexGuard<'_, duckdb::Connection> {
+        let pool = self.query_pool.get_or_init(|| {
+            let setup = self.setup_conn.lock().unwrap();
+            (0..self.pool_size)
+                .map(|_| {
+                    let c = setup.try_clone().expect("duckdb try_clone failed");
+                    Mutex::new(c)
+                })
+                .collect()
+        });
+        let idx = self.round_robin.fetch_add(1, Ordering::Relaxed) % pool.len();
+        pool[idx].lock().unwrap()
     }
 
     /// Load a table into both DuckDB and the in-memory row cache.
@@ -88,7 +121,7 @@ impl DuckDbDataSource {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let conn = self.setup_conn.lock().map_err(|e| e.to_string())?;
         conn.execute_batch(&format!(
             "CREATE TABLE \"{}\" ({});",
             name.replace('"', "\"\""),
@@ -209,15 +242,7 @@ impl EvalDataSource for DuckDbDataSource {
             }
         };
 
-        let conn = match self.conn.lock() {
-            Ok(c) => c,
-            Err(_) => {
-                return Some(Err(EvalError::AggregateError(
-                    "duckdb lock poisoned".into(),
-                )))
-            }
-        };
-
+        let conn = self.get_query_conn();
         let result = conn.query_row(&query, [], |row| row.get::<_, Option<f64>>(0));
 
         Some(match result {

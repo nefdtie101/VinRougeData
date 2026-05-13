@@ -9,7 +9,7 @@ mod state;
 
 use commands::terminal::PtyState;
 use commands::*;
-use state::{DslCacheState, OllamaState, ProjectsState};
+use state::{CurrentScriptState, DslCacheState, OllamaState, ProjectsState};
 use tauri::Manager;
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -20,6 +20,7 @@ fn main() {
         .manage(ProjectsState(std::sync::Mutex::new(None)))
         .manage(DslCacheState::default())
         .manage(PtyState::default())
+        .manage(CurrentScriptState::default())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             pick_and_analyze,
@@ -71,6 +72,7 @@ fn main() {
             get_session_rows_paged,
             delete_session_import,
             get_session_schemas,
+            save_tab_order,
             detect_data_relationships,
             save_dsl_script,
             list_dsl_scripts,
@@ -97,6 +99,7 @@ fn main() {
             pty_write,
             pty_resize,
             pty_update_scripts,
+            pty_set_current_script,
             check_for_update,
             download_update,
             install_update,

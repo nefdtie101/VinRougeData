@@ -60,6 +60,9 @@ pub enum Token {
     Section,    // SECTION keyword
     By,         // BY keyword (grouping in charts)
     Schema,     // SCHEMA — prints all imported table schemas
+    Show,       // SHOW keyword (SHOW FAILURES IN TABLE)
+    Failures,   // FAILURES keyword
+    Table,      // TABLE keyword
 
     // Identifiers and literals
     Ident(String), // table.column or plain name

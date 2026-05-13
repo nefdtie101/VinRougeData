@@ -87,6 +87,15 @@ impl ProjectsState {
 }
 
 /// Caches the DuckDB datasource so SQLite is only read once per import session.
+/// Tracks the script currently open in the studio editor so `./vu current` always reflects live state.
+pub struct CurrentScriptState(pub Mutex<Option<vinrouge::projects::DslScript>>);
+
+impl Default for CurrentScriptState {
+    fn default() -> Self {
+        Self(Mutex::new(None))
+    }
+}
+
 pub struct DslCacheState(pub Arc<Mutex<DslCache>>);
 
 pub struct DslCache {

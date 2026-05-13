@@ -179,6 +179,8 @@ pub fn StudioView() -> impl IntoView {
     let popout_loading: RwSignal<bool> = RwSignal::new(false);
     let session_schemas: RwSignal<Vec<SessionSchema>> = RwSignal::new(vec![]);
     let active_schema_idx: RwSignal<usize> = RwSignal::new(0);
+    let drag_from: RwSignal<Option<usize>> = RwSignal::new(None);
+    let drag_over: RwSignal<Option<usize>> = RwSignal::new(None);
     let data_uploading: RwSignal<bool> = RwSignal::new(false);
     let preview_cols: RwSignal<Vec<String>> = RwSignal::new(vec![]);
     let preview_rows: RwSignal<Vec<Vec<String>>> = RwSignal::new(vec![]);
@@ -398,6 +400,21 @@ pub fn StudioView() -> impl IntoView {
                 .await;
             });
         }
+    });
+
+    // ── Keep backend CurrentScriptState in sync with the open editor tab ────────
+    Effect::new(move |_| {
+        let script = active_script.get();
+        if !crate::ipc::is_tauri() {
+            return;
+        }
+        spawn_local(async move {
+            let _ = tauri_invoke_args::<()>(
+                "pty_set_current_script",
+                serde_json::json!({ "script": script }),
+            )
+            .await;
+        });
     });
 
     // ── Load scripts for active project ───────────────────────────────────────
@@ -1368,12 +1385,65 @@ pub fn StudioView() -> impl IntoView {
                                         let rows = s.row_count;
                                         view! {
                                             <button
-                                                class=move || if active_schema_idx.get() == i {
-                                                    "ide-data-tab ide-data-tab--active"
-                                                } else { "ide-data-tab" }
-                                                on:click=move |_| {
-                                                    active_schema_idx.set(i);
-                                                    load_table_by_schema(s2.clone());
+                                                class=move || {
+                                                    let base = if active_schema_idx.get() == i {
+                                                        "ide-data-tab ide-data-tab--active"
+                                                    } else {
+                                                        "ide-data-tab"
+                                                    };
+                                                    if drag_over.get() == Some(i) {
+                                                        format!("{base} ide-data-tab--drag-over")
+                                                    } else {
+                                                        base.to_string()
+                                                    }
+                                                }
+                                                on:pointerdown=move |_| {
+                                                    drag_from.set(Some(i));
+                                                }
+                                                on:pointerenter=move |_| {
+                                                    if drag_from.get_untracked().is_some() {
+                                                        drag_over.set(Some(i));
+                                                    }
+                                                }
+                                                on:pointerleave=move |_| {
+                                                    if drag_over.get_untracked() == Some(i) {
+                                                        drag_over.set(None);
+                                                    }
+                                                }
+                                                on:pointerup=move |_| {
+                                                    let to = i;
+                                                    let from_opt = drag_from.get_untracked();
+                                                    drag_from.set(None);
+                                                    drag_over.set(None);
+                                                    match from_opt {
+                                                        Some(from) if from != to => {
+                                                            let active_name = session_schemas.with_untracked(|ss| {
+                                                                ss.get(active_schema_idx.get_untracked()).map(|s| s.table_name.clone())
+                                                            });
+                                                            session_schemas.update(|ss| {
+                                                                let item = ss.remove(from);
+                                                                let insert_at = if from < to { to - 1 } else { to };
+                                                                ss.insert(insert_at, item);
+                                                            });
+                                                            if let Some(name) = active_name {
+                                                                let new_idx = session_schemas.with_untracked(|ss| {
+                                                                    ss.iter().position(|s| s.table_name == name).unwrap_or(0)
+                                                                });
+                                                                active_schema_idx.set(new_idx);
+                                                            }
+                                                            // Persist the new order
+                                                            let ids = session_schemas.with_untracked(|ss| {
+                                                                ss.iter().map(|s| s.import_id.clone()).collect::<Vec<_>>()
+                                                            });
+                                                            spawn_local(async move {
+                                                                let _ = crate::ipc::tauri_invoke_args::<()>("save_tab_order", serde_json::json!({ "importIds": ids })).await;
+                                                            });
+                                                        }
+                                                        _ => {
+                                                            active_schema_idx.set(i);
+                                                            load_table_by_schema(s2.clone());
+                                                        }
+                                                    }
                                                 }
                                             >
                                                 {label}
@@ -1831,12 +1901,19 @@ pub fn StudioView() -> impl IntoView {
                                         .unwrap_or_else(|_| "[]".to_string());
                                     let scripts_json = serde_json::to_string(&scripts.get())
                                         .unwrap_or_else(|_| "[]".to_string());
+                                    let current = active_script.get();
+                                    let script_id = current.as_ref().map(|s| s.id.clone()).unwrap_or_default();
+                                    let script_label = current.as_ref().map(|s| s.label.clone()).unwrap_or_default();
+                                    let script_text = current.as_ref().map(|s| s.script_text.clone()).unwrap_or_default();
                                     Effect::new(move |_| {
                                         let js = format!(
                                             "window.ptyBridge && window.ptyBridge.init('pty-terminal', {})",
                                             serde_json::json!({
                                                 "SCHEMA": schema_json,
                                                 "DSL_SCRIPTS": scripts_json,
+                                                "VU_SCRIPT_ID": script_id,
+                                                "VU_SCRIPT_LABEL": script_label,
+                                                "VU_SCRIPT_TEXT": script_text,
                                             })
                                         );
                                         let _ = js_sys::eval(&js);
