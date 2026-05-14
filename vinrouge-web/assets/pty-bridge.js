@@ -5,12 +5,14 @@ window.ptyBridge = (function () {
   let unlistenExit = null;
   let containerId = null;
   let savedEnv = null;
+  let generation = 0; // incremented each init; guards against stale pty-exit events
 
   async function init(id, env) {
     const el = document.getElementById(id);
     if (!el || term) return;
     containerId = id;
     savedEnv = env;
+    const myGen = ++generation;
 
     term = new Terminal({
       cursorBlink: true,
@@ -31,7 +33,8 @@ window.ptyBridge = (function () {
     fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     term.open(el);
-    fitAddon.fit();
+    // El may be hidden (display:none) at init time; fit only if it has real dimensions.
+    if (el.offsetWidth > 0 && el.offsetHeight > 0) fitAddon.fit();
 
     term.onData(async (data) => {
       try { await __TAURI__.core.invoke('pty_write', { data }); } catch (_) {}
@@ -42,14 +45,19 @@ window.ptyBridge = (function () {
     });
 
     unlistenExit = await __TAURI__.event.listen('pty-exit', () => {
+      if (generation !== myGen) return; // stale event from a superseded PTY session
       term.write('\r\n\x1b[33m[session ended — press Enter to restart]\x1b[0m\r\n');
       term.onData(async () => {
+        if (generation !== myGen) return;
         await restart();
       });
     });
 
-    const ro = new ResizeObserver(() => {
+    const ro = new ResizeObserver((entries) => {
       try {
+        for (const entry of entries) {
+          if (entry.contentRect.width === 0 || entry.contentRect.height === 0) return;
+        }
         fitAddon.fit();
         const { cols, rows } = term;
         __TAURI__.core.invoke('pty_resize', { cols, rows });
@@ -60,8 +68,8 @@ window.ptyBridge = (function () {
     try {
       await __TAURI__.core.invoke('pty_create', {
         env: savedEnv || {},
-        cols: term.cols,
-        rows: term.rows,
+        cols: term.cols || 80,
+        rows: term.rows || 24,
       });
     } catch (e) {
       term.write('\x1b[31merror: ' + e + '\x1b[0m\r\n');

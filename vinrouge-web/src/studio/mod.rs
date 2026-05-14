@@ -1894,9 +1894,11 @@ pub fn StudioView() -> impl IntoView {
                                 }.into_any()
                             })}
 
-                            // AI assistant tab
-                            {move || (bottom_tab.get() == "ai").then(|| {
-                                if AppSettings::load().provider == AiProvider::Terminal {
+                            // Terminal — always in the DOM when provider is Terminal so the
+                            // PTY session is never killed by tab switches or data view navigation.
+                            // Visibility is CSS-only; the div is never unmounted mid-session.
+                            {(AppSettings::load().provider == AiProvider::Terminal).then(|| {
+                                Effect::new(move |_| {
                                     let schema_json = serde_json::to_string(&session_schemas.get())
                                         .unwrap_or_else(|_| "[]".to_string());
                                     let scripts_json = serde_json::to_string(&scripts.get())
@@ -1905,28 +1907,32 @@ pub fn StudioView() -> impl IntoView {
                                     let script_id = current.as_ref().map(|s| s.id.clone()).unwrap_or_default();
                                     let script_label = current.as_ref().map(|s| s.label.clone()).unwrap_or_default();
                                     let script_text = current.as_ref().map(|s| s.script_text.clone()).unwrap_or_default();
-                                    Effect::new(move |_| {
-                                        let js = format!(
-                                            "window.ptyBridge && window.ptyBridge.init('pty-terminal', {})",
-                                            serde_json::json!({
-                                                "SCHEMA": schema_json,
-                                                "DSL_SCRIPTS": scripts_json,
-                                                "VU_SCRIPT_ID": script_id,
-                                                "VU_SCRIPT_LABEL": script_label,
-                                                "VU_SCRIPT_TEXT": script_text,
-                                            })
-                                        );
-                                        let _ = js_sys::eval(&js);
-                                    });
-                                    on_cleanup(|| {
-                                        let _ = js_sys::eval(
-                                            "window.ptyBridge && window.ptyBridge.destroy()"
-                                        );
-                                    });
-                                    return view! {
-                                        <div id="pty-terminal" class="ide-pty-panel" />
-                                    }.into_any();
+                                    let js = format!(
+                                        "window.ptyBridge && window.ptyBridge.init('pty-terminal', {})",
+                                        serde_json::json!({
+                                            "SCHEMA": schema_json,
+                                            "DSL_SCRIPTS": scripts_json,
+                                            "VU_SCRIPT_ID": script_id,
+                                            "VU_SCRIPT_LABEL": script_label,
+                                            "VU_SCRIPT_TEXT": script_text,
+                                        })
+                                    );
+                                    let _ = js_sys::eval(&js);
+                                });
+                                on_cleanup(|| {
+                                    let _ = js_sys::eval(
+                                        "window.ptyBridge && window.ptyBridge.destroy()"
+                                    );
+                                });
+                                view! {
+                                    <div id="pty-terminal" class="ide-pty-panel"
+                                        style=move || if bottom_tab.get() == "ai" { "" } else { "display:none" }
+                                    />
                                 }
+                            })}
+
+                            // AI chat panel (non-terminal provider)
+                            {move || (bottom_tab.get() == "ai" && AppSettings::load().provider != AiProvider::Terminal).then(|| {
 
                                 view! {
                                 <div class="ide-ai-panel">

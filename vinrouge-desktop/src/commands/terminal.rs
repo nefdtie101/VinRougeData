@@ -465,6 +465,11 @@ pub async fn pty_create(
     cols: Option<u16>,
     rows: Option<u16>,
 ) -> Result<(), String> {
+    // If a session is already running, don't create a second one.
+    if pty_state.child.lock().unwrap().is_some() {
+        return Ok(());
+    }
+
     let project_dir = projects
         .dir()
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
@@ -536,6 +541,7 @@ pub async fn pty_create(
         }
     });
 
+    let app2 = app.clone();
     std::thread::spawn(move || {
         let mut pending = String::new();
         loop {
@@ -550,6 +556,11 @@ pub async fn pty_create(
             let _ = app.emit("pty-data", std::mem::take(&mut pending));
         }
         let _ = app.emit("pty-exit", ());
+        // Clear state so pty_create can be called again after the user restarts.
+        let state = app2.state::<PtyState>();
+        *state.child.lock().unwrap() = None;
+        *state.master.lock().unwrap() = None;
+        *state.writer.lock().unwrap() = None;
     });
 
     Ok(())
