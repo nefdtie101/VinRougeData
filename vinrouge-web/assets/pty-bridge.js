@@ -6,6 +6,7 @@ window.ptyBridge = (function () {
   let containerId = null;
   let savedEnv = null;
   let generation = 0; // incremented each init; guards against stale pty-exit events
+  let ro = null;      // ResizeObserver reference for cleanup
 
   async function init(id, env) {
     const el = document.getElementById(id);
@@ -36,7 +37,7 @@ window.ptyBridge = (function () {
     // El may be hidden (display:none) at init time; fit only if it has real dimensions.
     if (el.offsetWidth > 0 && el.offsetHeight > 0) fitAddon.fit();
 
-    term.onData(async (data) => {
+    const dataDisposable = term.onData(async (data) => {
       try { await __TAURI__.core.invoke('pty_write', { data }); } catch (_) {}
     });
 
@@ -46,14 +47,16 @@ window.ptyBridge = (function () {
 
     unlistenExit = await __TAURI__.event.listen('pty-exit', () => {
       if (generation !== myGen) return; // stale event from a superseded PTY session
+      dataDisposable.dispose();          // stop forwarding keystrokes to dead PTY
       term.write('\r\n\x1b[33m[session ended — press Enter to restart]\x1b[0m\r\n');
-      term.onData(async () => {
+      const restartDisposable = term.onData(async () => {
         if (generation !== myGen) return;
+        restartDisposable.dispose();
         await restart();
       });
     });
 
-    const ro = new ResizeObserver((entries) => {
+    ro = new ResizeObserver((entries) => {
       try {
         for (const entry of entries) {
           if (entry.contentRect.width === 0 || entry.contentRect.height === 0) return;
@@ -79,11 +82,15 @@ window.ptyBridge = (function () {
   }
 
   async function restart() {
-    destroy();
+    await destroy();
     await init(containerId, savedEnv);
   }
 
   function destroy() {
+    if (term) {
+      __TAURI__.core.invoke('pty_kill').catch(() => {});
+    }
+    if (ro)           { ro.disconnect(); ro = null; }
     if (unlistenData) { unlistenData(); unlistenData = null; }
     if (unlistenExit) { unlistenExit(); unlistenExit = null; }
     if (term)         { term.dispose(); term = null; }

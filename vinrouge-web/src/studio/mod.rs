@@ -16,7 +16,8 @@ use wasm_bindgen_futures::spawn_local;
 const EDITOR_ID: &str = "studio-dsl-editor";
 
 mod dsl_results;
-use dsl_results::{count_results, render_dsl_result};
+use dsl_results::render_dsl_result;
+use vinrouge::dsl::html::{collect_css, count_results};
 
 fn call_dsl(name: &str, args: &[&str]) {
     let Some(window) = web_sys::window() else {
@@ -386,7 +387,7 @@ pub fn StudioView() -> impl IntoView {
         });
     }
 
-    // ── Open popup when `./vu run <id>` is called from the terminal ─────────
+    // ── Show inline results when `./vu run <id>` is called from the terminal ─
     if crate::ipc::is_tauri() {
         spawn_local(async move {
             let _ =
@@ -395,7 +396,12 @@ pub fn StudioView() -> impl IntoView {
                         .as_array()
                         .cloned()
                         .unwrap_or_default();
-                    dsl_results::open_results_window_async(results);
+                    if let Ok(json) = serde_json::to_string_pretty(&results) {
+                        dsl_output.set(json);
+                    } else {
+                        dsl_output.set(payload.to_string());
+                    }
+                    bottom_tab.set("output");
                 })
                 .await;
         });
@@ -1902,8 +1908,12 @@ pub fn StudioView() -> impl IntoView {
 
                                 let (passed, failed, errors, samples, charts, screens, sections, _show_rows) = count_results(&results);
 
+                                let custom_css = collect_css(&results).join("\n");
                                 view! {
                                     <div class="ide-results">
+                                        {(!custom_css.is_empty()).then(|| view! {
+                                            <style>{custom_css}</style>
+                                        })}
                                         // Summary bar
                                         <div class="ide-results-summary">
                                             {(passed > 0 || failed > 0).then(|| view! {

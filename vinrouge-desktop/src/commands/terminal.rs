@@ -187,134 +187,113 @@ fn json_err(msg: &str) -> String {
     )
 }
 
-// ── Helper script written into the project directory ─────────────────────────
+// ── Helper binary / scripts written into the project directory ───────────────
 
-fn write_helper_script(project_dir: &PathBuf, port: u16) {
-    // A small shell function file the agent can source or call directly.
-    let script = format!(
-        r#"#!/usr/bin/env bash
-# ============================================================
-# VinRouge DSL script bridge — auto-generated, do not commit.
-# ============================================================
-#
-# AGENT INSTRUCTIONS (Claude Code / LLM running in this terminal)
-# ---------------------------------------------------------------
-# You are a DSL script writer for the VinRouge audit platform.
-# Your job is to write and update VinRouge DSL scripts (.vrd)
-# that run audit checks against the data files loaded in the
-# current project.
-#
-# CONTEXT
-#   - Run `git diff HEAD` and `git log --oneline -10` to understand
-#     what audit work is in progress and what data sources are active.
-#   - Run `./vu list` to see all existing scripts with their IDs.
-#   - The data tables available to your scripts match the files
-#     imported in the project (check git history for filenames).
-#
-# TOOLS
-#   ./vu list
-#       Returns a JSON array of scripts: [{{id, label, script_text}}]
-#
-#   ./vu update <id> '<dsl script>'
-#       Replaces the body of script <id>. The UI refreshes live.
-#
-#   ./vu create <label> '<dsl script>'
-#       Creates a new named script. Returns the new script object.
-#
-#   ./vu create <label> '<dsl script>' [control_id] [control_ref]
-#       Creates a script linked to an audit control.
-#
-# DSL LANGUAGE REFERENCE
-#   Statements are optionally labelled:  label: EXPR
-#
-#   ASSERT — compare an aggregate or expression to an expected value
-#     rec_check: ASSERT SUM(invoices.amount) WHERE status = "paid"
-#                = payments_control
-#     blank_ids: ASSERT COUNT(employees.id) WHERE IS_BLANK(employees.id) = 0
-#
-#   SAMPLE — draw an audit sample from a table
-#     mus_sample:  SAMPLE MUS invoices.amount 50 WHERE amount > 0
-#     rand_sample: SAMPLE RANDOM invoices.id 10%
-#     strat:       SAMPLE STRATIFIED invoices.amount 25 WHERE status = "open"
-#     sys:         SAMPLE SYSTEMATIC invoices.id 20
-#
-#   CHART — visualise an aggregate by a dimension
-#     by_status: CHART bar SUM(invoices.amount) BY invoices.status
-#     by_month:  CHART line COUNT(invoices.id) BY invoices.month
-#
-#   SECTION — group related checks
-#     SECTION "Completeness" {{
-#       ASSERT COUNT(invoices.id) = invoice_control_count
-#       ASSERT SUM(invoices.amount) = invoice_control_total
-#     }}
-#
-#   SCHEMA — print all imported tables and their columns
-#     SCHEMA
-#
-#   AGGREGATES:  SUM(t.col) COUNT(t.col) AVG(t.col) MIN(t.col) MAX(t.col)
-#                COUNT(DISTINCT t.col)
-#   All aggregates accept:  WHERE <filter-expr>
-#
-#   FILTERS:
-#     Comparison:  =  <>  >  >=  <  <=
-#     Logic:       AND  OR  NOT
-#     Membership:  col IN ("a","b")   col NOT IN ("x","y")
-#     Range:       amount BETWEEN 1000 AND 50000
-#     Null:        IS NULL   IS NOT NULL
-#     Pattern:     col LIKE "INV-%"
-#     Blank:       IS_BLANK(col)   IS_NOT_BLANK(col)
-#     Numeric:     IS_NUMERIC(col)
-#     Date:        IS_DATE(col)   DATE(col) >= DATE("2024-01-01")
-#     Duplicates:  DUPLICATED(t.id)   DUPLICATED(t.a, t.b)
-#     SA ID:       SA_ID_VALID(t.id_col)
-#     Cross-table: col NOT IN other_table.column
-#
-#   FUNCTIONS:
-#     String:  UPPER(t.col)  LOWER(t.col)  TRIM(t.col)  LENGTH(t.col)
-#              SUBSTR(t.col, start, len)
-#              CONCAT("prefix", t.col, "suffix")
-#     Math:    ABS(t.col)   ROUND(t.col, 2)
-#     Null:    COALESCE(t.col, 0)   NULLIF(t.col, 0)
-#     Control: CASE WHEN cond THEN val ELSE default END
-#
-#   RELATIONS (metadata, no filter effect):
-#     RELATION invoices.employee_id -> employees.id
-#
-# WORKFLOW
-#   1. `git diff HEAD` — understand what changed and what tables exist
-#   2. `./vu list` — see current scripts
-#   3. Write or update scripts using the DSL above
-#   4. Use `./vu update <id> '<script>'` or `./vu create <label> '<script>'`
-#   5. The VinRouge UI reruns the script and shows results immediately
-#
-# ============================================================
+fn find_vu_binary() -> Option<std::path::PathBuf> {
+    let exe_path = std::env::current_exe().ok()?;
+    let exe_dir = exe_path.parent()?;
+
+    // Candidate paths to search for the vu binary
+    let mut candidates = vec![
+        exe_dir.join(if cfg!(windows) { "vu.exe" } else { "vu" }),
+    ];
+
+    // During development: look in the root workspace target directory
+    // relative to vinrouge-desktop's manifest dir
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    candidates.push(manifest_dir.join("../target/debug/vu"));
+    candidates.push(manifest_dir.join("../target/release/vu"));
+
+    #[cfg(windows)]
+    {
+        candidates.push(manifest_dir.join("../target/debug/vu.exe"));
+        candidates.push(manifest_dir.join("../target/release/vu.exe"));
+    }
+
+    candidates.into_iter().find(|p| p.exists())
+}
+
+fn write_helper_script(project_dir: &std::path::PathBuf, port: u16) {
+    // Try to use the native Rust vu binary first
+    if let Some(vu_src) = find_vu_binary() {
+        let vu_dst = project_dir.join(if cfg!(windows) { "vu.exe" } else { "vu" });
+        if std::fs::copy(&vu_src, &vu_dst).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&vu_dst, std::fs::Permissions::from_mode(0o755));
+            }
+            // Remove any old fallback scripts so they don't shadow the binary
+            let _ = std::fs::remove_file(project_dir.join("vu.ps1"));
+            let _ = std::fs::remove_file(project_dir.join("vu.bat"));
+            // Continue to write CLAUDE.md below
+        }
+    } else {
+        // Fallback: write the old bash script (with Python JSON encoding)
+        let script = format!(
+            r#"#!/usr/bin/env bash
+# VinRouge DSL bridge fallback — auto-generated, do not commit.
 VINROUGE_PORT={port}
-_vu_send() {{ exec 3<>/dev/tcp/127.0.0.1/$VINROUGE_PORT; printf '%s\n' "$1" >&3; IFS= read -r _vu_r <&3; exec 3>&-; printf '%s\n' "$_vu_r"; }}
+_vu_send() {{
+    if ! exec 3<>/dev/tcp/127.0.0.1/$VINROUGE_PORT 2>/dev/null; then
+        printf '%s\n' '{{"error":"vu: cannot connect to VinRouge IPC server (port '"$VINROUGE_PORT"'). Is the terminal open?"}}'
+        return 1
+    fi
+    printf '%s\n' "$1" >&3
+    if ! IFS= read -r -t 120 _vu_r <&3; then
+        printf '%s\n' '{{"error":"vu: IPC request timed out after 120s"}}'
+        exec 3>&-
+        return 1
+    fi
+    exec 3>&-
+    printf '%s\n' "$_vu_r"
+}}
 case "$1" in
   list)     _vu_send '{{"action":"list"}}' ;;
   schema)   _vu_send '{{"action":"schema"}}' ;;
   current)  _vu_send '{{"action":"current"}}' ;;
-  validate) _vu_send "{{\"action\":\"validate\",\"script_text\":\"$2\"}}" ;;
-  update)   _vu_send "{{\"action\":\"update\",\"id\":\"$2\",\"script_text\":\"$3\"}}" ;;
-  create)   _vu_send "{{\"action\":\"create\",\"label\":\"$2\",\"script_text\":\"$3\",\"control_id\":\"${{4:-}}\",\"control_ref\":\"${{5:-}}\"}}" ;;
+  validate)
+    if command -v python3 >/dev/null 2>&1; then
+      payload=$(python3 -c "import json,sys; print(json.dumps({{'action':'validate','script_text':sys.argv[1]}}))" "$2")
+    else
+      payload="{{\"action\":\"validate\",\"script_text\":\"$2\"}}"
+    fi
+    _vu_send "$payload"
+    ;;
+  update)
+    if command -v python3 >/dev/null 2>&1; then
+      payload=$(python3 -c "import json,sys; print(json.dumps({{'action':'update','id':sys.argv[1],'script_text':sys.argv[2]}}))" "$2" "$3")
+    else
+      payload="{{\"action\":\"update\",\"id\":\"$2\",\"script_text\":\"$3\"}}"
+    fi
+    _vu_send "$payload"
+    ;;
+  create)
+    if command -v python3 >/dev/null 2>&1; then
+      payload=$(python3 -c "import json,sys; print(json.dumps({{'action':'create','label':sys.argv[1],'script_text':sys.argv[2],'control_id':sys.argv[3],'control_ref':sys.argv[4]}}))" "$2" "$3" "${{4:-}}" "${{5:-}}")
+    else
+      payload="{{\"action\":\"create\",\"label\":\"$2\",\"script_text\":\"$3\",\"control_id\":\"${{4:-}}\",\"control_ref\":\"${{5:-}}\"}}"
+    fi
+    _vu_send "$payload"
+    ;;
   run)      _vu_send "{{\"action\":\"run\",\"id\":\"$2\"}}" ;;
   *)        echo "Usage: vu list | schema | current | validate '<script>' | update <id> '<script>' | create <label> '<script>' [control_id] [control_ref] | run <id>" ;;
 esac
 "#
-    );
-
-    let path = project_dir.join("vu");
-    if std::fs::write(&path, &script).is_ok() {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
+        );
+        let path = project_dir.join("vu");
+        if std::fs::write(&path, &script).is_ok() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
+            }
         }
-    }
 
-    // Windows: write vu.ps1 (PowerShell) + vu.bat (thin launcher) so cmd.exe can call `vu`
-    let ps1 = format!(
-        r#"# VinRouge DSL bridge — auto-generated, do not commit.
+        #[cfg(windows)]
+        {
+            let ps1 = format!(
+                r#"# VinRouge DSL bridge fallback — auto-generated, do not commit.
 param(
     [string]$Action,
     [string]$Arg2,
@@ -322,10 +301,8 @@ param(
     [string]$Arg4,
     [string]$Arg5
 )
-
 $port = [int]$env:VINROUGE_PORT
 if (-not $port) {{ $port = {port} }}
-
 function Send-Ipc([string]$json) {{
     $c = New-Object System.Net.Sockets.TcpClient('127.0.0.1', $port)
     $s = $c.GetStream()
@@ -337,7 +314,6 @@ function Send-Ipc([string]$json) {{
     $c.Close()
     Write-Output $result
 }}
-
 switch ($Action) {{
     'list'     {{ Send-Ipc '{{"action":"list"}}' }}
     'schema'   {{ Send-Ipc '{{"action":"schema"}}' }}
@@ -349,13 +325,14 @@ switch ($Action) {{
     default    {{ Write-Host 'Usage: vu list | schema | current | validate "<script>" | update <id> "<script>" | create <label> "<script>" [control_id] [control_ref] | run <id>' }}
 }}
 "#
-    );
-    let _ = std::fs::write(project_dir.join("vu.ps1"), &ps1);
-
-    let bat = r#"@echo off
+            );
+            let _ = std::fs::write(project_dir.join("vu.ps1"), &ps1);
+            let bat = r#"@echo off
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0vu.ps1" %*
 "#;
-    let _ = std::fs::write(project_dir.join("vu.bat"), bat);
+            let _ = std::fs::write(project_dir.join("vu.bat"), bat);
+        }
+    }
 
     let claude_md = r#"# VinRouge DSL Agent
 
@@ -445,7 +422,77 @@ SECTION "Completeness" {
 
 # SCHEMA — inspect all imported tables and columns
 SCHEMA
+
+# CSS — inject custom styles into the result output
+# The CSS string is injected as a <style> tag at the top of the results panel.
+my_styles: CSS 'svg rect { fill: #22c55e; }'
 ```
+
+## Styling the output with CSS
+
+The UI renders every DSL result into DOM elements with stable class names. You can target these classes with `CSS '...'` to change colours, layout, spacing, fonts, or visibility.
+
+**Result-type classes** (apply to the outer card of each result):
+- `.ide-result--pass` — assert that passed
+- `.ide-result--fail` — assert that failed
+- `.ide-result--sample` — sample result
+- `.ide-result--chart` — chart result
+- `.ide-result--screen` — screen (multi-chart grid)
+- `.ide-result--section` — section card
+- `.ide-result--schema` — schema result
+- `.ide-result--show-rows` — SHOW ROWS table
+- `.ide-result--error` — parser / runtime error
+- `.ide-result--value` — raw value result
+
+**Inner structure classes:**
+- `.ide-section-body` — container inside a section that holds its child results (default: flex column)
+- `.ide-section-header` — clickable header bar of a section
+- `.ide-result-label` — label text of any result
+- `.ide-result-val` — numeric / value text inside an assert
+- `.ide-result-op` — operator text inside an assert (`=`, `>`, etc.)
+- `.ide-sample-table` — table rendered for samples or SHOW FAILURES IN TABLE
+- `.ide-failures-table` — wrapper around a failing-rows table
+
+**Common styling recipes**
+
+1. **Two asserts per row inside every section**
+   ```dsl
+   grid_layout: CSS '.ide-section-body { display: grid !important; grid-template-columns: 1fr 1fr !important; gap: 6px !important; } .ide-section-body > .ide-result--chart, .ide-section-body > .ide-result--sample, .ide-section-body > .ide-result--schema, .ide-section-body > .ide-result--show-rows, .ide-section-body > .ide-result--screen { grid-column: 1 / -1 !important; }'
+   ```
+
+2. **Green charts (Recharts bar / line / pie)**
+   ```dsl
+   green_charts: CSS 'svg rect { fill: #22c55e !important; } .recharts-bar-rectangle path { fill: #22c55e !important; } .recharts-line-curve { stroke: #22c55e !important; }'
+   ```
+
+3. **Hide pass/fail icons and make asserts compact**
+   ```dsl
+   compact: CSS '.ide-result-icon { display: none !important; } .ide-result { padding: 4px 8px !important; }'
+   ```
+
+4. **Highlight failed asserts with a red border**
+   ```dsl
+   fail_style: CSS '.ide-result--fail { border: 1px solid #ef4444 !important; background: rgba(239,68,68,0.08) !important; }'
+   ```
+
+5. **Shrink sample / failure tables**
+   ```dsl
+   small_tables: CSS '.ide-sample-table { font-size: 10px !important; } .ide-sample-table th, .ide-sample-table td { padding: 2px 6px !important; }'
+   ```
+
+**Rules:**
+- Use `!important` when overriding existing UI styles
+- You can have multiple `CSS` statements; later ones override earlier ones
+```
+
+**DSL syntax traps**
+
+- **ASSERT with WHERE**: put the expected value on its own line so the parser does not absorb it into the WHERE clause:
+  ```
+  WRONG:  ASSERT COUNT(t.id) WHERE IS_BLANK(t.id) = 0
+  RIGHT:  ASSERT COUNT(t.id) WHERE IS_BLANK(t.id)
+          = 0
+  ```
 
 **Aggregates:** `SUM` `COUNT` `AVG` `MIN` `MAX` — all accept `WHERE <filter>`
 `COUNT(DISTINCT t.col)`
@@ -494,6 +541,16 @@ Only works on row-level expressions (column references, not aggregates). Outputs
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
 #[tauri::command]
+pub fn pty_kill(state: State<PtyState>) -> Result<(), String> {
+    if let Some(mut child) = state.child.lock().unwrap().take() {
+        let _ = child.kill();
+    }
+    *state.master.lock().unwrap() = None;
+    *state.writer.lock().unwrap() = None;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn pty_create(
     app: AppHandle,
     pty_state: State<'_, PtyState>,
@@ -502,10 +559,12 @@ pub async fn pty_create(
     cols: Option<u16>,
     rows: Option<u16>,
 ) -> Result<(), String> {
-    // If a session is already running, don't create a second one.
-    if pty_state.child.lock().unwrap().is_some() {
-        return Ok(());
+    // Kill any stale session before starting a new one.
+    if let Some(mut child) = pty_state.child.lock().unwrap().take() {
+        let _ = child.kill();
     }
+    *pty_state.master.lock().unwrap() = None;
+    *pty_state.writer.lock().unwrap() = None;
 
     let project_dir = projects
         .dir()
@@ -568,11 +627,22 @@ pub async fn pty_create(
 
     std::thread::spawn(move || {
         let mut buf = [0u8; 65536];
+        let mut leftover = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let _ = tx.send(String::from_utf8_lossy(&buf[..n]).into_owned());
+                    leftover.extend_from_slice(&buf[..n]);
+                    // Only emit complete UTF-8 sequences; buffer incomplete trailing bytes.
+                    let valid_up_to = match std::str::from_utf8(&leftover) {
+                        Ok(_) => leftover.len(),
+                        Err(e) => e.valid_up_to(),
+                    };
+                    if valid_up_to > 0 {
+                        let text = String::from_utf8_lossy(&leftover[..valid_up_to]).into_owned();
+                        let _ = tx.send(text);
+                    }
+                    leftover = leftover.split_off(valid_up_to);
                 }
             }
         }

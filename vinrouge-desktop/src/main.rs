@@ -98,6 +98,7 @@ fn main() {
             pty_create,
             pty_write,
             pty_resize,
+            pty_kill,
             pty_update_scripts,
             pty_set_current_script,
             check_for_update,

@@ -4,6 +4,7 @@ mod ast;
 mod datasource;
 mod error;
 pub mod eval;
+pub mod html;
 mod lexer;
 mod parser;
 mod resolver;
