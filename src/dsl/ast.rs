@@ -245,6 +245,12 @@ pub enum Expr {
 
     /// SCHEMA — prints the names and columns of every imported table
     Schema,
+
+    /// SHOW ROWS FROM table [WHERE condition] — display matching rows as a table
+    ShowRows {
+        table: String,
+        filter: Option<Box<Expr>>,
+    },
 }
 
 /// A top-level statement — either an expression or a named assertion

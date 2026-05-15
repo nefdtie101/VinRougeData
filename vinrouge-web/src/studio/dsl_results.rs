@@ -450,6 +450,83 @@ pub fn render_dsl_result(idx: usize, r: serde_json::Value) -> AnyView {
             }.into_any()
         }
 
+        "show_rows" => {
+            let lbl = r["label"].as_str().map(|s| s.to_string());
+            let table = r["table"].as_str().unwrap_or("").to_string();
+            let total = r["total"].as_u64().unwrap_or(0);
+
+            let rows_val = r["rows"].as_array().cloned().unwrap_or_default();
+            let show_rows: Vec<Vec<(String, String)>> = rows_val
+                .iter()
+                .filter_map(|rv| {
+                    rv.as_object().map(|obj| {
+                        let mut pairs: Vec<(String, String)> = obj
+                            .iter()
+                            .map(|(k, v)| {
+                                (
+                                    k.clone(),
+                                    v.as_str()
+                                        .map(|s| s.to_string())
+                                        .unwrap_or_else(|| v.to_string()),
+                                )
+                            })
+                            .collect();
+                        pairs.sort_by(|a, b| a.0.cmp(&b.0));
+                        pairs
+                    })
+                })
+                .collect();
+            let cols: Vec<String> = show_rows
+                .first()
+                .map(|r| r.iter().map(|(k, _)| k.clone()).collect())
+                .unwrap_or_default();
+
+            view! {
+                <div class="ide-result ide-result--show-rows">
+                    <span class="ide-result-icon">
+                        <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                            <rect x="1" y="1" width="11" height="11" rx="1.5"
+                                stroke="currentColor" stroke-width="1.1"/>
+                            <path d="M1 4.5h11M1 7.5h11"
+                                stroke="currentColor" stroke-width="1.1"/>
+                        </svg>
+                    </span>
+                    <div class="ide-result-body" style="flex:1;min-width:0">
+                        <div class="ide-result-sample-head">
+                            {lbl.map(|l| view! {
+                                <span class="ide-result-label">{l}</span>
+                            })}
+                            <span class="ide-result-expr">
+                                {format!("{table} — {total} row{}", if total == 1 { "" } else { "s" })}
+                            </span>
+                        </div>
+                        {(!cols.is_empty()).then(|| view! {
+                            <div class="ide-sample-table-wrap">
+                                <table class="ide-sample-table">
+                                    <thead>
+                                        <tr>
+                                            {cols.iter().map(|c| view! {
+                                                <th>{c.clone()}</th>
+                                            }).collect_view()}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {show_rows.into_iter().map(|row| view! {
+                                            <tr>
+                                                {row.into_iter().map(|(_, v)| view! {
+                                                    <td>{v}</td>
+                                                }).collect_view()}
+                                            </tr>
+                                        }).collect_view()}
+                                    </tbody>
+                                </table>
+                            </div>
+                        })}
+                    </div>
+                </div>
+            }.into_any()
+        }
+
         _ => view! { <div /> }.into_any(),
     }
 }
@@ -457,7 +534,7 @@ pub fn render_dsl_result(idx: usize, r: serde_json::Value) -> AnyView {
 /// Recursively count result kinds, drilling into sections.
 pub fn count_results(
     results: &[serde_json::Value],
-) -> (usize, usize, usize, usize, usize, usize, usize) {
+) -> (usize, usize, usize, usize, usize, usize, usize, usize) {
     let mut passed = 0;
     let mut failed = 0;
     let mut errors = 0;
@@ -465,6 +542,7 @@ pub fn count_results(
     let mut charts = 0;
     let mut screens = 0;
     let mut sections = 0;
+    let mut show_rows = 0;
     for r in results {
         match r["kind"].as_str() {
             Some("assert") => {
@@ -478,10 +556,11 @@ pub fn count_results(
             Some("sample") => samples += 1,
             Some("chart") => charts += 1,
             Some("screen") => screens += 1,
+            Some("show_rows") => show_rows += 1,
             Some("section") => {
                 sections += 1;
                 let inner = r["results"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
-                let (p, f, e, sa, c, sc, se) = count_results(inner);
+                let (p, f, e, sa, c, sc, se, sr) = count_results(inner);
                 passed += p;
                 failed += f;
                 errors += e;
@@ -489,11 +568,12 @@ pub fn count_results(
                 charts += c;
                 screens += sc;
                 sections += se;
+                show_rows += sr;
             }
             _ => {}
         }
     }
-    (passed, failed, errors, samples, charts, screens, sections)
+    (passed, failed, errors, samples, charts, screens, sections, show_rows)
 }
 
 // ── Pop-out window for testing DSL results ──────────────────────────────────
@@ -772,6 +852,56 @@ fn result_to_html(r: &serde_json::Value, chart_idx: &mut usize) -> String {
                 inner_id, title, badges_html, inner_id, inner_html
             )
         }
+        "show_rows" => {
+            let lbl = r["label"].as_str().unwrap_or("");
+            let table = r["table"].as_str().unwrap_or("");
+            let total = r["total"].as_u64().unwrap_or(0);
+            let rows = r["rows"].as_array();
+            let mut h = String::new();
+            h.push_str(&format!(
+                "<div style=\"padding:8px 10px;border-radius:6px;background:rgba(20,184,166,0.05);border:0.5px solid rgba(20,184,166,0.15);margin-bottom:6px;\">"
+            ));
+            h.push_str("<div style=\"display:flex;align-items:center;gap:8px;margin-bottom:6px;\">");
+            h.push_str("<span style=\"flex-shrink:0;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:rgba(20,184,166,0.12);\">");
+            h.push_str("<svg width=\"13\" height=\"13\" viewBox=\"0 0 13 13\" fill=\"none\"><rect x=\"1\" y=\"1\" width=\"11\" height=\"11\" rx=\"1.5\" stroke=\"#14b8a6\" stroke-width=\"1.1\"/><path d=\"M1 4.5h11M1 7.5h11\" stroke=\"#14b8a6\" stroke-width=\"1.1\"/></svg>");
+            h.push_str("</span>");
+            if !lbl.is_empty() {
+                h.push_str(&format!("<span style=\"font-size:11px;font-weight:600;color:#c9a8ae;\">{lbl}</span>"));
+            }
+            h.push_str(&format!(
+                "<span style=\"font-family:ui-monospace,monospace;font-size:12px;color:#d4c4c8;\">{table} — {total} row{}</span>",
+                if total == 1 { "" } else { "s" }
+            ));
+            h.push_str("</div>");
+            if let Some(rows) = rows {
+                if !rows.is_empty() {
+                    if let Some(first) = rows.first().and_then(|v| v.as_object()) {
+                        let mut cols: Vec<String> = first.keys().cloned().collect();
+                        cols.sort();
+                        h.push_str("<div style=\"overflow-x:auto;\">");
+                        h.push_str("<table style=\"width:100%;border-collapse:collapse;font-size:11px;font-family:ui-monospace,monospace;color:#d4c4c8;\">");
+                        h.push_str("<thead><tr>");
+                        for col in &cols {
+                            h.push_str(&format!("<th style=\"padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.08);text-align:left;color:#8a6e74;\">{col}</th>"));
+                        }
+                        h.push_str("</tr></thead><tbody>");
+                        for row in rows {
+                            if let Some(obj) = row.as_object() {
+                                h.push_str("<tr>");
+                                for col in &cols {
+                                    let cell = obj.get(col).and_then(|v| v.as_str()).unwrap_or("");
+                                    h.push_str(&format!("<td style=\"padding:3px 8px;border-bottom:1px solid rgba(255,255,255,0.04);\">{cell}</td>"));
+                                }
+                                h.push_str("</tr>");
+                            }
+                        }
+                        h.push_str("</tbody></table></div>");
+                    }
+                }
+            }
+            h.push_str("</div>");
+            h
+        }
         _ => String::new(),
     }
 }
@@ -790,7 +920,7 @@ pub fn build_results_html(results: &[serde_json::Value]) -> String {
         .iter()
         .map(|r| result_to_html(r, &mut chart_idx))
         .collect();
-    let (passed, failed, errors, samples, charts, screens, sections) = count_results(results);
+    let (passed, failed, errors, samples, charts, screens, sections, show_rows) = count_results(results);
     let mut summary = Vec::new();
     if passed > 0 {
         summary.push(format!("<span style=\"font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(74,222,128,0.12);color:#4ade80;display:flex;align-items:center;gap:4px;\"><svg width=\"10\" height=\"10\" viewBox=\"0 0 12 12\" fill=\"none\"><path d=\"M2 6l3 3 5-5\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>{} passed</span>", passed));
@@ -812,6 +942,9 @@ pub fn build_results_html(results: &[serde_json::Value]) -> String {
     }
     if sections > 0 {
         summary.push(format!("<span style=\"font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(192,132,252,0.12);color:#c084fc;\">{} section{}</span>", sections, if sections == 1 { "" } else { "s" }));
+    }
+    if show_rows > 0 {
+        summary.push(format!("<span style=\"font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(20,184,166,0.12);color:#14b8a6;\">{} table{}</span>", show_rows, if show_rows == 1 { "" } else { "s" }));
     }
     let summary_html = summary.join("");
 

@@ -20,7 +20,7 @@ body{margin:0;padding:0;background:#141414;color:#d4c4c8;font-family:-apple-syst
     html.push_str("</style></head><body><div class=\"wrap\">");
 
     // Summary bar
-    let (passed, failed, errors, samples, charts, screens, sections) = count_results(&results);
+    let (passed, failed, errors, samples, charts, screens, sections, show_rows) = count_results(&results);
     let mut summary = Vec::new();
     if passed > 0 {
         summary.push(format!("<span style=\"font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(74,222,128,0.12);color:#4ade80;\">{} passed</span>", passed));
@@ -42,6 +42,9 @@ body{margin:0;padding:0;background:#141414;color:#d4c4c8;font-family:-apple-syst
     }
     if sections > 0 {
         summary.push(format!("<span style=\"font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(192,132,252,0.12);color:#c084fc;\">{} section{}</span>", sections, if sections == 1 { "" } else { "s" }));
+    }
+    if show_rows > 0 {
+        summary.push(format!("<span style=\"font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(20,184,166,0.12);color:#14b8a6;\">{} table{}</span>", show_rows, if show_rows == 1 { "" } else { "s" }));
     }
 
     html.push_str("<div class=\"topbar\"><h1 class=\"title\">DSL Results</h1>");
@@ -118,7 +121,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
 fn count_results(
     results: &[serde_json::Value],
-) -> (usize, usize, usize, usize, usize, usize, usize) {
+) -> (usize, usize, usize, usize, usize, usize, usize, usize) {
     let mut passed = 0;
     let mut failed = 0;
     let mut errors = 0;
@@ -126,6 +129,7 @@ fn count_results(
     let mut charts = 0;
     let mut screens = 0;
     let mut sections = 0;
+    let mut show_rows = 0;
     for r in results {
         match r["kind"].as_str() {
             Some("assert") => {
@@ -139,10 +143,11 @@ fn count_results(
             Some("sample") => samples += 1,
             Some("chart") => charts += 1,
             Some("screen") => screens += 1,
+            Some("show_rows") => show_rows += 1,
             Some("section") => {
                 sections += 1;
                 let inner = r["results"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
-                let (p, f, e, sa, c, sc, se) = count_results(inner);
+                let (p, f, e, sa, c, sc, se, sr) = count_results(inner);
                 passed += p;
                 failed += f;
                 errors += e;
@@ -150,11 +155,12 @@ fn count_results(
                 charts += c;
                 screens += sc;
                 sections += se;
+                show_rows += sr;
             }
             _ => {}
         }
     }
-    (passed, failed, errors, samples, charts, screens, sections)
+    (passed, failed, errors, samples, charts, screens, sections, show_rows)
 }
 
 fn build_chart_option(chart_type: &str, labels: &[String], values: &[String]) -> String {
@@ -243,16 +249,48 @@ fn result_to_html(r: &serde_json::Value, chart_idx: &mut usize) -> String {
                 "rgba(248,113,113,0.12)"
             };
             let val_color = if ok { "#86efac" } else { "#fca5a5" };
+            let failed_rows_html = if let Some(rows) = r["failed_rows"].as_array() {
+                if rows.is_empty() {
+                    String::new()
+                } else {
+                    let mut cols: Vec<String> = rows
+                        .first()
+                        .and_then(|v| v.as_object())
+                        .map(|o| { let mut k: Vec<String> = o.keys().cloned().collect(); k.sort(); k })
+                        .unwrap_or_default();
+                    let mut t = String::from("<div style=\"overflow-x:auto;margin-top:6px;\"><table style=\"width:100%;border-collapse:collapse;font-size:11px;font-family:ui-monospace,monospace;color:#d4c4c8;\"><thead><tr>");
+                    for col in &cols {
+                        t.push_str(&format!("<th style=\"padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.08);text-align:left;color:#8a6e74;\">{col}</th>"));
+                    }
+                    t.push_str("</tr></thead><tbody>");
+                    for row in rows {
+                        if let Some(obj) = row.as_object() {
+                            t.push_str("<tr>");
+                            for col in &cols {
+                                let cell = obj.get(col).and_then(|v| v.as_str()).unwrap_or("");
+                                t.push_str(&format!("<td style=\"padding:3px 8px;border-bottom:1px solid rgba(255,255,255,0.04);\">{cell}</td>"));
+                            }
+                            t.push_str("</tr>");
+                        }
+                    }
+                    t.push_str("</tbody></table></div>");
+                    t
+                }
+            } else {
+                String::new()
+            };
             format!(
                 "<div style=\"display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:6px;background:{};border:0.5px solid {};margin-bottom:6px;\">\
                  <span style=\"flex-shrink:0;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:{};\">{}</span>\
-                 <div style=\"min-width:0;\">\
+                 <div style=\"min-width:0;flex:1;\">\
                  {}\
                  <div style=\"font-family:ui-monospace,Cascadia Code,monospace;font-size:12px;color:#d4c4c8;\"><span style=\"color:{};\">{}</span> <span style=\"color:#8a6e74;font-size:11px;\">{}</span> <span style=\"color:{};\">{}</span></div>\
+                 {}\
                  </div></div>",
                 bg, border, icon_bg, icon,
                 if lbl.is_empty() { "".to_string() } else { format!("<div style=\"font-size:11px;font-weight:600;color:#c9a8ae;margin-bottom:2px;\">{}</div>", lbl) },
-                val_color, lhs, op, val_color, rhs
+                val_color, lhs, op, val_color, rhs,
+                failed_rows_html
             )
         }
         "sample" => {
@@ -442,6 +480,54 @@ fn result_to_html(r: &serde_json::Value, chart_idx: &mut usize) -> String {
                 </div>",
                 inner_id, title, badges_html, inner_id, inner_html
             )
+        }
+        "show_rows" => {
+            let lbl = r["label"].as_str().unwrap_or("");
+            let table = r["table"].as_str().unwrap_or("");
+            let total = r["total"].as_u64().unwrap_or(0);
+            let rows = r["rows"].as_array();
+            let mut h = String::new();
+            h.push_str("<div style=\"padding:8px 10px;border-radius:6px;background:rgba(20,184,166,0.05);border:0.5px solid rgba(20,184,166,0.15);margin-bottom:6px;\">");
+            h.push_str("<div style=\"display:flex;align-items:center;gap:8px;margin-bottom:6px;\">");
+            h.push_str("<span style=\"flex-shrink:0;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:rgba(20,184,166,0.12);\">");
+            h.push_str("<svg width=\"13\" height=\"13\" viewBox=\"0 0 13 13\" fill=\"none\"><rect x=\"1\" y=\"1\" width=\"11\" height=\"11\" rx=\"1.5\" stroke=\"#14b8a6\" stroke-width=\"1.1\"/><path d=\"M1 4.5h11M1 7.5h11\" stroke=\"#14b8a6\" stroke-width=\"1.1\"/></svg>");
+            h.push_str("</span>");
+            if !lbl.is_empty() {
+                h.push_str(&format!("<span style=\"font-size:11px;font-weight:600;color:#c9a8ae;\">{lbl}</span>"));
+            }
+            h.push_str(&format!(
+                "<span style=\"font-family:ui-monospace,monospace;font-size:12px;color:#d4c4c8;\">{table} — {total} row{}</span>",
+                if total == 1 { "" } else { "s" }
+            ));
+            h.push_str("</div>");
+            if let Some(rows) = rows {
+                if !rows.is_empty() {
+                    if let Some(first) = rows.first().and_then(|v| v.as_object()) {
+                        let mut cols: Vec<String> = first.keys().cloned().collect();
+                        cols.sort();
+                        h.push_str("<div style=\"overflow-x:auto;\">");
+                        h.push_str("<table style=\"width:100%;border-collapse:collapse;font-size:11px;font-family:ui-monospace,monospace;color:#d4c4c8;\">");
+                        h.push_str("<thead><tr>");
+                        for col in &cols {
+                            h.push_str(&format!("<th style=\"padding:4px 8px;border-bottom:1px solid rgba(255,255,255,0.08);text-align:left;color:#8a6e74;\">{col}</th>"));
+                        }
+                        h.push_str("</tr></thead><tbody>");
+                        for row in rows {
+                            if let Some(obj) = row.as_object() {
+                                h.push_str("<tr>");
+                                for col in &cols {
+                                    let cell = obj.get(col).and_then(|v| v.as_str()).unwrap_or("");
+                                    h.push_str(&format!("<td style=\"padding:3px 8px;border-bottom:1px solid rgba(255,255,255,0.04);\">{cell}</td>"));
+                                }
+                                h.push_str("</tr>");
+                            }
+                        }
+                        h.push_str("</tbody></table></div>");
+                    }
+                }
+            }
+            h.push_str("</div>");
+            h
         }
         _ => String::new(),
     }

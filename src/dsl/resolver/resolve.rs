@@ -238,6 +238,18 @@ impl<'s> Resolver<'s> {
             }
 
             Expr::Schema => {}
+
+            Expr::ShowRows { table, filter } => {
+                if !self.schema.has_table(table) && !self.schema.tables.is_empty() {
+                    self.errors.push(ResolveError::UnknownTable {
+                        table: table.clone(),
+                        reference: table.clone(),
+                    });
+                }
+                if let Some(f) = filter {
+                    self.check_expr(f);
+                }
+            }
         }
     }
 

@@ -18,6 +18,8 @@ pub fn open_global(home: &Path) -> Result<Connection> {
 /// Open (or create) the per-project DB at `<project_dir>/vinrouge.db`.
 pub fn open_project(project_dir: &Path) -> Result<Connection> {
     let conn = Connection::open(project_dir.join("vinrouge.db"))?;
+    // WAL mode: concurrent reads don't block writes; writes complete in microseconds.
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS files (
             id          TEXT PRIMARY KEY,

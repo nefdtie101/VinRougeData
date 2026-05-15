@@ -33,6 +33,16 @@ pub struct ChartResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShowRowsResult {
+    pub label: Option<String>,
+    pub table: String,
+    /// Rows that matched the filter, each cell stringified.
+    pub rows: Vec<HashMap<String, String>>,
+    /// Total number of matching rows.
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionResult {
     pub title: String,
     pub results: Vec<StatementResult>,
@@ -68,5 +78,6 @@ pub enum StatementResult {
 
     Section(SectionResult),
     Schema(Vec<SchemaTable>),
+    ShowRows(ShowRowsResult),
     Error(String),
 }

@@ -7,7 +7,7 @@ mod sample;
 
 pub use result::{
     AssertResult, ChartResult, SampleResult, SchemaColumn, SchemaTable, SectionResult,
-    StatementResult,
+    ShowRowsResult, StatementResult,
 };
 
 use std::collections::HashMap;
@@ -455,6 +455,8 @@ impl<'ds> Evaluator<'ds> {
                 Ok(Value::Bool(if *negated { !found } else { found }))
             }
 
+            Expr::ShowRows { .. } => Ok(Value::Null),
+
             // RELATION is metadata only — evaluates as a no-op
             Expr::RelationDecl { .. } => Ok(Value::Bool(true)),
 
@@ -477,6 +479,40 @@ impl<'ds> Evaluator<'ds> {
 
             Expr::Schema => Ok(Value::Null),
         }
+    }
+
+    pub(super) fn eval_show_rows(
+        &self,
+        table: &str,
+        filter: &Option<Box<Expr>>,
+        label: Option<String>,
+    ) -> EvalResult<ShowRowsResult> {
+        let all_rows = self.datasource.rows(table)?;
+        let matched: Vec<HashMap<String, String>> = all_rows
+            .iter()
+            .filter(|row| {
+                filter
+                    .as_ref()
+                    .map(|f| {
+                        self.eval(f, row)
+                            .map(|v| v.as_bool().unwrap_or(false))
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(true)
+            })
+            .map(|row| {
+                row.iter()
+                    .map(|(k, v)| (k.clone(), v.to_string()))
+                    .collect()
+            })
+            .collect();
+        let total = matched.len();
+        Ok(ShowRowsResult {
+            label,
+            table: table.to_string(),
+            rows: matched,
+            total,
+        })
     }
 }
 
@@ -546,6 +582,14 @@ fn eval_statement(stmt: &Statement, datasource: &dyn EvalDataSource) -> Statemen
             })
         }
         Expr::Schema => StatementResult::Schema(datasource.schema_tables()),
+
+        Expr::ShowRows { table, filter } => {
+            let label = stmt.label.clone();
+            match evaluator.eval_show_rows(table, filter, label) {
+                Ok(r) => StatementResult::ShowRows(r),
+                Err(e) => StatementResult::Error(e.to_string()),
+            }
+        }
 
         other => match evaluator.eval(other, &Row::new()) {
             Ok(v) => StatementResult::Value(v.to_string()),

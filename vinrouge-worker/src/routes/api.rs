@@ -98,6 +98,7 @@ pub fn result_to_json(index: usize, r: &vinrouge::dsl::StatementResult) -> serde
             "kind": "assert", "index": index,
             "label": a.label, "passed": a.passed,
             "lhs_value": a.lhs_value, "rhs_value": a.rhs_value, "op": a.op,
+            "failed_rows": a.failed_rows,
         }),
         StatementResult::Sample(s) => json!({
             "kind": "sample", "index": index,
@@ -131,6 +132,11 @@ pub fn result_to_json(index: usize, r: &vinrouge::dsl::StatementResult) -> serde
                 "name": t.name, "row_count": t.row_count,
                 "columns": t.columns.iter().map(|c| json!({"name": c.name, "type": c.col_type})).collect::<Vec<_>>(),
             })).collect::<Vec<_>>(),
+        }),
+        StatementResult::ShowRows(sr) => json!({
+            "kind": "show_rows", "index": index,
+            "label": sr.label, "table": sr.table,
+            "rows": sr.rows, "total": sr.total,
         }),
     }
 }

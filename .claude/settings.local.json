@@ -29,7 +29,13 @@
       "Bash(cargo search *)",
       "Bash(git -C /Users/johannnefdr/RustroverProjects/VinRouge diff HEAD~3..HEAD -- src/dsl/ --stat)",
       "Bash(taskkill //F //IM vinrouge-desktop.exe)",
-      "Bash(bash \"C:\\\\Users\\\\johan\\\\RustroverProjects\\\\VinRougeData\\\\build-desktop.sh\")"
+      "Bash(bash \"C:\\\\Users\\\\johan\\\\RustroverProjects\\\\VinRougeData\\\\build-desktop.sh\")",
+      "Bash(Get-ChildItem -Path . -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(xargs grep -l \"Sample\\\\|Assert\\\\|Chart\\\\|failed_rows\")",
+      "Bash(xargs grep -l \"SampleResult\\\\|StatementResult\\\\|Sample.*Serialize\\\\|AssertResult\")",
+      "Bash(xargs grep -l \"result_to_json\\\\|StatementResult\")",
+      "Bash(xargs grep -l \"\\\\\"vu\\\\\"\\\\|fn main.*vu\\\\|vu.*current\\\\|vu.*run\")"
     ]
   }
 }

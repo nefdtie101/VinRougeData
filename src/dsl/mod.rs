@@ -16,7 +16,7 @@ pub use datasource::{expr_to_sql, EvalDataSource, InMemoryDataSource};
 pub use error::{ParseError, ParseResult};
 pub use eval::{
     run_script, AssertResult, ChartResult, Evaluator, SampleResult, SchemaColumn, SchemaTable,
-    StatementResult,
+    ShowRowsResult, StatementResult,
 };
 pub use lexer::Lexer;
 pub use parser::Parser;

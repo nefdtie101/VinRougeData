@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter, State};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
-use crate::state::{CurrentScriptState, ProjectsState};
+use crate::state::{CurrentScriptState, DslCacheState, ProjectsState};
 use tauri::Manager;
 
 // ── PTY state ─────────────────────────────────────────────────────────────────
@@ -143,6 +143,39 @@ fn handle_ipc(line: &str, project_dir: &PathBuf, app: &AppHandle) -> String {
                 None => "null".into(),
             }
         }
+        "run" => {
+            let id = match cmd["id"].as_str() {
+                Some(s) => s.to_string(),
+                None => return json_err("missing field: id"),
+            };
+            let cache = app.state::<DslCacheState>();
+            let cache_arc = cache.0.clone();
+            let datasource = {
+                let mut guard = cache_arc.lock().unwrap();
+                let cache_hit =
+                    guard.project_dir.as_ref() == Some(project_dir) && guard.datasource.is_some();
+                if cache_hit {
+                    guard.datasource.clone().unwrap()
+                } else {
+                    match crate::helpers::build_datasource(project_dir) {
+                        Ok(ds) => {
+                            let ds = std::sync::Arc::new(ds);
+                            guard.project_dir = Some(project_dir.clone());
+                            guard.datasource = Some(ds.clone());
+                            ds
+                        }
+                        Err(e) => return json_err(&format!("datasource error: {e}")),
+                    }
+                }
+            };
+            match crate::helpers::run_dsl_script_blocking(id, project_dir.clone(), datasource) {
+                Ok(results) => {
+                    let _ = app.emit("dsl-run-results", serde_json::json!({ "results": results }));
+                    serde_json::to_string(&results).unwrap_or_else(|_| "[]".into())
+                }
+                Err(e) => json_err(&e),
+            }
+        }
         other => json_err(&format!("unknown action: {other}")),
     }
 }
@@ -264,7 +297,8 @@ case "$1" in
   validate) _vu_send "{{\"action\":\"validate\",\"script_text\":\"$2\"}}" ;;
   update)   _vu_send "{{\"action\":\"update\",\"id\":\"$2\",\"script_text\":\"$3\"}}" ;;
   create)   _vu_send "{{\"action\":\"create\",\"label\":\"$2\",\"script_text\":\"$3\",\"control_id\":\"${{4:-}}\",\"control_ref\":\"${{5:-}}\"}}" ;;
-  *)        echo "Usage: vu list | schema | current | validate '<script>' | update <id> '<script>' | create <label> '<script>' [control_id] [control_ref]" ;;
+  run)      _vu_send "{{\"action\":\"run\",\"id\":\"$2\"}}" ;;
+  *)        echo "Usage: vu list | schema | current | validate '<script>' | update <id> '<script>' | create <label> '<script>' [control_id] [control_ref] | run <id>" ;;
 esac
 "#
     );
@@ -311,7 +345,8 @@ switch ($Action) {{
     'validate' {{ Send-Ipc (ConvertTo-Json @{{action='validate'; script_text=$Arg2}} -Compress) }}
     'update'   {{ Send-Ipc (ConvertTo-Json @{{action='update'; id=$Arg2; script_text=$Arg3}} -Compress) }}
     'create'   {{ Send-Ipc (ConvertTo-Json @{{action='create'; label=$Arg2; script_text=$Arg3; control_id=$Arg4; control_ref=$Arg5}} -Compress) }}
-    default    {{ Write-Host 'Usage: vu list | schema | current | validate "<script>" | update <id> "<script>" | create <label> "<script>" [control_id] [control_ref]' }}
+    'run'      {{ Send-Ipc (ConvertTo-Json @{{action='run'; id=$Arg2}} -Compress) }}
+    default    {{ Write-Host 'Usage: vu list | schema | current | validate "<script>" | update <id> "<script>" | create <label> "<script>" [control_id] [control_ref] | run <id>' }}
 }}
 "#
     );
@@ -369,6 +404,7 @@ with spaces replaced by underscores.
 | `./vu update <id> '<dsl>'` | Replaces script body — UI reruns instantly |
 | `./vu create <label> '<dsl>'` | Creates a new named script |
 | `./vu create <label> '<dsl>' <control_id> <control_ref>` | Creates script linked to an audit control |
+| `./vu run <id>` | Executes a script and returns full JSON results (asserts, show rows, errors, etc.) |
 
 Always single-quote the DSL argument to avoid shell interpolation.
 
@@ -448,7 +484,8 @@ Only works on row-level expressions (column references, not aggregates). Outputs
 5. Draft or edit your DSL script
 6. `./vu validate '<script>'` — must return `{"ok":true}` before writing
 7. `./vu update $VU_SCRIPT_ID '<script>'` to update the open script, or `./vu create <label> '<script>'` for a new one
-8. The UI reruns immediately — iterate as needed
+8. `./vu run <id>` to execute a script and inspect the full JSON results (assertions, SHOW ROWS output, errors)
+9. The UI reruns immediately — iterate as needed
 "#;
 
     let _ = std::fs::write(project_dir.join("CLAUDE.md"), claude_md);

@@ -95,6 +95,12 @@
   transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
 .studio-icon-btn:hover { color: var(--w-text); background: var(--w-accent-dim); border-color: var(--w-accent); }
+.studio-icon-btn--accent {
+  color: var(--w-accent);
+  border-color: var(--w-accent);
+  background: var(--w-accent-dim);
+}
+.studio-icon-btn--accent:hover { background: var(--w-accent); color: #fff; border-color: var(--w-accent); }
 
 .studio-sidebar-actions {
   padding: 0 10px 10px;
@@ -121,6 +127,28 @@
   background: var(--w-accent-dim);
   border-color: var(--w-accent);
   color: var(--w-text);
+}
+.studio-new-btn--primary {
+  background: var(--w-accent-dim);
+  border-style: solid;
+  border-color: var(--w-accent);
+  color: var(--w-accent);
+  font-weight: 500;
+}
+.studio-new-btn--primary:hover {
+  background: var(--w-accent);
+  color: #fff;
+  border-color: var(--w-accent);
+}
+.studio-new-btn--loading,
+.studio-new-btn--loading:hover {
+  opacity: 0.55;
+  cursor: default;
+}
+.studio-icon-btn--loading,
+.studio-icon-btn--loading:hover {
+  opacity: 0.55;
+  cursor: default;
 }
 
 /* ── Main area ───────────────────────────────────────────────────────────── */

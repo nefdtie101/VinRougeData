@@ -138,6 +138,7 @@ pub fn StudioView() -> impl IntoView {
     // ── Create project state ──────────────────────────────────────────────────
     let new_name: RwSignal<String> = RwSignal::new(String::new());
     let creating: RwSignal<bool> = RwSignal::new(false);
+    let script_creating: RwSignal<bool> = RwSignal::new(false);
 
     // ── Rename state ──────────────────────────────────────────────────────────
     let renaming_id: RwSignal<Option<String>> = RwSignal::new(None);
@@ -385,6 +386,21 @@ pub fn StudioView() -> impl IntoView {
         });
     }
 
+    // ── Open popup when `./vu run <id>` is called from the terminal ─────────
+    if crate::ipc::is_tauri() {
+        spawn_local(async move {
+            let _ =
+                crate::ipc::tauri_listen_event_payload("dsl-run-results", move |payload| {
+                    let results: Vec<serde_json::Value> = payload["results"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    dsl_results::open_results_window_async(results);
+                })
+                .await;
+        });
+    }
+
     // ── Keep .vinrouge/scripts.json in sync with the live scripts signal ─────
     Effect::new(move |_| {
         let list = scripts.get();
@@ -581,7 +597,24 @@ pub fn StudioView() -> impl IntoView {
 
     // ── New script ────────────────────────────────────────────────────────────
     let new_script = move || {
-        let label = format!("Script {}", scripts.get().len() + 1);
+        if script_creating.get_untracked() {
+            return;
+        }
+        script_creating.set(true);
+
+        // Optimistically open a blank editor right away — don't wait for the DB.
+        let label = format!("Script {}", scripts.get_untracked().len() + 1);
+        let placeholder = DslScript {
+            id: String::new(), // pending — save is blocked until real ID arrives
+            control_id: String::new(),
+            control_ref: String::new(),
+            label: label.clone(),
+            script_text: String::new(),
+            created_at: String::new(),
+        };
+        scripts.update(|list| list.push(placeholder.clone()));
+        open_script(placeholder);
+
         let args = serde_json::json!({
             "controlId":  "",
             "controlRef": "",
@@ -591,17 +624,42 @@ pub fn StudioView() -> impl IntoView {
         spawn_local(async move {
             match tauri_invoke_args::<DslScript>("save_dsl_script", args).await {
                 Ok(s) => {
-                    load_scripts();
-                    open_script(s);
+                    // Replace placeholder with the real script (real ID).
+                    scripts.update(|list| {
+                        if let Some(slot) = list.iter_mut().find(|x| x.id.is_empty()) {
+                            *slot = s.clone();
+                        }
+                    });
+                    active_script.update(|cur| {
+                        if let Some(ref mut script) = cur {
+                            if script.id.is_empty() {
+                                script.id = s.id.clone();
+                                script.created_at = s.created_at.clone();
+                            }
+                        }
+                    });
                 }
-                Err(e) => status.set(format!("Error: {e}")),
+                Err(e) => {
+                    // Remove placeholder on failure.
+                    scripts.update(|list| list.retain(|x| !x.id.is_empty()));
+                    active_script.update(|cur| {
+                        if cur.as_ref().map(|s| s.id.is_empty()).unwrap_or(false) {
+                            *cur = None;
+                        }
+                    });
+                    status.set(format!("Error: {e}"));
+                }
             }
+            script_creating.set(false);
         });
     };
 
     // ── Save current script text ──────────────────────────────────────────────
     let save_script = move || {
         if let Some(s) = active_script.get() {
+            if s.id.is_empty() {
+                return; // placeholder not yet confirmed by backend — skip
+            }
             let code = dsl_get_value();
             let args = serde_json::json!({ "scriptId": s.id, "scriptText": code });
             spawn_local(async move {
@@ -821,16 +879,41 @@ pub fn StudioView() -> impl IntoView {
                 // ── Collapsed icons ───────────────────────────────────────────
                 {move || sidebar_collapsed.get().then(|| view! {
                     <div class="studio-collapsed-icons">
-                        <button class="studio-icon-btn" title="New project"
-                            on:click=move |_| {
-                                sidebar_collapsed.set(false);
-                                panel.set(StudioPanel::Creating);
-                            }
-                        >
-                            <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
-                                <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                            </svg>
-                        </button>
+                        // Show "New script" when a project is open, "New project" otherwise
+                        {move || if sidebar_mode.get() == SidebarMode::Scripts {
+                            view! {
+                                <button
+                                    class=move || if script_creating.get() {
+                                        "studio-icon-btn studio-icon-btn--accent studio-icon-btn--loading"
+                                    } else {
+                                        "studio-icon-btn studio-icon-btn--accent"
+                                    }
+                                    title="New script"
+                                    disabled=move || script_creating.get()
+                                    on:click=move |_| new_script()
+                                >
+                                    <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                                        <rect x="1.5" y="1.5" width="9" height="9" rx="1.5"
+                                            stroke="currentColor" stroke-width="1.1"/>
+                                        <path d="M6 4v4M4 6h4"
+                                            stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+                                    </svg>
+                                </button>
+                            }.into_any()
+                        } else {
+                            view! {
+                                <button class="studio-icon-btn" title="New project"
+                                    on:click=move |_| {
+                                        sidebar_collapsed.set(false);
+                                        panel.set(StudioPanel::Creating);
+                                    }
+                                >
+                                    <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                                        <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                                    </svg>
+                                </button>
+                            }.into_any()
+                        }}
                         <button class="studio-icon-btn" title="Import .vrd"
                             on:click=move |_| {
                                 spawn_local(async move {
@@ -944,11 +1027,19 @@ pub fn StudioView() -> impl IntoView {
                 {move || (!sidebar_collapsed.get() && sidebar_mode.get() == SidebarMode::Scripts).then(|| view! {
                     <>
                         <div class="studio-sidebar-actions">
-                            <button class="studio-new-btn" on:click=move |_| new_script()>
+                            <button
+                                class=move || if script_creating.get() {
+                                    "studio-new-btn studio-new-btn--primary studio-new-btn--loading"
+                                } else {
+                                    "studio-new-btn studio-new-btn--primary"
+                                }
+                                disabled=move || script_creating.get()
+                                on:click=move |_| new_script()
+                            >
                                 <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                                     <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
                                 </svg>
-                                "New script"
+                                {move || if script_creating.get() { "Creating…" } else { "New script" }}
                             </button>
                         </div>
 
@@ -1214,12 +1305,16 @@ pub fn StudioView() -> impl IntoView {
                                         }}
                                     </div>
                                 </div>
-                                <button class="wiz-btn-primary" on:click=move |_| new_script()>
+                                <button
+                                    class="wiz-btn-primary"
+                                    disabled=move || script_creating.get()
+                                    on:click=move |_| new_script()
+                                >
                                     <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                                         <path d="M6 1v10M1 6h10" stroke="currentColor"
                                             stroke-width="1.3" stroke-linecap="round"/>
                                     </svg>
-                                    "New script"
+                                    {move || if script_creating.get() { "Creating…" } else { "New script" }}
                                 </button>
                             </div>
 
@@ -1805,7 +1900,7 @@ pub fn StudioView() -> impl IntoView {
                                     }.into_any(),
                                 };
 
-                                let (passed, failed, errors, samples, charts, screens, sections) = count_results(&results);
+                                let (passed, failed, errors, samples, charts, screens, sections, _show_rows) = count_results(&results);
 
                                 view! {
                                     <div class="ide-results">

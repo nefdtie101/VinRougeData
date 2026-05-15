@@ -231,6 +231,48 @@ impl super::Parser {
         })
     }
 
+    /// Parse `SHOW ROWS FROM <table> [WHERE <filter>]`
+    pub(super) fn parse_show_rows(&mut self) -> ParseResult<Expr> {
+        self.advance(); // consume SHOW
+
+        if self.peek() != &Token::Rows {
+            return Err(ParseError::new(
+                self.peek_pos(),
+                format!("expected ROWS after SHOW, got {}", self.peek()),
+            ));
+        }
+        self.advance(); // consume ROWS
+
+        if self.peek() != &Token::From {
+            return Err(ParseError::new(
+                self.peek_pos(),
+                format!("expected FROM after SHOW ROWS, got {}", self.peek()),
+            ));
+        }
+        self.advance(); // consume FROM
+
+        let table = match self.peek().clone() {
+            Token::Ident(s) => {
+                self.advance();
+                s
+            }
+            other => {
+                return Err(ParseError::new(
+                    self.peek_pos(),
+                    format!("expected table name after SHOW ROWS FROM, got {other}"),
+                ))
+            }
+        };
+
+        let filter = if self.eat(&Token::Where) {
+            Some(Box::new(self.parse_or()?))
+        } else {
+            None
+        };
+
+        Ok(Expr::ShowRows { table, filter })
+    }
+
     pub(super) fn parse_section(&mut self) -> ParseResult<Expr> {
         self.advance(); // consume SECTION
 

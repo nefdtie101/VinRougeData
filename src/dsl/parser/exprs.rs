@@ -24,6 +24,11 @@ impl super::Parser {
             self.advance();
             return Ok(Expr::Schema);
         }
+        if self.peek() == &Token::Show {
+            if self.peek_next() == &Token::Rows {
+                return self.parse_show_rows();
+            }
+        }
         self.parse_or()
     }
 

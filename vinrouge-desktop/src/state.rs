@@ -18,7 +18,8 @@ pub struct ActiveProject {
 
 /// Holds the currently active project and its linked .vrd path.
 /// All mutating commands call `sync_vrd()` to keep the .vrd up to date.
-pub struct ProjectsState(pub Mutex<Option<ActiveProject>>);
+#[derive(Clone)]
+pub struct ProjectsState(pub Arc<Mutex<Option<ActiveProject>>>);
 
 impl ProjectsState {
     /// Returns the active project directory, or an error if none is open.

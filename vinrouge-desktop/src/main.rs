@@ -17,7 +17,7 @@ use tauri::Manager;
 fn main() {
     tauri::Builder::default()
         .manage(OllamaState(std::sync::Mutex::new(None)))
-        .manage(ProjectsState(std::sync::Mutex::new(None)))
+        .manage(ProjectsState(std::sync::Arc::new(std::sync::Mutex::new(None))))
         .manage(DslCacheState::default())
         .manage(PtyState::default())
         .manage(CurrentScriptState::default())

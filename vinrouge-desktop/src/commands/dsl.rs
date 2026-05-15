@@ -31,38 +31,50 @@ pub fn invalidate_dsl_cache(cache: State<'_, DslCacheState>) {
 }
 
 #[tauri::command]
-pub fn save_dsl_script(
+pub async fn save_dsl_script(
     control_id: String,
     control_ref: String,
     label: String,
     script_text: String,
-    state: State<ProjectsState>,
+    state: State<'_, ProjectsState>,
 ) -> Result<vinrouge::projects::DslScript, String> {
-    let project_dir = state.dir()?;
-    let script = vinrouge::projects::save_dsl_script(
-        &project_dir,
-        &control_id,
-        &control_ref,
-        &label,
-        &script_text,
-    )?;
-    state.sync_vrd()?;
-    Ok(script)
+    let state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let project_dir = state.dir()?;
+        vinrouge::projects::save_dsl_script(
+            &project_dir,
+            &control_id,
+            &control_ref,
+            &label,
+            &script_text,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn list_dsl_scripts(
-    state: State<ProjectsState>,
+pub async fn list_dsl_scripts(
+    state: State<'_, ProjectsState>,
 ) -> Result<Vec<vinrouge::projects::DslScript>, String> {
-    let project_dir = state.dir()?;
-    vinrouge::projects::list_dsl_scripts(&project_dir)
+    let state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let project_dir = state.dir()?;
+        vinrouge::projects::list_dsl_scripts(&project_dir)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn clear_dsl_scripts(state: State<ProjectsState>) -> Result<(), String> {
-    let project_dir = state.dir()?;
-    vinrouge::projects::clear_dsl_scripts(&project_dir)?;
-    state.sync_vrd()
+pub async fn clear_dsl_scripts(state: State<'_, ProjectsState>) -> Result<(), String> {
+    let state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let project_dir = state.dir()?;
+        vinrouge::projects::clear_dsl_scripts(&project_dir)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Execute a saved DSL script against all session rows and save the results.
@@ -102,40 +114,60 @@ pub async fn run_dsl_script(
 }
 
 #[tauri::command]
-pub fn list_test_results(
-    state: State<ProjectsState>,
+pub async fn list_test_results(
+    state: State<'_, ProjectsState>,
 ) -> Result<Vec<vinrouge::projects::TestResult>, String> {
-    let project_dir = state.dir()?;
-    vinrouge::projects::list_test_results(&project_dir)
+    let state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let project_dir = state.dir()?;
+        vinrouge::projects::list_test_results(&project_dir)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn delete_dsl_script(script_id: String, state: State<ProjectsState>) -> Result<(), String> {
-    let project_dir = state.dir()?;
-    vinrouge::projects::delete_dsl_script(&project_dir, &script_id)?;
-    state.sync_vrd()
+pub async fn delete_dsl_script(
+    script_id: String,
+    state: State<'_, ProjectsState>,
+) -> Result<(), String> {
+    let state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let project_dir = state.dir()?;
+        vinrouge::projects::delete_dsl_script(&project_dir, &script_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn update_dsl_script(
+pub async fn update_dsl_script(
     script_id: String,
     script_text: String,
-    state: State<ProjectsState>,
+    state: State<'_, ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.dir()?;
-    vinrouge::projects::update_dsl_script(&project_dir, &script_id, &script_text)?;
-    state.sync_vrd()
+    let state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let project_dir = state.dir()?;
+        vinrouge::projects::update_dsl_script(&project_dir, &script_id, &script_text)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn rename_dsl_script(
+pub async fn rename_dsl_script(
     script_id: String,
     label: String,
-    state: State<ProjectsState>,
+    state: State<'_, ProjectsState>,
 ) -> Result<(), String> {
-    let project_dir = state.dir()?;
-    vinrouge::projects::rename_dsl_script(&project_dir, &script_id, &label)?;
-    state.sync_vrd()
+    let state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let project_dir = state.dir()?;
+        vinrouge::projects::rename_dsl_script(&project_dir, &script_id, &label)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
