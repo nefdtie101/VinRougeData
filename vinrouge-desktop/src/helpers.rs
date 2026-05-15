@@ -238,6 +238,11 @@ pub fn result_to_json(index: usize, r: &StatementResult) -> serde_json::Value {
             "rows": sr.rows,
             "total": sr.total,
         }),
+        StatementResult::Css(styles) => serde_json::json!({
+            "kind": "css",
+            "index": index,
+            "styles": styles,
+        }),
     }
 }
 

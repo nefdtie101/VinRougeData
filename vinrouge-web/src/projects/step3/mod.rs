@@ -1,7 +1,7 @@
 use crate::components::{DashedAddButton, ProgressRing, SectionPrompt, Spinner, StatCard};
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
 use crate::ollama::{ask_ollama_json, ask_pbc_list, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
-use crate::step1::prompts::REFINE_PBC_LIST;
+use crate::projects::step1::prompts::REFINE_PBC_LIST;
 use crate::types::{AuditProcessWithControls, PbcGroup, PbcItem};
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;

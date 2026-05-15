@@ -29,6 +29,22 @@ impl super::Parser {
                 return self.parse_show_rows();
             }
         }
+        if self.peek() == &Token::Css {
+            self.advance(); // consume CSS
+            let styles = match self.peek().clone() {
+                Token::StringLit(s) => {
+                    self.advance();
+                    s
+                }
+                other => {
+                    return Err(ParseError::new(
+                        self.peek_pos(),
+                        format!("expected string literal after CSS, got {other}"),
+                    ))
+                }
+            };
+            return Ok(Expr::Css { styles });
+        }
         self.parse_or()
     }
 

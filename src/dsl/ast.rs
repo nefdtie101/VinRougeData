@@ -251,6 +251,11 @@ pub enum Expr {
         table: String,
         filter: Option<Box<Expr>>,
     },
+
+    /// CSS "..." — inject custom CSS into the result output
+    Css {
+        styles: String,
+    },
 }
 
 /// A top-level statement — either an expression or a named assertion

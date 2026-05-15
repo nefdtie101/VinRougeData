@@ -250,6 +250,8 @@ impl<'s> Resolver<'s> {
                     self.check_expr(f);
                 }
             }
+
+            Expr::Css { .. } => {}
         }
     }
 

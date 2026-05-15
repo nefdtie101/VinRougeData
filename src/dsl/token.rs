@@ -64,6 +64,7 @@ pub enum Token {
     Failures,   // FAILURES keyword
     Table,      // TABLE keyword
     Rows,       // ROWS keyword (SHOW ROWS FROM table WHERE condition)
+    Css,        // CSS keyword for injecting custom styles into result output
 
     // Identifiers and literals
     Ident(String), // table.column or plain name

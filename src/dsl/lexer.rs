@@ -97,6 +97,7 @@ impl<'a> Lexer<'a> {
             "FAILURES" => Token::Failures,
             "TABLE" => Token::Table,
             "ROWS" => Token::Rows,
+            "CSS" => Token::Css,
             "COALESCE" => Token::Coalesce,
             "NULLIF" => Token::NullIf,
             "IIF" => Token::Iif,

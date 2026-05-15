@@ -1,14 +1,15 @@
 use crate::ipc::{tauri_invoke, tauri_invoke_args};
 use crate::ollama::{ask_ai, ask_ollama_json, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL};
-use crate::step1;
-use crate::step2;
-use crate::step3;
-use crate::step4;
-use crate::step4a;
-use crate::step4b;
-use crate::step5;
-use crate::step5a;
-use crate::step5b;
+pub mod step1;
+pub mod step2;
+pub mod step3;
+pub mod step4;
+pub mod step4a;
+pub mod step4b;
+pub mod step5;
+pub mod step5a;
+pub mod step5b;
+
 use crate::storage::{ls_get, ls_set, AuditSetupState};
 use crate::types::{AiMessage, AuditProcessWithControls, PbcGroup, Project, ProjectFile};
 use leptos::prelude::*;
@@ -285,7 +286,7 @@ pub fn ProjectsView() -> impl IntoView {
 
             // Run EXTRACT_SETUP to auto-populate standards + scope
             status.set(format!("Extracting setup from \"{}\"...", file_name));
-            let extract_prompt = format!("{}\n\n{}", crate::step1::prompts::EXTRACT_SETUP, text);
+            let extract_prompt = format!("{}\n\n{}", step1::prompts::EXTRACT_SETUP, text);
             match ask_ollama_json(OLLAMA_DEFAULT_URL, OLLAMA_DEFAULT_MODEL, &extract_prompt).await {
                 Ok(raw) => {
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {

@@ -138,6 +138,10 @@ pub fn result_to_json(index: usize, r: &vinrouge::dsl::StatementResult) -> serde
             "label": sr.label, "table": sr.table,
             "rows": sr.rows, "total": sr.total,
         }),
+        StatementResult::Css(styles) => json!({
+            "kind": "css", "index": index,
+            "styles": styles,
+        }),
     }
 }
 

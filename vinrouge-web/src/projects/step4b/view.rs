@@ -7,9 +7,9 @@ use wasm_bindgen_futures::spawn_local;
 use crate::components::{Banner, DataGrid, GhostButton, Spinner};
 use crate::ipc::tauri_invoke_args;
 use crate::ollama::ask_ai;
-use crate::step4a::helpers::{extract_dsl_code, parse_run_result};
-use crate::step4a::pipeline::do_load_or_generate;
-use crate::step4a::types::{ChatMsg, Phase, RunResult, ScriptState, ScriptStatus};
+use crate::projects::step4a::helpers::{extract_dsl_code, parse_run_result};
+use crate::projects::step4a::pipeline::do_load_or_generate;
+use crate::projects::step4a::types::{ChatMsg, Phase, RunResult, ScriptState, ScriptStatus};
 use crate::types::{AuditProcessWithControls, DslScript, SessionSchema};
 use vinrouge::dsl::{parse as dsl_parse, resolve, Schema};
 

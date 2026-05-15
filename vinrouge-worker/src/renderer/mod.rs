@@ -1,10 +1,37 @@
 use serde_json::Value;
 
+/// Recursively collect CSS styles from results, drilling into sections.
+fn collect_css(results: &[Value]) -> Vec<String> {
+    let mut css = Vec::new();
+    for r in results {
+        match r["kind"].as_str() {
+            Some("css") => {
+                if let Some(s) = r["styles"].as_str() {
+                    css.push(s.to_string());
+                }
+            }
+            Some("section") => {
+                let inner = r["results"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+                css.extend(collect_css(inner));
+            }
+            _ => {}
+        }
+    }
+    css
+}
+
 /// Render a list of DSL result values to a self-contained HTML string.
 /// Output style matches the studio's pop-out results window exactly.
 pub fn render_results(results: &[Value]) -> String {
+    let css_blocks = collect_css(results);
+    let css_html = if css_blocks.is_empty() {
+        String::new()
+    } else {
+        format!("<style>{}</style>", css_blocks.join("\n"))
+    };
     let mut chart_idx = 0usize;
-    results.iter().map(|r| render_one(r, &mut chart_idx)).collect()
+    let body: String = results.iter().map(|r| render_one(r, &mut chart_idx)).collect();
+    format!("{}{}", css_html, body)
 }
 
 fn render_one(r: &Value, chart_idx: &mut usize) -> String {
@@ -16,6 +43,7 @@ fn render_one(r: &Value, chart_idx: &mut usize) -> String {
         "relation" => render_relation(r),
         "chart"    => render_chart(r, chart_idx),
         "section"  => render_section(r, chart_idx),
+        "css"      => String::new(),
         // schema is intentionally not shown in dashboard output
         _ => String::new(),
     }

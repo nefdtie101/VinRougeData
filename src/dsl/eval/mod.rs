@@ -457,6 +457,8 @@ impl<'ds> Evaluator<'ds> {
 
             Expr::ShowRows { .. } => Ok(Value::Null),
 
+            Expr::Css { .. } => Ok(Value::Null),
+
             // RELATION is metadata only — evaluates as a no-op
             Expr::RelationDecl { .. } => Ok(Value::Bool(true)),
 
@@ -590,6 +592,8 @@ fn eval_statement(stmt: &Statement, datasource: &dyn EvalDataSource) -> Statemen
                 Err(e) => StatementResult::Error(e.to_string()),
             }
         }
+
+        Expr::Css { styles } => StatementResult::Css(styles.clone()),
 
         other => match evaluator.eval(other, &Row::new()) {
             Ok(v) => StatementResult::Value(v.to_string()),

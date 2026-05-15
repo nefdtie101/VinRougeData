@@ -4,10 +4,10 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::components::{GhostButton, StatCard};
 use crate::ipc::tauri_invoke;
-use crate::step5a::chart::{
+use crate::projects::step5a::chart::{
     build_summary_option, pick_sample_column, sample_distribution, EChart, RawChart,
 };
-use crate::step5a::types::{ChartTab, DistPoint};
+use crate::projects::step5a::types::{ChartTab, DistPoint};
 use crate::types::{DslScript, TestResult};
 
 fn export_debug(scripts: &[DslScript], results: &[TestResult]) {

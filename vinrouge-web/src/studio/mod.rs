@@ -1026,7 +1026,18 @@ pub fn StudioView() -> impl IntoView {
                 // ── Expanded: scripts list ────────────────────────────────────
                 {move || (!sidebar_collapsed.get() && sidebar_mode.get() == SidebarMode::Scripts).then(|| view! {
                     <>
-                        <div class="studio-sidebar-actions">
+                        <div class="proj-search-box" style="margin:0 10px 8px">
+                            <svg class="proj-search-icon" width="13" height="13" viewBox="0 0 13 13" fill="none">
+                                <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" stroke-width="1.2"/>
+                                <path d="M9 9l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                            </svg>
+                            <input class="proj-search-input" type="text" placeholder="Search scripts..."
+                                prop:value=move || search.get()
+                                on:input=move |ev| search.set(event_target_value(&ev))
+                            />
+                        </div>
+
+                        <div class="studio-sidebar-actions" style="margin-bottom:8px">
                             <button
                                 class=move || if script_creating.get() {
                                     "studio-new-btn studio-new-btn--primary studio-new-btn--loading"
@@ -1043,17 +1054,6 @@ pub fn StudioView() -> impl IntoView {
                             </button>
                         </div>
 
-                        <div class="proj-search-box" style="margin:0 10px 8px">
-                            <svg class="proj-search-icon" width="13" height="13" viewBox="0 0 13 13" fill="none">
-                                <circle cx="5.5" cy="5.5" r="4" stroke="currentColor" stroke-width="1.2"/>
-                                <path d="M9 9l2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                            </svg>
-                            <input class="proj-search-input" type="text" placeholder="Search scripts..."
-                                prop:value=move || search.get()
-                                on:input=move |ev| search.set(event_target_value(&ev))
-                            />
-                        </div>
-
                         <div class="proj-list" style="flex:1">
                             {move || {
                                 let q = search.get().to_lowercase();
@@ -1061,7 +1061,7 @@ pub fn StudioView() -> impl IntoView {
                                 if list.is_empty() {
                                     return view! {
                                         <div class="studio-scripts-empty">
-                                            "No scripts yet — create one above."
+                                            "No scripts yet — create one below."
                                         </div>
                                     }.into_any();
                                 }

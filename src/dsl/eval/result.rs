@@ -79,5 +79,6 @@ pub enum StatementResult {
     Section(SectionResult),
     Schema(Vec<SchemaTable>),
     ShowRows(ShowRowsResult),
+    Css(String),
     Error(String),
 }

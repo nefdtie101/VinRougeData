@@ -1,4 +1,4 @@
-use crate::step5a::chart::{build_dsl_chart_option, RawChart};
+use crate::projects::step5a::chart::{build_dsl_chart_option, RawChart};
 use leptos::prelude::*;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
@@ -531,6 +531,26 @@ pub fn render_dsl_result(idx: usize, r: serde_json::Value) -> AnyView {
     }
 }
 
+/// Recursively collect CSS styles from results, drilling into sections.
+fn collect_css(results: &[serde_json::Value]) -> Vec<String> {
+    let mut css = Vec::new();
+    for r in results {
+        match r["kind"].as_str() {
+            Some("css") => {
+                if let Some(s) = r["styles"].as_str() {
+                    css.push(s.to_string());
+                }
+            }
+            Some("section") => {
+                let inner = r["results"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+                css.extend(collect_css(inner));
+            }
+            _ => {}
+        }
+    }
+    css
+}
+
 /// Recursively count result kinds, drilling into sections.
 pub fn count_results(
     results: &[serde_json::Value],
@@ -852,6 +872,8 @@ fn result_to_html(r: &serde_json::Value, chart_idx: &mut usize) -> String {
                 inner_id, title, badges_html, inner_id, inner_html
             )
         }
+        "css" => String::new(),
+
         "show_rows" => {
             let lbl = r["label"].as_str().unwrap_or("");
             let table = r["table"].as_str().unwrap_or("");
@@ -948,6 +970,13 @@ pub fn build_results_html(results: &[serde_json::Value]) -> String {
     }
     let summary_html = summary.join("");
 
+    let css_blocks = collect_css(results);
+    let custom_css = if css_blocks.is_empty() {
+        String::new()
+    } else {
+        format!("<style>{}</style>", css_blocks.join("\n"))
+    };
+
     format!(
         r##"<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>DSL Results</title>
@@ -958,7 +987,7 @@ pub fn build_results_html(results: &[serde_json::Value]) -> String {
         .wrap{{max-width:900px;margin:0 auto;padding:20px 16px 40px;}}
         .topbar{{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:12px;border-bottom:0.5px solid #2a2024;}}
         .title{{font-size:16px;font-weight:600;color:#d4c4c8;margin:0;}}
-</style></head><body>
+</style>{custom_css}</head><body>
 <div class="wrap">
     <div class="topbar">
         <h1 class="title">DSL Results</h1>
@@ -982,6 +1011,56 @@ document.addEventListener('DOMContentLoaded', function(){{
             el.textContent = 'Chart error: ' + e.message;
         }}
     }}
+
+    // ── Vanilla sortable tables ──────────────────────────────────────────────
+    function makeSortable(table) {{
+        var thead = table.querySelector('thead');
+        if (!thead) return;
+        var ths = thead.querySelectorAll('th');
+        ths.forEach(function(th, colIndex) {{
+            th.style.cursor = 'pointer';
+            th.style.userSelect = 'none';
+            th.addEventListener('click', function() {{
+                var tbody = table.querySelector('tbody');
+                if (!tbody) return;
+                var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+                var currentDir = th.getAttribute('data-sort-dir') || 'asc';
+                var dir = currentDir === 'asc' ? 'desc' : 'asc';
+                // Clear other headers
+                ths.forEach(function(h) {{
+                    h.removeAttribute('data-sort-dir');
+                    var ind = h.querySelector('.sort-ind');
+                    if (ind) ind.textContent = '';
+                }});
+                th.setAttribute('data-sort-dir', dir);
+                var indicator = th.querySelector('.sort-ind');
+                if (!indicator) {{
+                    indicator = document.createElement('span');
+                    indicator.className = 'sort-ind';
+                    indicator.style.marginLeft = '4px';
+                    indicator.style.fontSize = '10px';
+                    indicator.style.color = '#c9a8ae';
+                    th.appendChild(indicator);
+                }}
+                indicator.textContent = dir === 'asc' ? '▲' : '▼';
+                rows.sort(function(a, b) {{
+                    var aCell = a.children[colIndex];
+                    var bCell = b.children[colIndex];
+                    var aText = aCell ? aCell.textContent.trim() : '';
+                    var bText = bCell ? bCell.textContent.trim() : '';
+                    var aNum = parseFloat(aText.replace(/,/g, ''));
+                    var bNum = parseFloat(bText.replace(/,/g, ''));
+                    var bothNumeric = !isNaN(aNum) && !isNaN(bNum) && aText !== '' && bText !== '';
+                    if (bothNumeric) {{
+                        return dir === 'asc' ? aNum - bNum : bNum - aNum;
+                    }}
+                    return dir === 'asc' ? aText.localeCompare(bText) : bText.localeCompare(aText);
+                }});
+                rows.forEach(function(row) {{ tbody.appendChild(row); }});
+            }});
+        }});
+    }}
+    document.querySelectorAll('table').forEach(makeSortable);
 }});
 </script>
 </body></html>"##,
