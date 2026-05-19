@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindowBuilder};
 
 /// Open a new window to display DSL results with ECharts-rendered charts.
 ///
@@ -22,9 +22,14 @@ pub async fn open_dsl_results_window(
     // Build a well-formed file:// URL. On Windows, display() uses backslashes and the
     // path starts with a drive letter, so we need three slashes and forward slashes.
     #[cfg(windows)]
-    let file_url = format!("file:/// {}", file_path.to_string_lossy().replace('\\', "/"));
+    let file_url = format!("file:///{}", file_path.to_string_lossy().replace('\\', "/"));
     #[cfg(not(windows))]
     let file_url = format!("file://{}", file_path.display());
+    // If a results window is already open, close it first so we can replace it.
+    if let Some(existing) = app.get_webview_window("dsl-results") {
+        let _ = existing.close();
+    }
+
     let window = WebviewWindowBuilder::new(
         &app,
         "dsl-results",

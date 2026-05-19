@@ -353,14 +353,14 @@ The UI sets these environment variables before launching this terminal:
 **Always start by reading these.** They tell you what script was open at terminal launch.
 Use `./vu current` to get the *live* currently-open script (updated whenever the user switches):
 
-```bash
+```
 ./vu current                 # live JSON: {id, label, script_text, …} — most reliable
-echo "$VU_SCRIPT_TEXT"       # snapshot from terminal launch — use as fallback only
+$env:VU_SCRIPT_TEXT          # snapshot from terminal launch — use as fallback only
 ```
 
 Then orient yourself further:
 
-```bash
+```
 git log --oneline -10        # understand what audit work is in progress
 git diff HEAD                # see what changed — reveals active data tables
 ./vu list                    # list all existing scripts with their IDs
@@ -530,7 +530,7 @@ Only works on row-level expressions (column references, not aggregates). Outputs
 4. `./vu list` — see all scripts if you need to work across multiple
 5. Draft or edit your DSL script
 6. `./vu validate '<script>'` — must return `{"ok":true}` before writing
-7. `./vu update $VU_SCRIPT_ID '<script>'` to update the open script, or `./vu create <label> '<script>'` for a new one
+7. `./vu update (./vu current | ConvertFrom-Json).id '<script>'` to update the open script, or `./vu create <label> '<script>'` for a new one
 8. `./vu run <id>` to execute a script and inspect the full JSON results (assertions, SHOW ROWS output, errors)
 9. The UI reruns immediately — iterate as needed
 "#;
@@ -598,11 +598,13 @@ pub async fn pty_create(
     cmd.env("VINROUGE_PORT", port.to_string());
     cmd.env("VINROUGE_PROJECT", project_dir.to_string_lossy().as_ref());
     cmd.env("DSL_SCRIPTS_FILE", scripts_file.to_string_lossy().as_ref());
+    let path_sep = if cfg!(target_os = "windows") { ";" } else { ":" };
     cmd.env(
         "PATH",
         format!(
-            "{}:{}",
+            "{}{}{}",
             project_dir.to_string_lossy(),
+            path_sep,
             std::env::var("PATH").unwrap_or_default()
         ),
     );
